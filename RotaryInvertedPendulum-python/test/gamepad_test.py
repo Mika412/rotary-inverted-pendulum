@@ -6,6 +6,10 @@ import pygame
 def main():
     pygame.init()
 
+    if not pygame.joystick.get_count():
+        print("No joysticks available")
+        exit()
+
     # Set up the Xbox controller
     joystick = None
     for i in range(pygame.joystick.get_count()):
