@@ -7,7 +7,7 @@
 #define stepPin 3 // Step
 #define LED_PIN 13
 
-#define frac(x)     (int(1000*(x - int(x))))
+#define frac(x) (int(1000 * (x - int(x))))
 
 // Create an instance of the AccelStepper class
 AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin, 0, 0, false);
@@ -38,8 +38,8 @@ float Ki = 2 * Kp / Tu;
 float Kd = Kp * Tu / 8;
 
 // Define the control frequency and period
-const int controlFrequency = 1000;                   // in Hz
-const float controlPeriod = 1 / controlFrequency; // in ms
+const int controlFrequency = 1000;                // in Hertz
+const float controlPeriod = 1 / controlFrequency; // in seconds
 
 // Define variables for moving average filter
 double pendulum_actual_deg;
@@ -60,8 +60,8 @@ bool can_print = false;
 
 void tare_pendulum_encoder()
 {
-  pendulum_initial_position = 0.0;
-  pendulum_initial_position = convertRawAngleToDegrees();
+    pendulum_initial_position = 0.0;
+    pendulum_initial_position = convertRawAngleToDegrees();
 }
 
 // Compute the exponential smoothing coefficient between 0.0 and 1.0.
@@ -69,88 +69,90 @@ void tare_pendulum_encoder()
 // 1.0: No update. Only state value is used.
 double alpha_from_freq(double freq, double dt)
 {
-  double omega = 2.0*M_PI*freq;
-  double coeff = (1.0-omega*dt/2.0)/(1.0+omega*dt/2.0);
-  
-  //Clamp smoothing coefficient
-  if (coeff < 0.0) {
-      coeff = 0.0;
-  }
-  if (coeff > 1.0) {
-      coeff = 1.0;
-  }
+    double omega = 2.0 * M_PI * freq;
+    double coeff = (1.0 - omega * dt / 2.0) / (1.0 + omega * dt / 2.0);
 
-  return coeff;
+    // Clamp smoothing coefficient
+    if (coeff < 0.0)
+    {
+        coeff = 0.0;
+    }
+    if (coeff > 1.0)
+    {
+        coeff = 1.0;
+    }
+
+    return coeff;
 }
 
 void print_magnet_info()
 {
-  // Magnet strength
-  int magStrength = ams5600.getMagnetStrength();
-  if (magStrength == 1)
-  {
-      Serial.println("[AS5600] Magnet strength is too weak. ---");
-  }
-  else if (magStrength == 2)
-  {
-      Serial.println("[AS5600] Magnet strength is just right! ✔");
-  }
-  else if (magStrength == 3)
-  {
-      Serial.println("[AS5600] Magnet strength is too strong. +++");
-  }
-  // Magnet current
-  Serial.print("[AS5600] Current magnitude: ");
-  Serial.println(ams5600.getMagnitude());
+    // Magnet strength
+    int magStrength = ams5600.getMagnetStrength();
+    if (magStrength == 1)
+    {
+        Serial.println("[AS5600] Magnet strength is too weak. ---");
+    }
+    else if (magStrength == 2)
+    {
+        Serial.println("[AS5600] Magnet strength is just right! ✔");
+    }
+    else if (magStrength == 3)
+    {
+        Serial.println("[AS5600] Magnet strength is too strong. +++");
+    }
+    // Magnet current
+    Serial.print("[AS5600] Current magnitude: ");
+    Serial.println(ams5600.getMagnitude());
 }
 
 void print_plot(float target, float pos)
 {
-  static unsigned long t0 = 0;
-  if (can_print)
-  {
-    unsigned long t1 = millis();
-    if (t1 - t0 > 10)
+    static unsigned long t0 = 0;
+    if (can_print)
     {
-      t0 = t1;
-      // Print the actual and target motor positions
-      Serial.print(stepper.currentPosition());
-      Serial.print(",");
-      Serial.print(target);
-      Serial.print(",");
-      Serial.println(pos);
-      // Reset the counter
-      counterPlot = 0;
+        unsigned long t1 = millis();
+        if (t1 - t0 > 10)
+        {
+            t0 = t1;
+            // Print the actual and target motor positions
+            Serial.print(stepper.currentPosition());
+            Serial.print(",");
+            Serial.print(target);
+            Serial.print(",");
+            Serial.println(pos);
+            // Reset the counter
+            counterPlot = 0;
+        }
     }
-  }
 }
 
 void check_serial()
 {
-  if (Serial.available())
-  {
-    char buffer[1024];
-    int size = Serial.readBytes(buffer, 1024);
-    if (size >= 0)
+    if (Serial.available())
     {
-      char cmd = buffer[0];
-      switch (cmd)
-      {
-        case 'P':
-        case 'p':
-          can_print = !can_print;
-          break;
-        case 'M':
-        case 'm':
-          print_magnet_info();
-          break;
-        case 'T':
-        case 't':
-          tare_pendulum_encoder();
-          break;
-      }
+        char buffer[1024];
+        int size = Serial.readBytes(buffer, 1024);
+        if (size >= 0)
+        {
+            char cmd = buffer[0];
+            switch (cmd)
+            {
+            case 'P':
+            case 'p':
+                can_print = !can_print;
+                break;
+            case 'M':
+            case 'm':
+                print_magnet_info();
+                break;
+            case 'T':
+            case 't':
+                tare_pendulum_encoder();
+                break;
+            }
+        }
     }
-  }
 }
 
 void setup()
@@ -186,16 +188,16 @@ void setup()
 
 void blink()
 {
-  static unsigned long t0 = 0;
-  static bool is_on = false;
-  int period = can_print ? 500 : 100;
-  unsigned long t1 = millis();
-  if (t1 - t0 > period)
-  {
-    digitalWrite(LED_PIN, is_on ? HIGH : LOW);
-    is_on = !is_on;
-    t0 = t1;
-  }
+    static unsigned long t0 = 0;
+    static bool is_on = false;
+    int period = can_print ? 500 : 100;
+    unsigned long t1 = millis();
+    if (t1 - t0 > period)
+    {
+        digitalWrite(LED_PIN, is_on ? HIGH : LOW);
+        is_on = !is_on;
+        t0 = t1;
+    }
 }
 
 void loop()
@@ -328,15 +330,17 @@ float convertRawAngleToDegrees()
     static float position = 0.0f;
     // Get the current position of the AS5600
     long raw = ams5600.getRawAngle();
-    if (first_reading) 
+    if (first_reading)
     {
-      raw_prev = raw;
-      first_reading = false;
+        raw_prev = raw;
+        first_reading = false;
     }
     long delta = raw - raw_prev;
     // Handle wrap around
-    if (delta > 2047) delta -= 4098;
-    if (delta < -2047) delta += 4098;
+    if (delta > 2047)
+        delta -= 4098;
+    if (delta < -2047)
+        delta += 4098;
     // Map the 0–4095 segments of the AS5600 to 0–360 degrees
     // 360 degrees / 4096 segments = 0.087890625 degrees per segment
     position += (float)delta * 0.087890625;
