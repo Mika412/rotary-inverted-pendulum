@@ -37,9 +37,6 @@ float Kp = 0.6 * Ku;
 float Ki = 2 * Kp / Tu;
 float Kd = Kp * Tu / 8;
 
-// Define the previous time
-unsigned long prevTime = 0;
-
 // Define the control frequency and period
 const int controlFrequency = 1000;                   // in Hz
 const float controlPeriod = 1 / controlFrequency; // in ms
@@ -182,9 +179,6 @@ void setup()
     // Set initial position
     tare_pendulum_encoder();
 
-    // Initialise the previous time
-    prevTime = millis();
-
     digitalWrite(LED_PIN, LOW);
 
     pendulum_actual_deg = convertRawAngleToDegrees();
@@ -209,8 +203,6 @@ void loop()
     blink();
 
     check_serial();
-    // Get the current time
-    unsigned long currentTime = millis();
 
     static unsigned long prevTimeUS = 0;
     unsigned long currentTimeUS = micros();
@@ -271,9 +263,6 @@ void loop()
 
     if (state == BALANCING && elapsedTime >= controlPeriod)
     {
-        // Update the previous time
-        prevTime = currentTime;
-
         // Calculate the error
         float error = pendulum_target_deg - pendulum_actual_deg;
 
