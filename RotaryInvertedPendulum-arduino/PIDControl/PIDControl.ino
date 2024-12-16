@@ -52,10 +52,6 @@ enum State
 };
 State state = WAITING;
 
-// Plotting variables
-int counterPlot = 0;
-int frequencyPlot = 20;
-
 bool can_print = false;
 
 void tare_pendulum_encoder()
@@ -121,8 +117,6 @@ void print_plot(float target, float pos)
             Serial.print(target);
             Serial.print(",");
             Serial.println(pos);
-            // Reset the counter
-            counterPlot = 0;
         }
     }
 }
@@ -211,9 +205,6 @@ void loop()
     unsigned long dt = currentTimeUS - prevTimeUS;
     float elapsedTime = (float)dt * 1e-6;
     prevTimeUS = currentTimeUS;
-
-    // Increment counters
-    counterPlot++;
 
     // first, we wait for a person to move the pendulum close to the vertical position.
     // then we start the motor and we try to balance it.
