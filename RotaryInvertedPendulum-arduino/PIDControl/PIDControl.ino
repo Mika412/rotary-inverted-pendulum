@@ -352,9 +352,9 @@ float convertRawAngleToDegrees()
     long delta = raw - raw_prev;
     // Handle wrap around
     if (delta > 2047)
-        delta -= 4098;
+        delta -= 4096;
     if (delta < -2047)
-        delta += 4098;
+        delta += 4096;
     // Map the 0–4095 segments of the AS5600 to 0–360 degrees
     // 360 degrees / 4096 segments = 0.087890625 degrees per segment
     position += (float)delta * 0.087890625;
