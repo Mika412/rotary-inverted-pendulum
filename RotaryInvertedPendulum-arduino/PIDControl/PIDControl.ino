@@ -60,15 +60,38 @@ void tare_pendulum_encoder()
     pendulum_initial_position = convertRawAngleToDegrees();
 }
 
-// Compute the exponential smoothing coefficient between 0.0 and 1.0.
-// 0.0: No filter. Only update value is used.
-// 1.0: No update. Only state value is used.
+// Computes the smoothing coefficient for an exponential low-pass filter based on the desired cutoff frequency.
+// This coefficient, `alpha`, determines how much of the previous state and the new value contribute to the filtered result.
+//
+// The coefficient is calculated based on the following parameters:
+// - `freq`: Desired cutoff frequency in Hz (cycles per second). This defines the point below which the signal will pass
+//          through the filter and above which it will be attenuated. Frequencies higher than this cutoff will be filtered out.
+// - `dt`: Time interval between updates (in seconds). This value is the time step between consecutive filter updates.
+//
+// The coefficient `alpha` is bounded between 0.0 and 1.0:
+// - 0.0 means no smoothing (only the latest value is used, and no memory of previous states).
+// - 1.0 means no update (only the previous state is retained, and the new values are ignored).
+//
+// The function computes `alpha` using the following formula, where `omega` is the angular frequency corresponding to the desired cutoff frequency:
+//   omega = 2 * π * freq
+//   alpha = (1 - omega * dt / 2) / (1 + omega * dt / 2)
+//
+// After computing the coefficient, it is clamped between 0.0 and 1.0 to ensure stability and prevent extreme values.
+//
+// Example usage:
+//   double alpha = alpha_from_freq(500.0, 0.002); // For a 500 Hz cutoff with a 2ms time step.
+//
+// Returns:
+//   The clamped smoothing coefficient `alpha`, which is used in the exponential low-pass filter.
 double alpha_from_freq(double freq, double dt)
 {
+    // Compute the angular frequency (omega)
     double omega = 2.0 * M_PI * freq;
+
+    // Compute the smoothing coefficient (alpha)
     double coeff = (1.0 - omega * dt / 2.0) / (1.0 + omega * dt / 2.0);
 
-    // Clamp smoothing coefficient
+    // Clamp the coefficient between 0.0 and 1.0 to prevent instability
     if (coeff < 0.0)
     {
         coeff = 0.0;
