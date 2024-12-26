@@ -1,0 +1,68 @@
+<?xml version="1.0"?>
+<robot name="inverted_pendulum">
+
+    <!-- Base (fixed to the world origin) -->
+    <link name="base">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://meshes/base.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+    </link>
+
+    <!-- Lid (fixed on top of the base) -->
+    <link name="lid">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://meshes/lid.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+    </link>
+
+    <!-- Fixed joint between base and lid -->
+    <joint name="base_to_lid" type="fixed">
+        <parent link="base" />
+        <child link="lid" />
+        <origin xyz="0 0 0.070" rpy="0 0 0" />
+    </joint>
+
+    <!-- Arm (actuated by stepper motor) -->
+    <link name="arm">
+        <visual>
+            <origin xyz="0 0 0" rpy="0 0 0" />
+            <geometry>
+                <mesh filename="package://meshes/arm.stl" scale="0.001 0.001 0.001" />
+            </geometry>
+        </visual>
+    </link>
+
+    <!-- Revolute joint for arm (actuated) -->
+    <joint name="lid_to_arm" type="revolute">
+        <parent link="lid" />
+        <child link="arm" />
+        <origin xyz="0 0 0.005" rpy="0 0 -1.57079" />
+        <axis xyz="0 0 1" />
+        <limit lower="-3.14159" upper="3.14159" effort="10" velocity="5" />
+    </joint>
+
+    <!-- Pendulum (swings freely on the arm) -->
+    <link name="pendulum">
+        <visual>
+            <origin xyz="0 0 0" rpy="3.14159 0 0" />
+            <geometry>
+                <mesh filename="package://meshes/pendulum.dae" />
+            </geometry>
+        </visual>
+    </link>
+
+    <!-- Ball joint for pendulum (free swinging) -->
+    <joint name="arm_to_pendulum" type="continuous">
+        <parent link="arm" />
+        <child link="pendulum" />
+        <origin xyz="0 0 0.014" rpy="0 0 0" />
+        <axis xyz="1 0 0" />
+    </joint>
+
+</robot>
