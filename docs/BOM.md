@@ -15,6 +15,13 @@ procurement reference.
 Unless otherwise noted, items were sourced from AliExpress.
 The only exception is the Bones Reds skate bearing (Amazon UK).
 
+**Variant selection**  
+Several AliExpress listings sell multiple variants from a single
+product page (e.g., bearing ZZ vs RS, stepper body length, switch
+colour/rating, with/without included accessories). The page's default
+selection is **not always** the right one — always check the **Spec**
+column below and pick the matching variant before adding to cart.
+
 ## Electronics
 
 | Item                   | Spec                                            | Price (£) | Source                                                              | Notes                                                                                                                                                                  |
