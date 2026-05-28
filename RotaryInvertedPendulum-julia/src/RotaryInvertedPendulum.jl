@@ -60,6 +60,12 @@ end
 include("control_gamepad.jl")
 include("control_pid.jl")
 
+include("mpc.jl")
+include("utils.jl")
+
+# Code to "exercise" the package
+include("precompile.jl")
+
 export check_ready
 
 end # module RotaryInvertedPendulum
