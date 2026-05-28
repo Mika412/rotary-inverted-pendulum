@@ -109,6 +109,8 @@ You can find the Julia code in the [RotaryInvertedPendulum-julia](RotaryInverted
 
 You can find the Python code in the [RotaryInvertedPendulum-python](RotaryInvertedPendulum-python) folder.
 
+The pendulum's physical parameters (mass, COM, inertia tensor) live in [`urdf/model.urdf`](urdf/model.urdf) — exported from Onshape and consumed by both the Python sim (via [`pendulum_geometry.py`](RotaryInvertedPendulum-python/src/rl/pendulum_geometry.py)) and the Julia MPC/visualisation stack. Per-rig friction is the only thing the sysid pipeline measures and writes to [`sysid_params.json`](RotaryInvertedPendulum-python/src/rl/sysid_params.json). See [`CLAUDE.md`](CLAUDE.md) for the full source-of-truth chain.
+
 ## Related Work
 
 Here are some related projects that you might find interesting:
@@ -132,6 +134,7 @@ Here are some related projects that you might find interesting:
 ## Acknowledgments
 
 I would like to thank the following people for their contributions to this project:
+- [Joe](https://github.com/spookycouch) for suggesting I try reinforcement learning with Stable Baselines 3, which kicked off the learned-control parts of this project.
 - [Mykha](https://github.com/Mika412) for early discussions about this project over a beer in the park.
 - [André](https://github.com/Esser50K), [Rafael](https://github.com/rkourdis), and [Vlad](https://github.com/VladimirIvan) for technical discussions, feedback, and support.
 - [Vivek](https://github.com/svrkrishnavivek) for his invaluable help and feedback on the electronics of the system.
