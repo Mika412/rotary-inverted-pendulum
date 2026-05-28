@@ -4,6 +4,14 @@ Why each component on the [BOM](BOM.md) was chosen, and what to know
 when re-sourcing or substituting it. The BOM is the procurement
 reference; this doc is the *why* behind it.
 
+## Wiring diagram
+
+<img src="../diagrams/system-without-batteries.jpg" height="600">
+
+All components live on a single 40 × 60 mm protoboard. The diagram
+above is the canonical layout; component-level photos are in
+[`../diagrams/`](../diagrams/).
+
 ## Microcontroller — Arduino Nano (ATmega328P, 16 MHz)
 
 - 32 KB flash / 2 KB SRAM is enough for the [LowLevelServer binary
@@ -48,6 +56,18 @@ reference; this doc is the *why* behind it.
 - **Set Vref before installing the motor.** With the driver powered
   and the motor disconnected, probe Vref against GND while turning
   the trim pot.
+
+### Vref for alternative drivers
+
+If you swap to A4988 or TMC2209, the Vref-trim procedure is the same
+but the relation between Vref and the resulting phase-current limit
+differs:
+
+| Driver  | Imax → Vref                                                                                                           | Vref @ 0.9 A target                                   |
+| ------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| DRV8825 | `Vref = Imax / 2` (Rcs = 0.1 Ω, standard on Pololu and most clones)                                                   | **0.45 V** (we run 0.485 V — close enough)            |
+| A4988   | `Vref = Imax × 8 × Rcs`. Pololu carriers use Rcs = 0.05 Ω; some clones use 0.1 Ω — check yours                        | **0.36 V** (Pololu) / **0.72 V** (Rcs = 0.1 Ω clones) |
+| TMC2209 | RMS-current calc is non-trivial — use the [TMC220X Vref calculator](https://printpractical.github.io/VrefCalculator/) | per calculator                                        |
 
 ## Power supply — 12 V, 2 A
 
@@ -157,6 +177,7 @@ Two-stage decoupling on the 12 V rail at the driver's VMOT pin:
 ## Related
 
 - [`BOM.md`](BOM.md) — procurement reference (suppliers, prices, qty).
-- Project [`README.md`](../README.md) — wiring diagrams and assembly.
+- [`3d_printing.md`](3d_printing.md) — printing settings and the
+  coin-pause technique for the pendulum link.
 - [`sysid_runbook.md`](sysid_runbook.md) — measurement protocol that
   validates the electronics chain works end-to-end.
