@@ -4,14 +4,14 @@
 
 // Define the stepper motor connections
 #define dirPin 2  // Direction
-#define stepPin 3 // Step
+#define stepPin 9 // Step (Timer1 OC1A — rig wired here so FastAccelStepper-based sketches work too)
 
 // Create an instance of the AccelStepper class
 AccelStepper stepper(AccelStepper::DRIVER, stepPin, dirPin, 0, 0, false);
 
 // Create an instance of the AS5600 class
-AMS_5600 ams5600;
-long ams5600_initial_position = 0;
+AS5600 as5600;
+long as5600_initial_position = 0;
 
 bool motor_running = false;
 long motor_target_pos = 0;
@@ -28,6 +28,7 @@ void setup()
 {
     Serial.begin(2000000); // Start the serial communication
     Wire.begin();         // Start the I2C communication
+    as5600.begin();
 
     // Set the maximum speed and acceleration
     stepper.setMaxSpeed(200000);
@@ -39,7 +40,7 @@ void setup()
     stepper.setEnablePin(5);
     stepper.setPinsInverted(false, false, true);
 
-    while (!ams5600.detectMagnet())
+    while (!as5600.detectMagnet())
     {
         Serial.println("[AS5600] Waiting for magnet...");
         delay(1000); // Wait for the magnet to be detected
@@ -47,26 +48,25 @@ void setup()
 
     // Print the current magnitude of the magnet
     Serial.print("[AS5600] Current magnitude: ");
-    Serial.println(ams5600.getMagnitude());
+    Serial.println(as5600.readMagnitude());
 
     // Print the magnet strength
-    int magStrength = ams5600.getMagnetStrength();
-    if (magStrength == 1)
+    if (as5600.magnetTooWeak())
     {
         Serial.println("[AS5600] Magnet strength is too weak. ---");
     }
-    else if (magStrength == 2)
-    {
-        Serial.println("[AS5600] Magnet strength is just right! ✔");
-    }
-    else if (magStrength == 3)
+    else if (as5600.magnetTooStrong())
     {
         Serial.println("[AS5600] Magnet strength is too strong. +++");
     }
+    else
+    {
+        Serial.println("[AS5600] Magnet strength is just right!");
+    }
 
-    ams5600_initial_position = ams5600.getRawAngle();
-    Serial.print("[AS5600] ams5600_initial_position: ");
-    Serial.println(ams5600_initial_position);
+    as5600_initial_position = as5600.rawAngle();
+    Serial.print("[AS5600] as5600_initial_position: ");
+    Serial.println(as5600_initial_position);
 }
 
 void loop()
@@ -101,10 +101,10 @@ void loop()
 float convertRawAngleToDegrees()
 {
     // Get the current position of the AS5600
-    short ams5600_current_position = ams5600.getRawAngle();
+    short as5600_current_position = as5600.rawAngle();
 
     // Calculate the difference between the current position and the initial position
-    short difference = ams5600_current_position - ams5600_initial_position;
+    short difference = as5600_current_position - as5600_initial_position;
 
     if (difference < 0)
     {

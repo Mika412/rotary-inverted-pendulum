@@ -1,105 +1,127 @@
 #include <AS5600.h>
 #include <Wire.h>
 
-// Create an instance of the AS5600 class
-AMS_5600 ams5600;
+// =============================================================================
+// CONFIGURATION (matched to PIDControl.ino)
+// =============================================================================
+const long SERIAL_BAUD_RATE = 500000;  // High speed serial
+const long I2C_CLOCK_HZ = 400000;      // Fast mode I2C (vs 100kHz default)
+
+// Motor pins (to disable motor and prevent heating)
+const int DIR_PIN = 2;
+const int STEP_PIN = 9;     // Timer1 OC1A (rig wired here so FastAccelStepper-based sketches work too)
+const int ENABLE_PIN = 5;
+
+// =============================================================================
+// STATE
+// =============================================================================
+AS5600 as5600;
 
 // Plotting variables
-int counterPlot = 0;
-int frequencyPlot = 20;
-
-// Calibration variables
-const int numSamples = 100;      // Number of samples to average
-const int calibrationDelay = 10; // Delay between samples (in milliseconds)
-long ams5600_initial_position = 0;
+int counter_plot = 0;
+const int FREQUENCY_PLOT = 20;
 
 void setup()
 {
-    Serial.begin(115200); // Start the serial communication
-    Wire.begin();         // Start the I2C communication
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, HIGH);  // LED on during setup
 
-    while (!ams5600.detectMagnet())
+    // Disable motor driver to prevent heating
+    pinMode(ENABLE_PIN, OUTPUT);
+    digitalWrite(ENABLE_PIN, HIGH);  // HIGH = disabled (active-low enable)
+    pinMode(DIR_PIN, OUTPUT);
+    pinMode(STEP_PIN, OUTPUT);
+
+    Serial.begin(SERIAL_BAUD_RATE);
+    Wire.begin();
+    Wire.setClock(I2C_CLOCK_HZ);
+    as5600.begin();
+
+    while (!as5600.detectMagnet())
     {
         Serial.println("[AS5600] Waiting for magnet...");
-        delay(1000); // Wait for the magnet to be detected
+        delay(1000);
     }
 
     // Print the current magnitude of the magnet
     Serial.print("[AS5600] Current magnitude: ");
-    Serial.println(ams5600.getMagnitude());
+    Serial.println(as5600.readMagnitude());
 
     // Print the magnet strength
-    int magStrength = ams5600.getMagnetStrength();
-    if (magStrength == 1)
+    if (as5600.magnetTooWeak())
     {
         Serial.println("[AS5600] Magnet strength is too weak. ---");
     }
-    else if (magStrength == 2)
-    {
-        Serial.println("[AS5600] Magnet strength is just right! ✔");
-    }
-    else if (magStrength == 3)
+    else if (as5600.magnetTooStrong())
     {
         Serial.println("[AS5600] Magnet strength is too strong. +++");
     }
+    else
+    {
+        Serial.println("[AS5600] Magnet strength is just right!");
+    }
 
-    // Calibrate the initial position by averaging multiple readings
-    ams5600_initial_position = calibrateRestPosition();
-    Serial.print("[AS5600] Calibrated ams5600_initial_position: ");
-    Serial.println(ams5600_initial_position);
+    digitalWrite(LED_BUILTIN, LOW);  // LED off when ready
+    Serial.println("[AS5600] Encoder test ready - rotate the pendulum");
+    Serial.println("[Motor] Driver disabled (not heating)");
 }
 
 void loop()
 {
-    // Increment counters
-    counterPlot++;
+    // Increment counter
+    counter_plot++;
 
     // Get the pendulum position
     float pendulum_actual_deg = convertRawAngleToDegrees();
 
-    // Print to the serial
-    if (counterPlot % frequencyPlot == 0)
+    // Print to the serial at reduced frequency
+    if (counter_plot % FREQUENCY_PLOT == 0)
     {
-        // Print the actual and target motor positions
-        Serial.print("pendulum_actual_deg:");
-        Serial.print(pendulum_actual_deg);
-        Serial.println();
+        // Flash LED briefly to indicate activity
+        digitalWrite(LED_BUILTIN, HIGH);
+
+        // Format for Arduino Serial Plotter: "label:value"
+        Serial.print("pendulum_deg:");
+        Serial.println(pendulum_actual_deg);
+
+        digitalWrite(LED_BUILTIN, LOW);
     }
 }
 
 /*
  * Convert the raw angle from the AS5600 magnetic encoder to degrees.
+ * Handles multi-revolution tracking with wraparound detection.
  */
 float convertRawAngleToDegrees()
 {
+    // AS5600 constants
+    const long AS5600_RESOLUTION = 4096;
+    const long WRAPAROUND_THRESHOLD = AS5600_RESOLUTION / 2;  // 2048
+    const float DEG_PER_SEGMENT = 360.0f / AS5600_RESOLUTION; // 0.087890625
+
+    static long raw_prev = 0;
+    static bool first_reading = true;
+    static float position = 0.0f;
+
     // Get the current position of the AS5600
-    short ams5600_current_position = ams5600.getRawAngle();
+    long raw = as5600.rawAngle();
 
-    // Calculate the difference between the current position and the initial position
-    short difference = ams5600_current_position - ams5600_initial_position;
-
-    if (difference < 0)
+    if (first_reading)
     {
-        difference += 4096;
+        raw_prev = raw;
+        first_reading = false;
     }
 
-    // Map the 0–4095 segments of the AS5600 to 0–360 degrees
-    // 360 degrees / 4096 segments = 0.087890625 degrees per segment
-    return difference * 0.087890625;
-}
+    long delta = raw - raw_prev;
 
-/*
- * Calibrate the rest position by averaging multiple readings
- */
-long calibrateRestPosition()
-{
-    long sum = 0;
+    // Handle wraparound (movement > 180 deg between samples indicates wraparound)
+    if (delta > WRAPAROUND_THRESHOLD)  delta -= AS5600_RESOLUTION;
+    if (delta < -WRAPAROUND_THRESHOLD) delta += AS5600_RESOLUTION;
 
-    for (int i = 0; i < numSamples; i++)
-    {
-        sum += ams5600.getRawAngle();
-        delay(calibrationDelay);
-    }
+    position += (float)delta * DEG_PER_SEGMENT;
 
-    return sum / numSamples;
+    // Save the current raw angle for the next iteration
+    raw_prev = raw;
+
+    return position;
 }
