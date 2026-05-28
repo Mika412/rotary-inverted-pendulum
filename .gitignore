@@ -237,3 +237,7 @@ RotaryInvertedPendulum-python/src/rl/accel_lag_moving_runs/
 # MuJoCo diagnostic log
 MUJOCO_LOG.TXT
 
+# Personal bookkeeping / scratch notes (planning docs, experiment logs,
+# anything I'm iterating on but don't want to track in git history)
+.notes/
+
