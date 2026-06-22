@@ -35,7 +35,7 @@ tether.
 - macOS / Linux dev box with `arduino-cli`, the `arduino:avr` core, and
   the `AS5600` (RobTillaart) + `FastAccelStepper` libraries installed.
 - Python env per [`../RotaryInvertedPendulum-python/README.md`](../RotaryInvertedPendulum-python/README.md):
-  `mamba activate rotary-inverted-pendulum`.
+  one-time `uv sync`, then `source activate.sh`.
 - Rig wired with **STEP on pin 9**, DIR on pin 2, ENABLE on pin 5, AS5600
   on I²C (A4/A5). Pin 9 is required by FastAccelStepper on ATmega328 and
   works for AccelStepper too — see

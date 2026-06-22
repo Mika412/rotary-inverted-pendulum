@@ -6,28 +6,23 @@ client). See [`../RL_PLAN.md`](../RL_PLAN.md) for the broader plan.
 
 ## Environment setup
 
-Single mamba env named `rotary-inverted-pendulum`, Python 3.12. Conda-forge
-provides the scientific stack; pip provides MuJoCo / Gymnasium / SB3 / Torch
-because they are more reliably installed from PyPI.
+Dependencies and the Python toolchain are managed by [uv](https://docs.astral.sh/uv/getting-started/installation/). Run `uv sync` to create a `.venv` with Python 3.13 and everything pinned in `uv.lock`.
 
 ```bash
-mamba create -n rotary-inverted-pendulum -y -c conda-forge python=3.12 numpy scipy
-mamba activate rotary-inverted-pendulum
+cd RotaryInvertedPendulum-python
+uv sync                # CPU build of torch (MPS on macOS)
+source activate.sh
+```
 
-# Gamepad demo (older text-protocol script)
-mamba install -y pygame pyserial
+On a Linux machine with an NVIDIA GPU, install the CUDA build of torch instead:
 
-# RL + sysid extras (PyPI)
-pip install pyserial 'numpy<2.3' mujoco gymnasium 'stable-baselines3[extra]'
+```bash
+uv sync --extra cuda
 ```
 
 Notes:
-- `numpy<2.3` keeps compatibility with the conda-installed `scipy 1.14`. If
-  you hit `_ARRAY_API not found` errors, an older `opencv-*` in
-  `~/.local/lib/python3.12/site-packages/` is shadowing the env install.
-  Run `pip install --user --upgrade opencv-contrib-python` to refresh it.
 - macOS only: the MuJoCo viewer requires `mjpython` (a special launcher that
-  handles Cocoa main-thread quirks). Install via the same `pip` and call
+  handles Cocoa main-thread quirks). Call
   `mjpython` instead of `python` for any script that opens a viewer.
 
 ## Control rate

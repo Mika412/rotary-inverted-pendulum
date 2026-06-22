@@ -38,8 +38,7 @@
 # Produces runs/<prefix>_stage{1,2,3}/, final policy at
 # runs/<prefix>_stage3/best_model.zip.
 #
-# Run from this directory with the rotary-inverted-pendulum mamba env
-# activated.
+# Run from this directory with the project's uv env activated.
 #
 # Environment overrides (defaults shown):
 #     CONTROL_FREQ=50
