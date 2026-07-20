@@ -283,7 +283,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "docs/control_rate_selection.md for the principled selection.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
                    help="action ∈ [-1, 1] maps to angular accel ∈ [-max, +max]"
-                        " rad/s². Default 150 ≈ 76% of the motor's physical "
+                        " rad/s². Default 150 ≈ 76%% of the motor's physical "
                         "envelope (~196 rad/s² at 50 kSteps/s²). Bumped from "
                         "100 after observing the policy saturating accel_cmd "
                         "in the first accel-mode deployment.")
