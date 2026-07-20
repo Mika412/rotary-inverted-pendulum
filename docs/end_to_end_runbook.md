@@ -83,9 +83,9 @@ check.
   commands that open the MuJoCo viewer (the `--eval` rollouts) must use
   `mjpython`, not `python` — e.g. `uv run mjpython train_sac.py --eval …`.
 - Rig wired with **STEP on pin 9**, DIR on pin 2, ENABLE on pin 5, AS5600
-  on I²C (A4/A5). Pin 9 is required by FastAccelStepper on ATmega328 and
-  works for AccelStepper too — see
-  [`../NEXT_STEPS.md`](../NEXT_STEPS.md).
+  on I²C (A4/A5). Pin 9 is required by FastAccelStepper on ATmega328
+  (Timer1 OC1A — see the pin notes in `LowLevelServer.ino`) and works for
+  AccelStepper too.
 
 In the commands below, replace `/dev/cu.usbserial-1130` with whatever
 port `arduino-cli board list` shows for your Nano.
