@@ -189,20 +189,22 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("Arduino ready.")
 
-        # Prime the firmware's command state before engaging so the motor
-        # stays at rest until the policy issues its first action. Accel-mode:
-        # command zero acceleration. Position-mode: seed the integrated target
-        # at the current motor position and command moveTo(current) so the
-        # stepper doesn't lurch on engage.
+        # Seed the position-mode target integrator at the current motor
+        # position (also used by the dry-run loop's logging).
         motor_target = 0.0
-        if args.action_mode == "accel":
-            client.set_acceleration(0.0)
-        else:
+        if args.action_mode == "position_delta":
             motor_target = -client.get_state().motor_pos_rad  # un-flip to sim frame
-            client.set_target(motor_target)
 
         if not args.dry_run:
             client.engage_motor()
+            # Prime the firmware's command state AFTER engage — commands sent
+            # while disengaged are dropped (motor_engaged gate). Zero accel /
+            # current-position target both mean "hold still" until the first
+            # policy action lands.
+            if args.action_mode == "accel":
+                client.set_acceleration(0.0)
+            else:
+                client.set_target(motor_target)
             print("Motor engaged.")
         else:
             print("DRY RUN: motor stays disengaged.")

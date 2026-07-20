@@ -341,19 +341,20 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
                     "to pick up the CMD_TARE_PENDULUM=0x06 handler."
                 )
 
-        # Read current state and prime the motor command so it holds still
-        # until the policy issues its first action. Accel-mode: command zero
-        # acceleration (hold current velocity, which is zero post-disengage).
-        # Position-mode: seed the integrated target at the current position and
-        # command moveTo(current) so the stepper doesn't lurch on engage.
+        # Read current state, engage, then prime the firmware's command state.
+        # Priming must come AFTER engage: the firmware drops SET_ACCEL /
+        # SET_TARGET while disengaged (motor_engaged gate). Engage itself
+        # holds the stepper at zero speed, so there is no motion in between.
+        # Accel-mode: command zero acceleration. Position-mode: seed the
+        # integrated target at the current position (moveTo(current) = hold).
         _, motor_pos, phi, _, _ = self._read_raw_state()
+        client.engage_motor()
+        self._motor_engaged = True
         if self.action_mode == "accel":
             client.set_acceleration(0.0)
         else:
             self._motor_target = float(motor_pos)
             client.set_target(self._motor_target)
-        client.engage_motor()
-        self._motor_engaged = True
 
         self._motor_pos_prev = motor_pos
         self._phi_prev = phi
