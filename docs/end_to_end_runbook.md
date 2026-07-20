@@ -30,12 +30,52 @@ If you only need the upright/balance behaviour and are happy keeping the
 laptop attached: stop after step 3. Steps 4–6 only exist to remove the
 tether.
 
+## Action mode — accel (default) vs position-delta
+
+Every step works in either action mode (see
+[`rl_transitions.md`](rl_transitions.md)):
+
+- **`accel`** (default) — action → angular acceleration. Run the commands
+  as written; `--action-mode` defaults to `accel`.
+- **`position_delta`** — action → per-tick motor-target delta (`moveTo`),
+  the mode `RLControl.ino` runs on-device. To use it:
+  - Add `--action-mode position_delta` to every `train_sac.py`,
+    `run_policy.py`, and `finetune_async.py` command, plus
+    `--reward-action-rate-weight 0.05` at 35 Hz.
+  - For the curriculum (step 1), pass these as environment variables:
+
+    ```bash
+    ACTION_MODE=position_delta \
+    REWARD_ACTION_RATE_WEIGHT=0.05 \
+    CONTROL_FREQ=35 \
+    DEVICE=cpu \
+    uv run bash curriculum_train.sh pos_v1
+    ```
+
+  - Validate in sim first — watch it balance in the viewer (macOS needs
+    `mjpython`; pass the same flags so the eval env matches):
+
+    ```bash
+    uv run mjpython train_sac.py \
+        --action-mode position_delta --reward-action-rate-weight 0.05 \
+        --control-freq 35 \
+        --eval runs/pos_v1_stage3/best_model.zip --eval-seconds 30
+    ```
+
+Training, fine-tuning, and deployment must all use the same `--action-mode`.
+One flashed `LowLevelServer` serves both modes (`CMD_SET_ACCEL` /
+`CMD_SET_TARGET`); the host picks per command.
+
 ## Prerequisites
 
 - macOS / Linux dev box with `arduino-cli`, the `arduino:avr` core, and
   the `AS5600` (RobTillaart) + `FastAccelStepper` libraries installed.
-- Python env per [`../RotaryInvertedPendulum-python/README.md`](../RotaryInvertedPendulum-python/README.md):
-  `mamba activate rotary-inverted-pendulum`.
+- Python env set up per [`../RotaryInvertedPendulum-python/README.md`](../RotaryInvertedPendulum-python/README.md).
+  The project is `uv`-managed: prefix each command below with `uv run`
+  (e.g. `uv run python train_sac.py …`, `uv run bash curriculum_train.sh …`),
+  or activate the project venv once and drop the prefix. **macOS only:**
+  commands that open the MuJoCo viewer (the `--eval` rollouts) must use
+  `mjpython`, not `python` — e.g. `uv run mjpython train_sac.py --eval …`.
 - Rig wired with **STEP on pin 9**, DIR on pin 2, ENABLE on pin 5, AS5600
   on I²C (A4/A5). Pin 9 is required by FastAccelStepper on ATmega328 and
   works for AccelStepper too — see
@@ -66,9 +106,16 @@ bash curriculum_train.sh
 
 `curriculum_train.sh` reads `sysid_params.json`, derives DR ranges from
 physical-time-units, runs three stages, and writes the final policy
-plus checkpoints. The `control_freq_hz` is **35 Hz** by default in
-every component — see [`control_rate_selection.md`](control_rate_selection.md)
-for why.
+plus checkpoints. **Control rate is not uniform across the components:**
+`curriculum_train.sh` defaults to **50 Hz** (accel mode's validated rate),
+while the Python entrypoints (`train_sac.py`, `run_policy.py`,
+`finetune_async.py`) default to **35 Hz**. Whatever rate you train at,
+fine-tuning and deployment MUST use the same one — a policy trained at one
+rate produces garbage at another. So set it explicitly and consistently:
+`CONTROL_FREQ=…` for the curriculum, `--control-freq …` for the Python
+tools. Position mode uses 35 Hz (see the Action-mode section above). See
+[`control_rate_selection.md`](control_rate_selection.md) for how the rate
+is chosen.
 
 ## 2. Fine-tune on the real rig — async
 

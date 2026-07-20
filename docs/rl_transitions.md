@@ -71,8 +71,20 @@ embedding — no jump, no gradient cliff.
 a ∈ [−1, 1]
 ```
 
-The action is **not a torque or a position**. It's a normalised *delta*
-applied to the motor's commanded target each step:
+> **Action mode.** The env interprets `a` two ways, selected by
+> `action_mode` (`--action-mode`):
+> - **`accel`** (default): `a` maps to angular acceleration, integrated to
+>   a capped velocity and then a position target. Mirrors
+>   `moveByAcceleration` on the rig (`CMD_SET_ACCEL`).
+> - **`position_delta`**: `a` maps to a per-tick motor-target delta — the
+>   mode described below, and the one `RLControl.ino` runs on-device
+>   (`CMD_SET_TARGET` / `moveTo`).
+>
+> This section describes **`position_delta`**. Training, fine-tuning, and
+> deployment must use the same mode.
+
+In **`position_delta`** mode the action is **not a torque or a position**.
+It's a normalised *delta* applied to the motor's commanded target each step:
 
 ```
 motor_target ← clip(motor_target + a · max_action_delta_rad, ±125°)

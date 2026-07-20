@@ -45,7 +45,9 @@ def make_env(
     dr_action_lag_tau_range_s: tuple[float, float] | None = None,
     dr_control_dt_jitter_frac: float | None = None,
     control_freq_hz: float = 35.0,
+    action_mode: str = "accel",
     max_accel_rad_s2: float = 150.0,
+    max_action_delta_rad: float | None = None,
     max_velocity_rad_s: float | None = None,
     reward_action_rate_weight: float | None = None,
     reward_motor_vel_weight: float | None = None,
@@ -61,6 +63,7 @@ def make_env(
             dr_action_lag_tau_range_s=dr_action_lag_tau_range_s,
             dr_control_dt_jitter_frac=dr_control_dt_jitter_frac,
             control_freq_hz=control_freq_hz,
+            action_mode=action_mode,
             max_accel_rad_s2=max_accel_rad_s2,
             reward_action_rate_weight=reward_action_rate_weight,
             reward_motor_jerk_weight=reward_motor_jerk_weight,
@@ -73,6 +76,8 @@ def make_env(
             env_kwargs["reward_motor_vel_weight"] = reward_motor_vel_weight
         if max_velocity_rad_s is not None:
             env_kwargs["max_velocity_rad_s"] = max_velocity_rad_s
+        if max_action_delta_rad is not None:
+            env_kwargs["max_action_delta_rad"] = max_action_delta_rad
         env = RotaryInvertedPendulumEnv(**env_kwargs)
         # Always wrap in Monitor so SB3's evaluate_policy can read canonical
         # episode reward/length. monitor_dir=None means in-memory only
@@ -103,7 +108,9 @@ def train(args: argparse.Namespace) -> Path:
         dr_action_lag_tau_range_s=dr_action_lag,
         dr_control_dt_jitter_frac=args.dr_dt_jitter_frac,
         control_freq_hz=args.control_freq,
+        action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
+        max_action_delta_rad=args.max_action_delta_rad,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_vel_weight=args.reward_motor_vel_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
@@ -117,7 +124,9 @@ def train(args: argparse.Namespace) -> Path:
     eval_env = DummyVecEnv([make_env(
         domain_randomization=False,
         control_freq_hz=args.control_freq,
+        action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
+        max_action_delta_rad=args.max_action_delta_rad,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_vel_weight=args.reward_motor_vel_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
@@ -194,6 +203,7 @@ def evaluate(args: argparse.Namespace) -> None:
     env_kwargs = dict(
         render_mode="human",
         control_freq_hz=args.control_freq,
+        action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
@@ -204,6 +214,8 @@ def evaluate(args: argparse.Namespace) -> None:
         env_kwargs["reward_motor_vel_weight"] = args.reward_motor_vel_weight
     if args.max_velocity_rad_s is not None:
         env_kwargs["max_velocity_rad_s"] = args.max_velocity_rad_s
+    if args.max_action_delta_rad is not None:
+        env_kwargs["max_action_delta_rad"] = args.max_action_delta_rad
     env = RotaryInvertedPendulumEnv(**env_kwargs)
     model = SAC.load(args.eval, device=args.device)
 
@@ -281,12 +293,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "fine-tuning and deployment. 35 Hz is the empirically-best "
                         "operating point for this rig — see "
                         "docs/control_rate_selection.md for the principled selection.")
+    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+                   help="action semantics. 'accel' (default): action → angular "
+                        "acceleration. 'position_delta' (RLControl.ino's mode): "
+                        "action → per-step motor-target delta. Training, "
+                        "fine-tuning, and deployment must use the same mode. "
+                        "Position mode pairs with --reward-action-rate-weight 0.05.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
-                   help="action ∈ [-1, 1] maps to angular accel ∈ [-max, +max]"
-                        " rad/s². Default 150 ≈ 76%% of the motor's physical "
-                        "envelope (~196 rad/s² at 50 kSteps/s²). Bumped from "
-                        "100 after observing the policy saturating accel_cmd "
+                   help="accel-mode: action ∈ [-1, 1] maps to angular accel ∈ "
+                        "[-max, +max] rad/s². Default 150 ≈ 76%% of the motor's "
+                        "physical envelope (~196 rad/s² at 50 kSteps/s²). Bumped "
+                        "from 100 after observing the policy saturating accel_cmd "
                         "in the first accel-mode deployment.")
+    p.add_argument("--max-action-delta-rad", type=float, default=None,
+                   help="position_delta mode: per-step motor-target delta of "
+                        "action × this (rad). Default None → env default (0.10). "
+                        "No effect in accel mode.")
     p.add_argument("--max-velocity-rad-s", type=float, default=None,
                    help="motor angular-velocity saturation cap (rad/s). "
                         "Default None → env default (5.0). Lower values "

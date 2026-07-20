@@ -12,6 +12,7 @@ RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino:
     0x03 SET_ACCEL + float   commanded angular acceleration in rad/s²
     0x04 ENGAGE_MOTOR
     0x05 DISENGAGE_MOTOR
+    0x07 SET_TARGET + float  commanded motor position in radians (position mode)
 
 Sign convention: LowLevelServer flips the sign of motor and pendulum
 positions AND velocities on output. We pass the raw bytes through;
@@ -40,6 +41,7 @@ CMD_SET_ACCEL = 0x03  # was CMD_SET_TARGET (position-mode); now angular accelera
 CMD_ENGAGE_MOTOR = 0x04
 CMD_DISENGAGE_MOTOR = 0x05
 CMD_TARE_PENDULUM = 0x06
+CMD_SET_TARGET = 0x07  # position-mode: commanded motor position in radians (moveTo)
 
 # time_us (uint32 LE), motor_pos, pen_pos, motor_vel, pen_vel (4× float32 LE).
 _STATE_STRUCT = struct.Struct("<Iffff")
@@ -159,6 +161,18 @@ class LowLevelClient:
         deterministic completion-by-return semantics.
         """
         payload = bytes([CMD_SET_ACCEL]) + struct.pack("<f", float(accel_rad_s2))
+        with self._lock:
+            self.ser.write(payload)
+
+    def set_target(self, target_rad: float) -> None:
+        """Command a new motor position target, in radians (position mode).
+
+        Maps to the firmware's moveTo(). Sign convention matches
+        set_acceleration: sent un-flipped (positions are only flipped on
+        GET_STATE output), so callers pass the sim-frame target directly.
+        No flush — a 5-byte payload per tick never backs up the 2 Mbaud link.
+        """
+        payload = bytes([CMD_SET_TARGET]) + struct.pack("<f", float(target_rad))
         with self._lock:
             self.ser.write(payload)
 

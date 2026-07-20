@@ -7,6 +7,11 @@
  * `runs/async_35hz_v2_extend/last.zip` via `distill.py` and exported by
  * `export_weights.py`.
  *
+ * Action mode: POSITION-DELTA. Each tick the action is scaled by
+ * MAX_ACTION_DELTA_RAD, added to an integrated motor-position target, and
+ * issued as stepper->moveTo(). Flash weights from a policy trained with
+ * `--action-mode position_delta` and the same MAX_ACTION_DELTA_RAD (0.10).
+ *
  * Step generation runs from a Timer1 ISR via FastAccelStepper. The main loop
  * is therefore free to spend ~15 ms on inference without stalling the stepper
  * acceleration ramp — earlier AccelStepper-based revisions had to interleave

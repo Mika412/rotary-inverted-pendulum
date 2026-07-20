@@ -41,9 +41,16 @@
 # Run from this directory with the rotary-inverted-pendulum mamba env
 # activated.
 #
+# Action mode: the DR knobs and 50 Hz rate here are tuned for accel mode
+# (the default). For a position-mode policy (RLControl.ino's mode), set
+# ACTION_MODE=position_delta, and typically CONTROL_FREQ=35 with
+# REWARD_ACTION_RATE_WEIGHT=0.05.
+#
 # Environment overrides (defaults shown):
 #     CONTROL_FREQ=50
+#     ACTION_MODE=accel                    # or position_delta
 #     MAX_ACCEL_RAD_S2=150
+#     MAX_ACTION_DELTA_RAD=                 # position mode only; unset → env default 0.10
 #     STEPS_PER_STAGE=100000
 #     SEED=0
 #     DEVICE=cuda                          # use cpu on macOS laptop
@@ -62,7 +69,9 @@ SEED="${SEED:-0}"
 STEPS_PER_STAGE="${STEPS_PER_STAGE:-100000}"
 DEVICE="${DEVICE:-cuda}"
 CONTROL_FREQ="${CONTROL_FREQ:-50}"
+ACTION_MODE="${ACTION_MODE:-accel}"
 MAX_ACCEL_RAD_S2="${MAX_ACCEL_RAD_S2:-150}"
+MAX_ACTION_DELTA_RAD="${MAX_ACTION_DELTA_RAD:-}"
 DR_LAG_TAU_MIN_S2="${DR_LAG_TAU_MIN_S2:-0.000}"
 DR_LAG_TAU_MAX_S2="${DR_LAG_TAU_MAX_S2:-0.030}"
 DR_LAG_TAU_MIN_S3="${DR_LAG_TAU_MIN_S3:-0.010}"
@@ -79,11 +88,19 @@ if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     EXTRA_REWARD_ARGS+=(--reward-stillness-bonus-weight "$REWARD_STILLNESS_BONUS_WEIGHT")
 fi
 
+# Action-mode args threaded into every stage so the whole curriculum trains
+# one consistent mode. --max-action-delta-rad only bites in position mode.
+COMMON_ARGS=(--action-mode "$ACTION_MODE")
+if [ -n "$MAX_ACTION_DELTA_RAD" ]; then
+    COMMON_ARGS+=(--max-action-delta-rad "$MAX_ACTION_DELTA_RAD")
+fi
+
 run_stage1="${PREFIX}_stage1"
 run_stage2="${PREFIX}_stage2"
 run_stage3="${PREFIX}_stage3"
 
 echo "Curriculum config:"
+echo "  action mode: ${ACTION_MODE}"
 echo "  control rate: ${CONTROL_FREQ} Hz, max accel: ${MAX_ACCEL_RAD_S2} rad/s²"
 echo "  stage 2 action-lag tau: [$(awk -v t="$DR_LAG_TAU_MIN_S2" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S2" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
 echo "  stage 3 action-lag tau: [$(awk -v t="$DR_LAG_TAU_MIN_S3" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S3" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
@@ -98,6 +115,7 @@ python -u train_sac.py \
     --device "$DEVICE" \
     --control-freq "$CONTROL_FREQ" \
     --max-accel-rad-s2 "$MAX_ACCEL_RAD_S2" \
+    "${COMMON_ARGS[@]}" \
     "${EXTRA_REWARD_ARGS[@]}" \
     --run-name "$run_stage1" \
     --seed "$SEED"
@@ -111,6 +129,7 @@ python -u train_sac.py \
     --domain-randomization \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S2" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S2" \
+    "${COMMON_ARGS[@]}" \
     "${EXTRA_REWARD_ARGS[@]}" \
     --resume "runs/${run_stage1}/best_model.zip" \
     --run-name "$run_stage2" \
@@ -125,10 +144,11 @@ python -u train_sac.py \
     --domain-randomization \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S3" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S3" \
+    "${COMMON_ARGS[@]}" \
     "${EXTRA_REWARD_ARGS[@]}" \
     --resume "runs/${run_stage2}/best_model.zip" \
     --run-name "$run_stage3" \
     --seed "$SEED"
 
 echo "=== Curriculum complete. Final policy: runs/${run_stage3}/best_model.zip ==="
-echo "Deploy/fine-tune at the same control rate: --control-freq ${CONTROL_FREQ}"
+echo "Deploy/fine-tune at the same control rate AND action mode: --control-freq ${CONTROL_FREQ} --action-mode ${ACTION_MODE}"

@@ -84,10 +84,16 @@ def main(argv: list[str] | None = None) -> int:
                         "the policy was trained at — see "
                         "docs/control_rate_selection.md. Default 35 Hz "
                         "matches this rig's canonical design rate.")
+    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+                   help="how the action drives the motor. 'accel' (default): via "
+                        "CMD_SET_ACCEL. 'position_delta': per-tick motor-target "
+                        "delta via CMD_SET_TARGET. Must match the training mode.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
-                   help="action ∈ [-1, 1] maps to commanded angular accel "
-                        "[-max, +max] rad/s². Must match the training-time "
-                        "max_accel_rad_s2 (default 150 per current env).")
+                   help="accel mode: action maps to angular accel [-max, +max] "
+                        "rad/s². Must match training-time max_accel_rad_s2 (150).")
+    p.add_argument("--max-action-delta-rad", type=float, default=0.10,
+                   help="position_delta mode: per-tick motor-target delta of "
+                        "action × this (rad). Must match training (default 0.10).")
     p.add_argument("--duration-s", type=float, default=30.0)
     p.add_argument("--device", default="cpu")
     p.add_argument("--dry-run", action="store_true",
@@ -183,9 +189,17 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print("Arduino ready.")
 
-        # Prime the firmware's command state with zero accel before engaging
-        # so the motor stays at rest until the policy issues its first action.
-        client.set_acceleration(0.0)
+        # Prime the firmware's command state before engaging so the motor
+        # stays at rest until the policy issues its first action. Accel-mode:
+        # command zero acceleration. Position-mode: seed the integrated target
+        # at the current motor position and command moveTo(current) so the
+        # stepper doesn't lurch on engage.
+        motor_target = 0.0
+        if args.action_mode == "accel":
+            client.set_acceleration(0.0)
+        else:
+            motor_target = -client.get_state().motor_pos_rad  # un-flip to sim frame
+            client.set_target(motor_target)
 
         if not args.dry_run:
             client.engage_motor()
@@ -231,18 +245,31 @@ def main(argv: list[str] | None = None) -> int:
                 action, _ = model.predict(obs, deterministic=not args.stochastic)
                 a = float(np.clip(action.flatten()[0], -1.0, 1.0))
 
-                # Accel-mode: action maps directly to commanded angular accel.
-                # Safety clamp: if we're at the position limit and the policy
-                # would push us further into it, zero the accel command.
-                accel_cmd = a * args.max_accel_rad_s2
-                if motor_pos >= MOTOR_SAFE_LIMIT_RAD and accel_cmd > 0.0:
-                    accel_cmd = 0.0
-                elif motor_pos <= -MOTOR_SAFE_LIMIT_RAD and accel_cmd < 0.0:
-                    accel_cmd = 0.0
+                if args.action_mode == "accel":
+                    # Accel-mode: action maps directly to commanded angular accel.
+                    # Safety clamp: if we're at the position limit and the policy
+                    # would push us further into it, zero the accel command.
+                    cmd_value = a * args.max_accel_rad_s2
+                    if motor_pos >= MOTOR_SAFE_LIMIT_RAD and cmd_value > 0.0:
+                        cmd_value = 0.0
+                    elif motor_pos <= -MOTOR_SAFE_LIMIT_RAD and cmd_value < 0.0:
+                        cmd_value = 0.0
+                else:
+                    # Position-delta mode: integrate the per-tick target delta,
+                    # clamp to the safety rail (the firmware clamps again), send
+                    # via moveTo. cmd_value is the commanded target (rad).
+                    motor_target = float(np.clip(
+                        motor_target + a * args.max_action_delta_rad,
+                        -MOTOR_SAFE_LIMIT_RAD, MOTOR_SAFE_LIMIT_RAD,
+                    ))
+                    cmd_value = motor_target
 
                 if not args.dry_run:
                     try:
-                        client.set_acceleration(accel_cmd)
+                        if args.action_mode == "accel":
+                            client.set_acceleration(cmd_value)
+                        else:
+                            client.set_target(cmd_value)
                     except OSError:
                         # Serial syscall interrupted, almost always by SIGTERM
                         # /SIGINT. Treat as interruption and exit cleanly.
@@ -254,22 +281,24 @@ def main(argv: list[str] | None = None) -> int:
                 ep_reward_proxy += 0.5 * (1.0 + math.cos(theta))
 
                 # Log this step (sim convention; un-flip already applied above).
-                # In accel-mode the "commanded" quantity is the angular accel,
-                # not a position target — log it under the same array name for
-                # downstream tooling compatibility.
+                # The "commanded" quantity is the angular accel (accel-mode) or
+                # the position target (position-delta mode) — logged under the
+                # same array name for downstream tooling compatibility. The
+                # saved npz records `action_mode` so consumers can disambiguate.
                 if args.log:
                     log_t_us[loop_count] = s.time_us
                     log_motor_pos[loop_count] = motor_pos
                     log_pen_pos[loop_count] = phi
                     log_motor_vel[loop_count] = motor_vel
                     log_pen_vel[loop_count] = pen_vel
-                    log_accel_cmd[loop_count] = accel_cmd
+                    log_accel_cmd[loop_count] = cmd_value
                     log_action[loop_count] = a
 
                 if loop_count % args.control_freq == 0:
+                    cmd_label = "accel_cmd" if args.action_mode == "accel" else "target"
                     print(
                         f"t={loop_count * dt:.1f}s  motor={motor_pos:+.3f} "
-                        f"accel_cmd={accel_cmd:+6.1f}  theta={theta:+.3f}  "
+                        f"{cmd_label}={cmd_value:+6.2f}  theta={theta:+.3f}  "
                         f"upright={0.5 * (1.0 + math.cos(theta)):.2f}"
                     )
 
@@ -280,9 +309,12 @@ def main(argv: list[str] | None = None) -> int:
             # If we got here via SIGTERM/SIGINT we want a deterministic stop
             # rather than relying solely on LowLevelClient.__exit__. In
             # accel-mode "stop" means command zero acceleration; the firmware's
-            # safety logic will decelerate the stepper before we cut power.
+            # safety logic will decelerate the stepper before we cut power. In
+            # position mode the last moveTo target already holds the motor, so
+            # we just disengage.
             try:
-                client.set_acceleration(0.0)
+                if args.action_mode == "accel":
+                    client.set_acceleration(0.0)
                 client.disengage_motor()
             except Exception:
                 pass
@@ -302,6 +334,8 @@ def main(argv: list[str] | None = None) -> int:
                     action=log_action[:loop_count],
                     control_freq_hz=np.float32(args.control_freq),
                     max_accel_rad_s2=np.float32(args.max_accel_rad_s2),
+                    max_action_delta_rad=np.float32(args.max_action_delta_rad),
+                    action_mode=str(args.action_mode),
                     policy_path=str(args.policy),
                 )
                 print(f"Saved trajectory log to {args.log}")

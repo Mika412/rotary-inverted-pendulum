@@ -122,10 +122,16 @@ def main(argv: list[str] | None = None) -> int:
                         "this rate even at high --gradient-steps. 35 Hz is "
                         "the canonical operating point for this rig — see "
                         "docs/control_rate_selection.md.")
+    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+                   help="how the action drives the motor. Must match the mode the "
+                        "sim policy was trained with. 'accel' (default): "
+                        "CMD_SET_ACCEL. 'position_delta': CMD_SET_TARGET.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
-                   help="action ∈ [-1, 1] maps to angular accel ∈ [-max, +max]"
-                        " rad/s². Must match the value used at sim training time"
-                        " (default 150 per current env).")
+                   help="accel mode: action maps to angular accel [-max, +max] "
+                        "rad/s². Must match the sim training value (150).")
+    p.add_argument("--max-action-delta-rad", type=float, default=0.10,
+                   help="position_delta mode: per-tick motor-target delta of "
+                        "action × this (rad). Must match sim training (0.10).")
     p.add_argument("--gradient-steps", type=int, default=4,
                    help="SAC gradient updates per train() call. Higher "
                         "extracts more from each real transition")
@@ -180,7 +186,9 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         baud=args.baud,
         control_freq_hz=args.control_freq,
+        action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
+        max_action_delta_rad=args.max_action_delta_rad,
         episode_length_s=args.episode_length_s,
         reset_settle_s=args.reset_settle_s,
     )
@@ -189,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.reward_stillness_bonus_weight is not None:
         env_kwargs["reward_stillness_bonus_weight"] = args.reward_stillness_bonus_weight
     env = RealRotaryInvertedPendulumEnv(**env_kwargs)
-    print(f"Control: {args.control_freq} Hz")
+    print(f"Control: {args.control_freq} Hz, action_mode={args.action_mode}")
 
     print(f"Loading policy from {args.policy}")
     model = SAC.load(args.policy, env=env, device=args.device)

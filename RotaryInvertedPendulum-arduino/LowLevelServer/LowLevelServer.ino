@@ -14,6 +14,7 @@ const long BAUD_RATE = 2000000;
 #define CMD_ENGAGE_MOTOR 0x04
 #define CMD_DISENGAGE_MOTOR 0x05
 #define CMD_TARE_PENDULUM 0x06   // re-zero pen_position_rad to current AS5600 reading
+#define CMD_SET_TARGET 0x07      // position-mode: commanded motor position (rad) → moveTo
 
 // Pin assignments. STEP must be on pin 9 (Timer1 OC1A on ATmega328) for
 // FastAccelStepper. DIR and ENABLE can be any digital pin.
@@ -25,6 +26,12 @@ const long BAUD_RATE = 2000000;
 // constants. The velocity cap below corresponds to MAX_VELOCITY_RAD_S
 // = 5 rad/s: 5 × (1600 steps/rev / 2π) ≈ 1273 steps/s ⇒ ~785 µs/step.
 const uint32_t MOTOR_MIN_STEP_US = 785;  // ≈ 5 rad/s
+
+// Ramp acceleration for position-mode moveTo() (CMD_SET_TARGET); matches
+// RLControl.ino. Must be re-asserted on every CMD_SET_TARGET: CMD_ENGAGE_MOTOR's
+// moveByAcceleration(0) resets the library acceleration to 1 step/s², which
+// would make the motor merely creep toward the target. Accel mode ignores this.
+const int32_t MOTOR_ACCEL_STEPS_S2 = 50000;
 
 // Position safety limit (matches MOTOR_SAFE_LIMIT_RAD on the Python side,
 // ±125°). Past the rail the firmware actively brakes (commands a fixed
@@ -106,6 +113,8 @@ void setup()
     {
         while (true) {}
     }
+    // Acceleration is set per tick in CMD_SET_TARGET, not here (see that
+    // constant's note).
     // Shrink the forward-planning window from the library's 20 ms default
     // to its documented minimum (8 ms = two cyclic-task periods). Default
     // adds ~20 ms of lag between a new accel command and any change in
@@ -272,6 +281,34 @@ void handleCommand()
             // zero when the sign of accel opposes the current velocity — no
             // state machine needed on our side.
             stepper->moveByAcceleration(accel_steps_s2, true);
+        }
+        break;
+
+    case CMD_SET_TARGET:
+        {
+            // Position-mode command: absolute motor target in radians. The host
+            // integrates the policy's per-tick deltas and sends the absolute
+            // target each tick; the stepper ramps toward it (moveTo). Coexists
+            // with CMD_SET_ACCEL. Sign matches CMD_SET_ACCEL: target arrives
+            // un-flipped (positions flip only on GET_STATE output).
+            Serial.setTimeout(5);
+            float target_rad;
+            size_t n = Serial.readBytes((char *)&target_rad, sizeof(float));
+            Serial.setTimeout(1000);  // restore Stream default
+            if (n != sizeof(float)) break;
+
+            if (!motor_engaged) break;
+
+            // Clamp to the safety rail so the policy can never command a
+            // target past the mechanical hard stop.
+            int32_t target_steps = radiansToSteps(target_rad);
+            if (target_steps >  MOTOR_SAFE_LIMIT_STEPS) target_steps =  MOTOR_SAFE_LIMIT_STEPS;
+            if (target_steps < -MOTOR_SAFE_LIMIT_STEPS) target_steps = -MOTOR_SAFE_LIMIT_STEPS;
+
+            // Re-assert the ramp acceleration (CMD_ENGAGE_MOTOR left it at
+            // 1 step/s²; see the constant's note).
+            stepper->setAcceleration(MOTOR_ACCEL_STEPS_S2);
+            stepper->moveTo(target_steps);
         }
         break;
 

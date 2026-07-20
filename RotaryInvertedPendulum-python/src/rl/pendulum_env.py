@@ -11,9 +11,14 @@ Observation (5-dim):
     [motor_pos, sin(theta), cos(theta), motor_vel, pendulum_vel]
     where theta = 0 is upright (so cos(theta) = 1 at the goal).
 
-Action (1-dim, in [-1, 1]):
-    Maps to a position-delta added to the motor's commanded target each
-    control step.
+Action (1-dim, in [-1, 1]) — interpreted per `action_mode`:
+    - "accel" (default): commanded angular acceleration in
+      [-max_accel, +max_accel] rad/s²; integrated to a capped velocity and
+      then a position target fed to the PD actuator.
+    - "position_delta": per-step motor-position delta
+      (action × max_action_delta_rad), integrated into the commanded target,
+      clamped, and fed to the PD actuator through a first-order
+      motor-bandwidth lag. The mode RLControl.ino runs on-device.
 
 Reward:
     upright term      = (1 + cos(theta)) / 2     in [0, 1]
@@ -92,6 +97,11 @@ DR_PENDULUM_FRICTION_MULT_RANGE = (0.5, 2.0)
 # FastAccelStepper's moveByAcceleration() with the matching int32 steps/s².
 # Velocity is the integral of accel, capped at MAX_VELOCITY_RAD_S; position
 # is the integral of velocity, fed to the existing PD position actuator.
+# Position-delta mode: action × MAX_ACTION_DELTA_RAD is the per-step
+# motor-target increment (radians), integrated and clamped to the safety
+# limit. 0.10 matches RLControl.ino's MAX_ACTION_DELTA_RAD. Position mode only.
+MAX_ACTION_DELTA_RAD = 0.10
+
 MAX_VELOCITY_RAD_S = 5.0
 MAX_ACCEL_RAD_S2 = 150.0   # bumped from 100 after the first accel-mode
                             # deployment showed the policy saturating its
@@ -123,6 +133,11 @@ DR_ACTION_DELAY_STEPS_RANGE = (0, 0)
 # period (28.6 ms at 35 Hz). Default range brackets that case with margin
 # on each side. See docs/transport_delay.md.
 DR_ACTION_LAG_TAU_RANGE_S = (0.0, 0.030)
+# Position-mode motor-bandwidth model: first-order lag on the commanded
+# position TARGET (distinct from the action-lag above, which lags the
+# command). Captures the stepper's ramp-toward-target each tick. Position
+# mode only.
+DR_MOTOR_TAU_RANGE_S = (0.010, 0.030)
 DR_OBS_NOISE_STD_POS_RAD = 0.005
 # Per-episode pendulum θ-bias: models the rig's static-friction-bounded
 # rest position. At firmware boot the encoder zeros at whatever angle the
@@ -310,8 +325,10 @@ class RotaryInvertedPendulumEnv(gym.Env):
         *,
         params_path: str | Path | None = None,
         control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
-        max_accel_rad_s2: float = MAX_ACCEL_RAD_S2,  # action × this = commanded angular accel
-        max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # velocity saturation cap
+        action_mode: str = "accel",  # "accel" (current) or "position_delta" (original)
+        max_accel_rad_s2: float = MAX_ACCEL_RAD_S2,  # accel-mode: action × this = commanded angular accel
+        max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # accel-mode: velocity saturation cap
+        max_action_delta_rad: float = MAX_ACTION_DELTA_RAD,  # position-mode: action × this = per-step target delta
         episode_length_s: float = 8.0,
         # Weights tuned for the standard quadratic-cost reward (see _reward).
         # At worst-case the per-step cost reaches ~22 (most of which is the
@@ -371,14 +388,21 @@ class RotaryInvertedPendulumEnv(gym.Env):
         dr_motor_accel_range_rad_s2: tuple[float, float] | None = None,
         dr_action_delay_steps_range: tuple[int, int] | None = None,
         dr_action_lag_tau_range_s: tuple[float, float] | None = None,
+        dr_motor_tau_range_s: tuple[float, float] | None = None,  # position-mode only
         dr_control_dt_jitter_frac: float | None = None,
         dr_theta_bias_max_rad: float | None = None,  # None → DR_THETA_BIAS_MAX_RAD
     ):
         super().__init__()
+        if action_mode not in ("accel", "position_delta"):
+            raise ValueError(
+                f"action_mode must be 'accel' or 'position_delta', got {action_mode!r}"
+            )
         self.params = PendulumParams.load(params_path)
         self.control_freq_hz = control_freq_hz
+        self.action_mode = action_mode
         self.max_accel_rad_s2 = max_accel_rad_s2
         self.max_velocity_rad_s = max_velocity_rad_s
+        self.max_action_delta_rad = max_action_delta_rad
         self.episode_length_s = episode_length_s
         # All reward terms live in a single RewardWeights dataclass so the
         # sim env and the real env (real_env.py) share one source of truth.
@@ -432,6 +456,10 @@ class RotaryInvertedPendulumEnv(gym.Env):
             dr_action_lag_tau_range_s if dr_action_lag_tau_range_s is not None
             else DR_ACTION_LAG_TAU_RANGE_S
         )
+        self._dr_motor_tau_range_s = (
+            dr_motor_tau_range_s if dr_motor_tau_range_s is not None
+            else DR_MOTOR_TAU_RANGE_S
+        )
         self._dr_control_dt_jitter_frac = (
             float(dr_control_dt_jitter_frac)
             if dr_control_dt_jitter_frac is not None
@@ -461,6 +489,12 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self._motor_vel = 0.0      # commanded angular velocity, rad/s
         self._motor_target = 0.0   # integrated position target, rad
         self._motor_max_accel_rad_s2 = float(max_accel_rad_s2)  # set per-episode if DR on
+        # Position-delta mode: first-order lag on the commanded target that
+        # models the stepper's ramp-to-target bandwidth. `_lagged_target` is
+        # the filter state (what the PD actuator actually chases); `_motor_tau_s`
+        # is the per-episode time constant (DR) or the fixed default.
+        self._lagged_target = 0.0
+        self._motor_tau_s = 0.0
         self._action_delay_steps = 0
         self._action_queue: deque = deque()
         # Continuous action lag: first-order LP filter on commanded action.
@@ -521,6 +555,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._motor_max_accel_rad_s2 = self._fixed_motor_max_accel_rad_s2
             self._action_delay_steps = self._fixed_action_delay_steps
             self._action_lag_tau_s = self._fixed_action_lag_tau_s
+            self._motor_tau_s = 0.0  # no motor-bandwidth lag without DR
             self._noise_std_pos = 0.0
             # Reset model params to nominal in case a previous episode set them.
             self.model.dof_frictionloss[self._motor_dof_addr] = self._fixed_motor_frictionloss
@@ -561,6 +596,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self.data.qvel[self._motor_qvel_addr] = 0.0
         self.data.qvel[self._pen_qvel_addr] = 0.0
         self._motor_target = float(self.data.qpos[self._motor_qpos_addr])
+        self._lagged_target = self._motor_target  # start the lag at the true start pos
         self._motor_vel = 0.0
         self._step_count = 0
         self._prev_action = 0.0
@@ -615,6 +651,8 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._dr_action_delay_steps_range[1] + 1,
         ))
         self._action_lag_tau_s = float(rng.uniform(*self._dr_action_lag_tau_range_s))
+        # Position-mode motor-bandwidth lag on the target (no-op in accel mode).
+        self._motor_tau_s = float(rng.uniform(*self._dr_motor_tau_range_s))
         self._noise_std_pos = DR_OBS_NOISE_STD_POS_RAD
 
         # Per-episode stepper stiction. The lower bound includes 0 so that
@@ -665,31 +703,52 @@ class RotaryInvertedPendulumEnv(gym.Env):
             n_sub = self._n_substeps
         actual_dt_s = n_sub * self.model.opt.timestep
 
-        # --- Accel-mode integration: action → accel → velocity (capped) → pos target. ---
-        # Mirrors FastAccelStepper's moveByAcceleration() behaviour. The
-        # per-episode envelope clamp models the stepper's torque-limited
-        # accel ceiling under varying load.
-        accel_cmd = delayed_action * self.max_accel_rad_s2
-        accel_cmd = float(np.clip(accel_cmd,
-                                   -self._motor_max_accel_rad_s2,
-                                   self._motor_max_accel_rad_s2))
-        self._motor_vel = float(np.clip(
-            self._motor_vel + accel_cmd * actual_dt_s,
-            -self.max_velocity_rad_s,
-            self.max_velocity_rad_s,
-        ))
-        # Safety: zero velocity if we're at the safety rail and pushing outward.
-        # Mirrors the firmware-side clamp on the real rig.
-        if self._motor_target >= MOTOR_SAFE_LIMIT_RAD and self._motor_vel > 0.0:
-            self._motor_vel = 0.0
-        elif self._motor_target <= -MOTOR_SAFE_LIMIT_RAD and self._motor_vel < 0.0:
-            self._motor_vel = 0.0
-        self._motor_target = float(np.clip(
-            self._motor_target + self._motor_vel * actual_dt_s,
-            -MOTOR_SAFE_LIMIT_RAD,
-            MOTOR_SAFE_LIMIT_RAD,
-        ))
-        self.data.ctrl[0] = self._motor_target
+        if self.action_mode == "accel":
+            # --- Accel-mode integration: action → accel → velocity (capped) → pos target. ---
+            # Mirrors FastAccelStepper's moveByAcceleration() behaviour. The
+            # per-episode envelope clamp models the stepper's torque-limited
+            # accel ceiling under varying load.
+            accel_cmd = delayed_action * self.max_accel_rad_s2
+            accel_cmd = float(np.clip(accel_cmd,
+                                       -self._motor_max_accel_rad_s2,
+                                       self._motor_max_accel_rad_s2))
+            self._motor_vel = float(np.clip(
+                self._motor_vel + accel_cmd * actual_dt_s,
+                -self.max_velocity_rad_s,
+                self.max_velocity_rad_s,
+            ))
+            # Safety: zero velocity if we're at the safety rail and pushing outward.
+            # Mirrors the firmware-side clamp on the real rig.
+            if self._motor_target >= MOTOR_SAFE_LIMIT_RAD and self._motor_vel > 0.0:
+                self._motor_vel = 0.0
+            elif self._motor_target <= -MOTOR_SAFE_LIMIT_RAD and self._motor_vel < 0.0:
+                self._motor_vel = 0.0
+            self._motor_target = float(np.clip(
+                self._motor_target + self._motor_vel * actual_dt_s,
+                -MOTOR_SAFE_LIMIT_RAD,
+                MOTOR_SAFE_LIMIT_RAD,
+            ))
+            self.data.ctrl[0] = self._motor_target
+        else:
+            # --- Position-delta integration: action → per-step target delta. ---
+            # Mirrors RLControl.ino: motor_target += action × MAX_ACTION_DELTA_RAD,
+            # then moveTo(target). `_motor_target` accumulates the deltas (clamped
+            # to the rail); the stepper's ramp bandwidth is a first-order lag
+            # (`_motor_tau_s`), so the PD actuator chases `_lagged_target`. tau=0 ⇒
+            # no lag.
+            self._motor_target = float(np.clip(
+                self._motor_target + delayed_action * self.max_action_delta_rad,
+                -MOTOR_SAFE_LIMIT_RAD,
+                MOTOR_SAFE_LIMIT_RAD,
+            ))
+            if self._motor_tau_s > 0.0:
+                alpha = actual_dt_s / (self._motor_tau_s + actual_dt_s)
+                self._lagged_target = (
+                    (1.0 - alpha) * self._lagged_target + alpha * self._motor_target
+                )
+            else:
+                self._lagged_target = self._motor_target
+            self.data.ctrl[0] = self._lagged_target
 
         for _ in range(n_sub):
             mujoco.mj_step(self.model, self.data)
@@ -714,6 +773,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             "motor_max_accel_rad_s2": self._motor_max_accel_rad_s2,
             "action_delay_steps": self._action_delay_steps,
             "action_lag_tau_s": self._action_lag_tau_s,
+            "motor_tau_s": self._motor_tau_s,
         }
         return self._obs(), reward, terminated, truncated, info
 

@@ -48,6 +48,7 @@ from gymnasium import spaces
 from lowlevel_client import LowLevelClient
 from reward import RewardWeights, compute_reward
 from pendulum_env import (
+    MAX_ACTION_DELTA_RAD,
     MOTOR_LIMIT_RAD,
     MOTOR_SAFE_LIMIT_RAD,
     PendulumParams,
@@ -77,9 +78,10 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
 
     Operates over the LowLevelServer binary protocol. Sign conventions
     match `run_policy.py`: server flips motor and pendulum positions on
-    output, so we un-flip on read. Action is angular acceleration in
-    rad/s² (accel-mode); see `RL_PLAN.md`'s accel-mode decision-log
-    entry for the rationale.
+    output, so we un-flip on read. The action is interpreted per
+    `action_mode`: "accel" (angular acceleration) or "position_delta"
+    (per-tick motor-target increment) — must match the mode the sim policy
+    was trained with.
     """
 
     metadata = {"render_modes": []}
@@ -90,7 +92,9 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         port: str = "/dev/cu.usbserial-110",
         baud: int = 2_000_000,
         control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
+        action_mode: str = "accel",  # "accel" or "position_delta" — must match sim training
         max_accel_rad_s2: float = 100.0,
+        max_action_delta_rad: float = MAX_ACTION_DELTA_RAD,  # position-mode per-step target delta
         episode_length_s: float = 6.0,
         # Max seconds to wait for the pendulum to come to rest between
         # episodes before giving up. While waiting, polls pen_vel; once
@@ -125,10 +129,16 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         params_path: str | Path | None = None,
     ):
         super().__init__()
+        if action_mode not in ("accel", "position_delta"):
+            raise ValueError(
+                f"action_mode must be 'accel' or 'position_delta', got {action_mode!r}"
+            )
         self.port = port
         self.baud = baud
         self.control_freq_hz = control_freq_hz
+        self.action_mode = action_mode
         self.max_accel_rad_s2 = max_accel_rad_s2
+        self.max_action_delta_rad = max_action_delta_rad
         self.episode_length_s = episode_length_s
         self.reset_settle_s = reset_settle_s  # rest-detection timeout
         self.terminate_on_hard_stop = terminate_on_hard_stop
@@ -171,6 +181,7 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         # Per-episode state
         self._step_count = 0
         self._last_accel_cmd = 0.0  # most recent accel command sent (rad/s²)
+        self._motor_target = 0.0    # position-mode: integrated target sent to moveTo (rad)
         self._prev_action = 0.0     # last applied action (∈ [-1, 1]); fed into obs
         self._motor_pos_prev = 0.0
         self._phi_prev = 0.0
@@ -330,10 +341,17 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
                     "to pick up the CMD_TARE_PENDULUM=0x06 handler."
                 )
 
-        # Read current state and prime the accel command to 0 (hold whatever
-        # velocity the stepper is at — zero, since it's been disengaged).
+        # Read current state and prime the motor command so it holds still
+        # until the policy issues its first action. Accel-mode: command zero
+        # acceleration (hold current velocity, which is zero post-disengage).
+        # Position-mode: seed the integrated target at the current position and
+        # command moveTo(current) so the stepper doesn't lurch on engage.
         _, motor_pos, phi, _, _ = self._read_raw_state()
-        client.set_acceleration(0.0)
+        if self.action_mode == "accel":
+            client.set_acceleration(0.0)
+        else:
+            self._motor_target = float(motor_pos)
+            client.set_target(self._motor_target)
         client.engage_motor()
         self._motor_engaged = True
 
@@ -348,17 +366,16 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         return self._build_obs(motor_pos, phi), {}
 
     def apply_action(self, action) -> float:
-        """Send `action` to the motor as an angular acceleration command.
+        """Send `action` to the motor, interpreted per `action_mode`.
 
-        Returns the clipped action that was actually applied (to feed into
-        the reward / replay-buffer transition).
+        Returns the clipped action actually applied (fed into the reward /
+        replay-buffer transition).
 
-        Accel-mode: action ∈ [-1, 1] → commanded angular accel ∈ [-max, +max]
-        rad/s². The firmware (FastAccelStepper.moveByAcceleration) handles
-        smooth velocity ramping and zero-crossing direction reversals; the
-        host only needs to push the new accel each tick. Position-limit
-        safety: zero the commanded accel if we're at the safety rail and
-        pushing outward (the firmware also enforces this independently).
+        Accel mode: action → angular accel ∈ [-max, +max] rad/s² via
+        moveByAcceleration; zeroed if at the safety rail pushing outward.
+        Position-delta mode: action → per-tick motor-target delta of
+        action × max_action_delta_rad, integrated, clamped to the rail, and
+        sent via moveTo. The firmware clamps the target independently too.
         """
         if self._sigterm_received:
             raise KeyboardInterrupt("SIGTERM received during step")
@@ -367,13 +384,21 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             raise RuntimeError("env.apply_action() called before reset() or motor disengaged")
 
         a = float(np.clip(np.asarray(action).flatten()[0], -1.0, 1.0))
-        accel_cmd = a * self.max_accel_rad_s2
-        if self._motor_pos_prev >= MOTOR_SAFE_LIMIT_RAD and accel_cmd > 0.0:
-            accel_cmd = 0.0
-        elif self._motor_pos_prev <= -MOTOR_SAFE_LIMIT_RAD and accel_cmd < 0.0:
-            accel_cmd = 0.0
-        self._last_accel_cmd = accel_cmd
-        client.set_acceleration(accel_cmd)
+        if self.action_mode == "accel":
+            accel_cmd = a * self.max_accel_rad_s2
+            if self._motor_pos_prev >= MOTOR_SAFE_LIMIT_RAD and accel_cmd > 0.0:
+                accel_cmd = 0.0
+            elif self._motor_pos_prev <= -MOTOR_SAFE_LIMIT_RAD and accel_cmd < 0.0:
+                accel_cmd = 0.0
+            self._last_accel_cmd = accel_cmd
+            client.set_acceleration(accel_cmd)
+        else:
+            self._motor_target = float(np.clip(
+                self._motor_target + a * self.max_action_delta_rad,
+                -MOTOR_SAFE_LIMIT_RAD,
+                MOTOR_SAFE_LIMIT_RAD,
+            ))
+            client.set_target(self._motor_target)
         self._prev_action = a
         return a
 
@@ -406,6 +431,7 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             "motor_pos": motor_pos,
             "phi": phi,
             "accel_cmd_rad_s2": getattr(self, "_last_accel_cmd", 0.0),
+            "motor_target_rad": self._motor_target,
             "time_us": int(t_us),
         }
 
