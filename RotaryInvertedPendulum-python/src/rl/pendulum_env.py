@@ -100,6 +100,13 @@ DR_PENDULUM_FRICTION_MULT_RANGE = (0.5, 2.0)
 # Position-delta mode: action × MAX_ACTION_DELTA_RAD is the per-step
 # motor-target increment (radians), integrated and clamped to the safety
 # limit. 0.10 matches RLControl.ino's MAX_ACTION_DELTA_RAD. Position mode only.
+#
+# NB: the max commanded slew is MAX_ACTION_DELTA_RAD × control_freq_hz
+# (3.5 rad/s at 0.10 × 35 Hz). LowLevelServer's boot-time speed cap
+# (MOTOR_MIN_STEP_US ≈ 5 rad/s) also applies to its position-mode moveTo
+# tracking, and the sim models no cap — keep the slew comfortably below
+# 5 rad/s or off-board deploys will saturate in a way sim never showed.
+# (RLControl.ino's own envelope is ~196 rad/s; not the binding limit.)
 MAX_ACTION_DELTA_RAD = 0.10
 
 MAX_VELOCITY_RAD_S = 5.0
@@ -381,6 +388,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         motor_max_accel_rad_s2: float | None = None,  # None => use max_accel_rad_s2
         action_delay_steps: int = 0,
         action_lag_tau_s: float = 0.0,
+        motor_tau_s: float = 0.0,  # position-mode fixed motor-bandwidth lag (non-DR)
         terminate_on_hard_stop: bool = True,
         hard_stop_penalty: float = 5.0,
         # DR range overrides for curriculum learning. None => use module
@@ -440,6 +448,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         )
         self._fixed_action_delay_steps = int(action_delay_steps)
         self._fixed_action_lag_tau_s = float(action_lag_tau_s)
+        self._fixed_motor_tau_s = float(motor_tau_s)
         self.terminate_on_hard_stop = terminate_on_hard_stop
         self.hard_stop_penalty = float(hard_stop_penalty)
         self._fixed_motor_frictionloss = 0.0  # set by user via reset(options=) if desired
@@ -555,7 +564,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._motor_max_accel_rad_s2 = self._fixed_motor_max_accel_rad_s2
             self._action_delay_steps = self._fixed_action_delay_steps
             self._action_lag_tau_s = self._fixed_action_lag_tau_s
-            self._motor_tau_s = 0.0  # no motor-bandwidth lag without DR
+            self._motor_tau_s = self._fixed_motor_tau_s
             self._noise_std_pos = 0.0
             # Reset model params to nominal in case a previous episode set them.
             self.model.dof_frictionloss[self._motor_dof_addr] = self._fixed_motor_frictionloss
@@ -651,8 +660,12 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._dr_action_delay_steps_range[1] + 1,
         ))
         self._action_lag_tau_s = float(rng.uniform(*self._dr_action_lag_tau_range_s))
-        # Position-mode motor-bandwidth lag on the target (no-op in accel mode).
-        self._motor_tau_s = float(rng.uniform(*self._dr_motor_tau_range_s))
+        # Position-mode motor-bandwidth lag on the target. Not sampled in
+        # accel mode (unused there; keeps info["motor_tau_s"] honest).
+        self._motor_tau_s = (
+            float(rng.uniform(*self._dr_motor_tau_range_s))
+            if self.action_mode == "position_delta" else 0.0
+        )
         self._noise_std_pos = DR_OBS_NOISE_STD_POS_RAD
 
         # Per-episode stepper stiction. The lower bound includes 0 so that

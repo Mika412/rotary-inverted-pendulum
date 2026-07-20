@@ -25,6 +25,11 @@ const long BAUD_RATE = 2000000;
 // Accel-mode envelope. See pendulum_env.py for the corresponding sim
 // constants. The velocity cap below corresponds to MAX_VELOCITY_RAD_S
 // = 5 rad/s: 5 × (1600 steps/rev / 2π) ≈ 1273 steps/s ⇒ ~785 µs/step.
+// NB: this boot-time speed cap applies to BOTH command paths — the accel
+// mode it was sized for AND position-mode moveTo() tracking. Position-mode
+// commanded slew is max_action_delta × control rate (3.5 rad/s at defaults),
+// comfortably inside; raise those knobs past ~5 rad/s and this cap becomes
+// the binding limit here while sim and RLControl.ino (~196 rad/s) model none.
 const uint32_t MOTOR_MIN_STEP_US = 785;  // ≈ 5 rad/s
 
 // Ramp acceleration for position-mode moveTo() (CMD_SET_TARGET); matches

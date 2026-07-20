@@ -49,6 +49,7 @@ from run_config import check_config
 
 
 MOTOR_SAFE_LIMIT_RAD = math.radians(125.0)
+MOTOR_LIMIT_RAD = math.radians(135.0)  # obs-space bound; matches pendulum_env
 
 
 def _wrap_pi(x: float) -> float:
@@ -159,10 +160,10 @@ def main(argv: list[str] | None = None) -> int:
             # to [-1, 1] by SAC's tanh squash.
             observation_space = spaces.Box(
                 low=np.array(
-                    [-MOTOR_SAFE_LIMIT_RAD, -1.0, -1.0, -200.0, -200.0, -1.0],
+                    [-MOTOR_LIMIT_RAD, -1.0, -1.0, -200.0, -200.0, -1.0],
                     dtype=np.float32),
                 high=np.array(
-                    [MOTOR_SAFE_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0],
+                    [MOTOR_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0],
                     dtype=np.float32),
                 dtype=np.float32,
             )

@@ -38,8 +38,7 @@
 # Produces runs/<prefix>_stage{1,2,3}/, final policy at
 # runs/<prefix>_stage3/best_model.zip.
 #
-# Run from this directory with the rotary-inverted-pendulum mamba env
-# activated.
+# Run from this directory, e.g. `uv run bash curriculum_train.sh <prefix>`.
 #
 # Action mode: the DR knobs and 50 Hz rate here are tuned for accel mode
 # (the default). For a position-mode policy (RLControl.ino's mode), set
@@ -80,6 +79,8 @@ REWARD_ACTION_RATE_WEIGHT="${REWARD_ACTION_RATE_WEIGHT:-}"
 REWARD_STILLNESS_BONUS_WEIGHT="${REWARD_STILLNESS_BONUS_WEIGHT:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
+# Expanded via ${arr[@]+"${arr[@]}"} below — plain "${arr[@]}" on an empty
+# array trips `set -u` on macOS's bash 3.2.
 EXTRA_REWARD_ARGS=()
 if [ -n "$REWARD_ACTION_RATE_WEIGHT" ]; then
     EXTRA_REWARD_ARGS+=(--reward-action-rate-weight "$REWARD_ACTION_RATE_WEIGHT")
@@ -116,7 +117,7 @@ python -u train_sac.py \
     --control-freq "$CONTROL_FREQ" \
     --max-accel-rad-s2 "$MAX_ACCEL_RAD_S2" \
     "${COMMON_ARGS[@]}" \
-    "${EXTRA_REWARD_ARGS[@]}" \
+    ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --run-name "$run_stage1" \
     --seed "$SEED"
 
@@ -130,7 +131,7 @@ python -u train_sac.py \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S2" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S2" \
     "${COMMON_ARGS[@]}" \
-    "${EXTRA_REWARD_ARGS[@]}" \
+    ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --resume "runs/${run_stage1}/best_model.zip" \
     --run-name "$run_stage2" \
     --seed "$SEED"
@@ -145,7 +146,7 @@ python -u train_sac.py \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S3" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S3" \
     "${COMMON_ARGS[@]}" \
-    "${EXTRA_REWARD_ARGS[@]}" \
+    ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --resume "runs/${run_stage2}/best_model.zip" \
     --run-name "$run_stage3" \
     --seed "$SEED"
