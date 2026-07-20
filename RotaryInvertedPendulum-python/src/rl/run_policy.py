@@ -45,6 +45,7 @@ import numpy as np
 from stable_baselines3 import SAC
 
 from lowlevel_client import LowLevelClient
+from run_config import check_config
 
 
 MOTOR_SAFE_LIMIT_RAD = math.radians(125.0)
@@ -106,7 +107,21 @@ def main(argv: list[str] | None = None) -> int:
                         "training-time behaviour). Default is deterministic = mean. "
                         "Useful while ent_coef is still high and the deterministic "
                         "mean lands in degenerate compromises.")
+    p.add_argument("--ignore-config-mismatch", action="store_true",
+                   help="downgrade the config.json validation abort to a warning")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
+
+    # Validate flags against the checkpoint's recorded training config
+    # (both action modes share obs/action spaces, so a mismatch would
+    # otherwise fail silently on the rig). Checks the mode-relevant
+    # action scale only.
+    expected = {"action_mode": args.action_mode,
+                "control_freq_hz": float(args.control_freq)}
+    if args.action_mode == "accel":
+        expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
+    else:
+        expected["max_action_delta_rad"] = float(args.max_action_delta_rad)
+    check_config(args.policy, expected, ignore=args.ignore_config_mismatch)
 
     print(f"Loading policy from {args.policy}")
     if str(args.policy).endswith(".pt"):

@@ -59,6 +59,7 @@ from async_control import (
     TransitionQueue,
 )
 from real_env import RealRotaryInvertedPendulumEnv
+from run_config import check_config, find_run_config, save_run_config
 
 
 HERE = Path(__file__).resolve().parent
@@ -174,13 +175,36 @@ def main(argv: list[str] | None = None) -> int:
                         "matches the sim DR_CONTROL_DT_JITTER_FRAC constant — "
                         "sim and fine-tune should agree on the dt distribution. "
                         "Set 0.0 to disable for strict reproducible timing.")
+    p.add_argument("--ignore-config-mismatch", action="store_true",
+                   help="downgrade the config.json validation abort to a warning")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
+
+    # Validate flags against the source checkpoint's recorded training
+    # config — fine-tuning with mismatched action mode / rate / reward
+    # would silently corrupt the policy and the replay buffer.
+    expected = {
+        "action_mode": args.action_mode,
+        "control_freq_hz": float(args.control_freq),
+        "reward_action_rate_weight": float(args.reward_action_rate_weight or 0.0),
+        "reward_stillness_bonus_weight": float(args.reward_stillness_bonus_weight or 0.0),
+    }
+    if args.action_mode == "accel":
+        expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
+    else:
+        expected["max_action_delta_rad"] = float(args.max_action_delta_rad)
+    check_config(args.policy, expected, ignore=args.ignore_config_mismatch)
 
     # ---- Setup ----
     run_name = args.run_name or f"async_finetune_{time.strftime('%Y-%m-%d_%H%M')}"
     run_dir = RUNS_ROOT / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Run directory: {run_dir}")
+
+    # Record provenance for this run's own checkpoints: carry the source
+    # policy's config forward, overridden by the knobs used here.
+    config = dict(find_run_config(args.policy) or {})
+    config.update(expected)
+    save_run_config(run_dir, config)
 
     env_kwargs = dict(
         port=args.port,

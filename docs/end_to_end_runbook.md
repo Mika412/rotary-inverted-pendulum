@@ -66,6 +66,12 @@ Training, fine-tuning, and deployment must all use the same `--action-mode`.
 One flashed `LowLevelServer` serves both modes (`CMD_SET_ACCEL` /
 `CMD_SET_TARGET`); the host picks per command.
 
+This is enforced automatically: training records its must-match knobs in
+`runs/<name>/config.json`, and `run_policy.py` / `finetune_async.py` /
+`train_sac.py --resume/--eval` abort on a mismatch (override with
+`--ignore-config-mismatch`). Checkpoints predating `config.json` skip the
+check.
+
 ## Prerequisites
 
 - macOS / Linux dev box with `arduino-cli`, the `arduino:avr` core, and

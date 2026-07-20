@@ -29,11 +29,41 @@ from stable_baselines3.common.callbacks import (
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
-from pendulum_env import RotaryInvertedPendulumEnv
+from pendulum_env import (
+    MAX_ACTION_DELTA_RAD,
+    MAX_VELOCITY_RAD_S,
+    RotaryInvertedPendulumEnv,
+)
+from run_config import check_config, save_run_config
 
 
 HERE = Path(__file__).resolve().parent
 RUNS_ROOT = HERE / "runs"
+
+
+def _resolved_config(args: argparse.Namespace) -> dict:
+    """The config knobs that must match across train/fine-tune/deploy,
+    with None CLI values resolved to the env defaults they map to."""
+    return {
+        "action_mode": args.action_mode,
+        "control_freq_hz": float(args.control_freq),
+        "max_accel_rad_s2": float(args.max_accel_rad_s2),
+        "max_action_delta_rad": float(
+            args.max_action_delta_rad if args.max_action_delta_rad is not None
+            else MAX_ACTION_DELTA_RAD
+        ),
+        "max_velocity_rad_s": float(
+            args.max_velocity_rad_s if args.max_velocity_rad_s is not None
+            else MAX_VELOCITY_RAD_S
+        ),
+        "reward_action_rate_weight": float(args.reward_action_rate_weight or 0.0),
+        "reward_stillness_bonus_weight": float(args.reward_stillness_bonus_weight or 0.0),
+        "reward_motor_jerk_weight": float(args.reward_motor_jerk_weight or 0.0),
+        "reward_motor_vel_weight": (
+            float(args.reward_motor_vel_weight)
+            if args.reward_motor_vel_weight is not None else 0.005
+        ),
+    }
 
 
 def make_env(
@@ -89,10 +119,19 @@ def make_env(
 
 
 def train(args: argparse.Namespace) -> Path:
+    # Guard resume against silently switching the must-match knobs
+    # (checked before creating the run dir so an abort leaves no debris).
+    config = _resolved_config(args)
+    if args.resume:
+        check_config(args.resume, config, ignore=args.ignore_config_mismatch)
+
     run_name = args.run_name or f"sac_{time.strftime('%Y-%m-%d_%H%M')}"
     run_dir = RUNS_ROOT / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
     print(f"Run directory: {run_dir}")
+
+    # Record the knobs so deploy/fine-tune can validate their flags.
+    save_run_config(run_dir, config)
 
     dr_accel = (args.dr_accel_min, args.dr_accel_max) if args.dr_accel_max is not None else None
     dr_delay = (args.dr_delay_min, args.dr_delay_max) if args.dr_delay_max is not None else None
@@ -190,6 +229,8 @@ def train(args: argparse.Namespace) -> Path:
 
 
 def evaluate(args: argparse.Namespace) -> None:
+    check_config(args.eval, _resolved_config(args),
+                 ignore=args.ignore_config_mismatch)
     print(f"Loading {args.eval}")
     # Eval env must match the training config — control rate especially,
     # since a 75 Hz-trained policy run at 35 Hz produces garbage. Reward
@@ -367,6 +408,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--eval", default=None,
                    help="if set, skip training and render an eval rollout from this checkpoint")
     p.add_argument("--eval-seconds", type=float, default=30.0)
+    p.add_argument("--ignore-config-mismatch", action="store_true",
+                   help="downgrade the config.json validation abort (on "
+                        "--resume / --eval) to a warning")
     return p.parse_args(argv)
 
 
