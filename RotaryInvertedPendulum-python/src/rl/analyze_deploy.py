@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import math
 import sys
 from pathlib import Path
 
@@ -131,6 +132,115 @@ def steady_state_stats(log: dict, settle_s: float = 1.0,
     )
 
 
+def honest_balance_metrics(
+    log: dict,
+    *,
+    theta_thresh_rad: float = math.radians(15.0),
+    pen_vel_thresh_rad_s: float = 2.0,
+    catch_min_s: float = 1.0,
+    calm_motor_vel_rms_rad_s: float = 1.5,
+) -> dict:
+    """Balance metrics that cannot be fooled by spinning or vibrational policies.
+
+    The legacy `avg upright proxy` is mean (1+cos θ)/2, which scores ~0.7–0.8
+    for a pendulum spinning continuously (it moves slowest near the top, so
+    time-weighting concentrates there) and 0.95+ for a Kapitza-style
+    vibrational policy. Here a sample only counts as *balanced* when the
+    pendulum is BOTH near upright AND slow:
+
+        balanced := |θ| ≤ theta_thresh AND |θ̇| ≤ pen_vel_thresh
+
+    Reported:
+      - balanced_frac           fraction of ALL samples that are balanced
+      - longest_streak_s        longest contiguous balanced run
+      - n_catches               balanced runs lasting ≥ catch_min_s
+      - time_to_first_catch_s   start of the first such run (nan if none)
+      - n_revolutions_gross     pendulum-angle total excursion / 2π — a
+                                spinning policy racks these up, a balancing
+                                one stays < 1 after the swing-up
+      - spin_through_count      upright-band entries at high |θ̇| (passes
+                                through the top without catching)
+      - motor_vel_rms_balanced  arm-vel RMS over balanced samples only:
+                                calm corrective policy ≲ 1 rad/s, Kapitza/
+                                active-correction ≳ 2–3 rad/s
+      - verdict                 BALANCED / VIBRATIONAL / SPINNING / FAILED
+    """
+    theta = _theta_to_upright(log["pendulum_pos"])
+    pen_vel = log["pendulum_vel"]
+    mv = log["motor_vel"]
+    t = log["t"]
+    n = len(t)
+    dt = float(np.median(np.diff(t))) if n > 1 else 0.0
+
+    in_band = np.abs(theta) <= theta_thresh_rad
+    slow = np.abs(pen_vel) <= pen_vel_thresh_rad_s
+    balanced = in_band & slow
+
+    # Contiguous balanced runs.
+    padded = np.concatenate([[False], balanced, [False]]).astype(np.int8)
+    edges = np.flatnonzero(np.diff(padded))
+    starts, ends = edges[::2], edges[1::2]
+    run_lengths_s = (ends - starts) * dt
+    longest_streak_s = float(run_lengths_s.max()) if len(run_lengths_s) else 0.0
+    catches = run_lengths_s >= catch_min_s
+    n_catches = int(catches.sum())
+    time_to_first_catch_s = (
+        float(t[starts[np.flatnonzero(catches)[0]]]) if n_catches else float("nan")
+    )
+
+    # Gross rotation: total pendulum-angle excursion in revolutions. The
+    # firmware tracks multi-turn already; unwrap is a no-op then, but keeps
+    # this correct for logs that stored wrapped angles.
+    unwrapped = np.unwrap(log["pendulum_pos"])
+    n_revolutions_gross = float(np.abs(np.diff(unwrapped)).sum() / (2 * np.pi))
+
+    # Upright-band entries at spin speed (crossed the top without catching).
+    entries = np.flatnonzero(in_band[1:] & ~in_band[:-1]) + 1
+    spin_through_count = int(np.sum(np.abs(pen_vel[entries]) > pen_vel_thresh_rad_s))
+
+    mv_bal = mv[balanced]
+    motor_vel_rms_balanced = (
+        float(np.sqrt((mv_bal ** 2).mean())) if len(mv_bal) else float("nan")
+    )
+
+    if longest_streak_s >= 3.0 and motor_vel_rms_balanced <= calm_motor_vel_rms_rad_s:
+        verdict = "BALANCED (calm corrective feedback)"
+    elif longest_streak_s >= 3.0:
+        verdict = "VIBRATIONAL (upright but arm working hard — Kapitza/active)"
+    elif n_revolutions_gross >= 3.0 and spin_through_count >= 2:
+        verdict = "SPINNING (revolving through upright, never catching)"
+    else:
+        verdict = "FAILED (no sustained catch)"
+
+    return dict(
+        theta_thresh_deg=math.degrees(theta_thresh_rad),
+        pen_vel_thresh_rad_s=pen_vel_thresh_rad_s,
+        balanced_frac=float(balanced.mean()) if n else 0.0,
+        longest_streak_s=longest_streak_s,
+        n_catches=n_catches,
+        catch_min_s=catch_min_s,
+        time_to_first_catch_s=time_to_first_catch_s,
+        n_revolutions_gross=n_revolutions_gross,
+        spin_through_count=spin_through_count,
+        motor_vel_rms_balanced=motor_vel_rms_balanced,
+        verdict=verdict,
+    )
+
+
+def print_honest_metrics(m: dict) -> None:
+    print(f"    — honest balance metrics (|θ| ≤ {m['theta_thresh_deg']:.0f}°"
+          f" AND |θ̇| ≤ {m['pen_vel_thresh_rad_s']:.1f} rad/s) —")
+    print(f"    balanced fraction:        {m['balanced_frac']:.3f}")
+    print(f"    longest balanced streak:  {m['longest_streak_s']:.2f} s")
+    first = (f"  (first at t={m['time_to_first_catch_s']:.1f}s)"
+             if m["n_catches"] else "")
+    print(f"    catches (≥{m['catch_min_s']:.0f}s):            {m['n_catches']}{first}")
+    print(f"    pendulum revolutions:     {m['n_revolutions_gross']:.1f} gross, "
+          f"{m['spin_through_count']} fast passes through the upright band")
+    print(f"    motor_vel RMS (balanced): {m['motor_vel_rms_balanced']:.2f} rad/s")
+    print(f"    verdict:                  {m['verdict']}")
+
+
 def print_stats(log: dict, stats: dict) -> None:
     print(f"\n  {Path(log['path']).name}  ({log['control_freq_hz']:.0f} Hz, "
           f"MAX_ACCEL={log['max_accel']:.0f} rad/s²)")
@@ -220,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
     for log in logs:
         stats = steady_state_stats(log, settle_s=args.settle_s)
         print_stats(log, stats)
+        print_honest_metrics(honest_balance_metrics(log))
 
     if args.out:
         out_path = Path(args.out)

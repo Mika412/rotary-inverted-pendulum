@@ -48,6 +48,7 @@ import numpy as np
 from stable_baselines3 import SAC
 
 from pendulum_env import RotaryInvertedPendulumEnv, _wrap_pi
+from run_config import find_run_config
 
 
 def evaluate_one(model, env, *, episode_steps: int, upright_threshold_rad: float,
@@ -67,7 +68,12 @@ def evaluate_one(model, env, *, episode_steps: int, upright_threshold_rad: float
         # Recompute theta in env's sim convention (theta=0 upright).
         phi = float(info["phi"])
         theta = _wrap_pi(phi - math.pi)
-        upright = abs(theta) <= upright_threshold_rad
+        # Gate on pendulum velocity too (obs[4]) — a θ-band-only criterion
+        # scores samples where the pendulum swings *through* upright at
+        # speed, so spinning/Kapitza policies inflate it. 2 rad/s matches
+        # analyze_deploy.honest_balance_metrics.
+        pen_vel = float(obs[4])
+        upright = abs(theta) <= upright_threshold_rad and abs(pen_vel) <= 2.0
         upright_history.append(upright)
         motor_pos_history.append(float(info["motor_pos"]))
 
@@ -111,6 +117,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--success-frac", type=float, default=0.9,
                    help="trailing-window upright fraction needed to call an episode 'solved'")
     p.add_argument("--device", default="cpu")
+    p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
+                   default=None,
+                   help="default: read from the checkpoint's config.json "
+                        "(fallback 'accel'). The action scales "
+                        "(max_accel/max_velocity/max_action_delta) are also "
+                        "taken from config.json when present.")
     p.add_argument("--no-randomize", action="store_true",
                    help="evaluate on the deterministic env instead")
     # DR range overrides. Module defaults sit on the wide side; pass these to
@@ -139,13 +151,30 @@ def main(argv: list[str] | None = None) -> int:
             p.error("--dr-accel-min and --dr-accel-max must be provided together")
         accel_range = (args.dr_accel_min, args.dr_accel_max)
 
-    env = RotaryInvertedPendulumEnv(
+    # Action mode + scales come from the checkpoint's recorded config so the
+    # eval env matches what the policy was trained on (both modes share the
+    # same obs/action spaces, so a mismatch fails silently otherwise).
+    cfg = find_run_config(args.policy) or {}
+    action_mode = args.action_mode or cfg.get("action_mode", "accel")
+    env_kwargs = dict(
         control_freq_hz=args.control_freq,
         episode_length_s=args.episode_length_s,
+        action_mode=action_mode,
+        obs_history_len=int(cfg.get("obs_history_len") or 1),
+        obs_include_velocities=bool(cfg.get("obs_include_velocities", True)),
+        firmware_obs_model=bool(cfg.get("firmware_obs_model", False)),
         domain_randomization=not args.no_randomize,
         dr_action_delay_steps_range=delay_range,
         dr_motor_accel_range_rad_s2=accel_range,
     )
+    for cfg_key, env_key in (("max_accel_rad_s2", "max_accel_rad_s2"),
+                             ("max_velocity_rad_s", "max_velocity_rad_s"),
+                             ("max_action_delta_rad", "max_action_delta_rad")):
+        if cfg.get(cfg_key) is not None:
+            env_kwargs[env_key] = float(cfg[cfg_key])
+    print(f"Eval env: action_mode={action_mode}"
+          + (" (from config.json)" if args.action_mode is None and cfg else ""))
+    env = RotaryInvertedPendulumEnv(**env_kwargs)
     if delay_range is not None or accel_range is not None:
         print(f"DR overrides: delay={delay_range} steps, accel={accel_range} rad/s²")
     # Make per-episode RNG distinct.

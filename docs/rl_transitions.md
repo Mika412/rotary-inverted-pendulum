@@ -52,6 +52,34 @@ network would see a discontinuity right next to one of its operating
 points (hanging down). `(sin θ, cos θ)` is a continuous unit-circle
 embedding — no jump, no gradient cliff.
 
+**Frame stacking (`obs_history_len`, default 1).** The observation can
+be the concatenation of the last K 6-dim frames (oldest → newest; at
+reset the stack is seeded with K copies of the initial frame). Since
+each frame carries `prev_action`, K > 1 gives the policy observation
+AND action history at once: it can filter the firmware's ~±0.4 rad/s
+velocity-quantisation spikes itself, infer the per-episode θ-bias from
+its own arm drift (a memoryless policy can only be *robust* to the
+bias, never *estimate* it), and account for the ~17 ms in-flight
+command. K must match across training, fine-tuning, and deployment —
+it changes the obs shape, is recorded in `config.json`, and the
+deploy/fine-tune entrypoints inherit it from the checkpoint
+automatically. The on-device path (`distill.py` → `RLControl.ino`)
+predates this knob and only supports K = 1 until both grow matching
+frame buffers.
+
+**Positions-only frames (`obs_include_velocities=False`,
+`--drop-velocity-obs`).** With stacking in place the velocities can be
+dropped from the frames entirely ([motor_pos, sin θ, cos θ,
+prev_action]); the policy derives its own velocity estimate from the
+position history. This removes the finite-difference window — and its
+±0.4 rad/s quantisation spikes and any filter lag — from the loop, and
+shrinks the sim/real observation gap to the position channels (which
+sim already quantises to the encoder LSB under DR). Velocities are
+still read from the firmware for the reward, the rest detection, and
+the deploy logs — they just aren't shown to the policy. Requires
+`obs_history_len >= 2` (use 4); recorded in `config.json` and inherited
+from the checkpoint by deploy/fine-tune.
+
 **How `s` is built**:
 
 - **Sim** (`pendulum_env.py::_obs`): read `qpos`/`qvel` directly from
@@ -167,10 +195,34 @@ where:
 - **α̇** = motor_vel. `k_α̇=0.005` discourages frantic arm motion.
 - **a** = action ∈ [−1, 1]. `k_a=0.05` light penalty for jerky control.
 
-Reward is **purely non-positive** — max 0 when fully balanced still at
-centre with no motor activity, around −10 per step at hanging-down.
-SAC handles negative rewards fine, and the all-negative signal makes
-"less negative" gradient toward upright unambiguous.
+**Alive terms (added 2026-07-21, audit finding F1).** On top of the
+quadratic cost, the default training reward now adds:
+
+```
+r += k_alive_offset                                   (default 15.0)
+r += k_upright_alive · 1{|θ| ≤ 15° AND |θ̇| ≤ 2 rad/s} (default 5.0)
+```
+
+Rationale: the purely non-positive cost *combined with hard-stop
+termination* made early termination attractive — hanging for a full
+8 s episode costs ≈ −4000, while crashing into the rail costs a few
+hundred total, so "drive into the wall" was a strong local optimum
+(the observed stage-2/3 training collapses). The constant offset is
+chosen above the worst realistic per-step cost (~14), making per-step
+reward non-negative so terminating always forfeits value. The
+velocity-gated upright bonus pays only for *caught* balance — a
+pendulum swinging through the upright band at speed earns nothing —
+using the same gates as `analyze_deploy.py`'s honest balance metrics,
+so training optimises exactly what deployment certifies. Set both to
+0 (`--reward-alive-offset 0 --reward-upright-alive-weight 0`) to
+recover the legacy canonical reward; the values are recorded in
+`config.json` and must match between training and fine-tuning.
+
+With the alive terms at 0 the reward is **purely non-positive** — max 0
+when fully balanced still at centre with no motor activity, around −10
+per step at hanging-down. SAC handles negative rewards fine, and the
+all-negative signal makes "less negative" gradient toward upright
+unambiguous — but see the termination caveat above.
 
 **What the policy actually learns to do:**
 

@@ -222,8 +222,10 @@ cython_debug/
 # RL training artifacts
 RotaryInvertedPendulum-python/src/rl/runs/
 
-# Sysid raw recordings (large binaries; the JSON fit is the artifact, not the raw stream)
-RotaryInvertedPendulum-python/src/rl/recordings/*.npz
+# Raw recordings — sysid free-swings and preserved deploy logs (large
+# binaries; the JSON fit / analysis conclusions are the artifacts, not the
+# raw streams)
+RotaryInvertedPendulum-python/src/rl/recordings/
 
 # Sysid wizard timestamped run dirs (raw .npz + per-run JSON; the canonical
 # sysid_params.json at the rl/ root is what's versioned)
