@@ -15,6 +15,12 @@ Action (1-dim, in [-1, 1]) — interpreted per `action_mode`:
     - "accel" (default): commanded angular acceleration in
       [-max_accel, +max_accel] rad/s²; integrated to a capped velocity and
       then a position target fed to the PD actuator.
+    - "velocity": commanded angular velocity in [-max_vel, +max_vel] rad/s.
+      Converted to an acceleration each tick via a saturating P-law
+      (accel = clip((v_des − v)/dt, ±max_accel)) and then integrated exactly
+      like accel mode — same firmware transport (CMD_SET_ACCEL), one fewer
+      integrator between action and pendulum coupling. The velocity cap
+      becomes the explicit action bound instead of a hidden saturation.
     - "position_delta": per-step motor-position delta
       (action × max_action_delta_rad), integrated into the commanded target,
       clamped, and fed to the PD actuator through a first-order
@@ -70,6 +76,25 @@ GRAVITY = 9.81
 
 # AS5600 encoder resolution.
 PENDULUM_LSB_RAD = 2.0 * math.pi / 4096.0
+
+# Firmware measurement model (see LowLevelServer.ino). The firmware keeps a
+# 500 Hz ring buffer of encoder samples; GET_STATE returns positions from
+# the newest sample and velocities as (newest − oldest)/Δt over a 5-sample
+# (8 ms) window. Motor position is the step counter (1600 steps/rev with
+# 8× microstepping); the pendulum is the 12-bit AS5600. Quantised finite
+# differences over the window reproduce the rig's velocity spikes
+# mechanistically: ±1 pendulum LSB across the window ≈ 0.19 rad/s, ±1 motor
+# step ≈ 0.49 rad/s — matching the ~±0.4 rad/s spikes measured on a
+# stationary pendulum. Enabled via `firmware_obs_model`; when on it feeds
+# both the observation AND the velocity-mode P-law (the real host uses the
+# same GET_STATE read for both).
+MOTOR_STEP_LSB_RAD = 2.0 * math.pi / 1600.0
+FIRMWARE_VEL_WINDOW_S = 0.008
+# Age of the state snapshot by the time the host acts on it: encoder sample
+# age (0–2 ms at 500 Hz) plus the GET_STATE serial round-trip. Randomised
+# per episode under DR; fixed nominal otherwise (and in replay).
+OBS_STALENESS_NOMINAL_S = 0.004
+DR_OBS_STALENESS_RANGE_S = (0.002, 0.010)
 
 # Pendulum mass / COM / I_com_swing come from `pendulum_geometry.py`,
 # which parses the URDF (single source of truth shared with Julia +
@@ -157,7 +182,19 @@ DR_OBS_NOISE_STD_POS_RAD = 0.005
 # physics, the reward, and the eval env are unchanged). 0.05 rad ≈ 2.9°
 # brackets the measured rest band with headroom.
 DR_THETA_BIAS_MAX_RAD = 0.05
-DR_OBS_NOISE_STD_VEL_RAD_S = 0.05
+# Velocity-observation noise. The firmware computes velocity as
+# (newest − oldest)/Δt over an ~8 ms window of 12-bit AS5600 samples, so
+# ±1 LSB of quantisation/I²C jitter alone produces spikes up to
+# ~0.4 rad/s on a stationary pendulum (measured — see the rest-detection
+# analysis in real_env.py). The previous 0.05 understated that by ~4–8×,
+# training policies against far cleaner velocities than the rig delivers.
+# 0.15 puts the measured spike level at ~2.7σ.
+DR_OBS_NOISE_STD_VEL_RAD_S = 0.15
+# With `firmware_obs_model` on, the quantised finite-difference produces the
+# spike floor mechanistically, so the additive Gaussian drops to a residual
+# covering what the mechanism doesn't (I²C jitter, sample-time jitter).
+# Keeping 0.15 on top would double-count the quantisation noise.
+DR_OBS_NOISE_STD_VEL_RESIDUAL_RAD_S = 0.05
 DR_CONTROL_DT_JITTER_FRAC = 0.05        # ±5% jitter on physics steps per control.
                                          # Empirically valuable: the legacy
                                          # variable-rate fine-tune (rate
@@ -253,22 +290,26 @@ def build_mjcf(p: PendulumParams) -> str:
 
     # PD position-actuator gains. The motor joint sees the FULL effective
     # inertia (arm parallel-axis + pendulum mass at arm tip + pendulum
-    # self-inertia about its own joint), not just arm_I. Originally we
-    # set `kv = 2·√(kp · arm_I)` which used a value ~14× too small,
-    # giving a severely-underdamped PD that under-tracked the integrated
-    # accel-mode position target.
+    # self-inertia about its own joint), not just arm_I; kv is critical
+    # damping against that inertia.
     #
-    # Sysid_accel comparison (2026-05-16, pendulum held) showed sim
-    # reaching only 73 % of real's peak motor velocity (3.49 vs 5.5 rad/s)
-    # with kp=10. Sweeping kp + recomputing kv against the full joint
-    # inertia gave kp=100 → sim peak v = 4.88 rad/s ≈ 89 % of real.
-    # kp ≥ 200 destabilises the RK4 integrator at the env's 1 ms physics
-    # timestep.
+    # kp models the stepper's stiffness, and a stepper is a near-RIGID
+    # position source: its holding torque (~0.4 N·m) dwarfs the pendulum's
+    # reaction torque (~0.02 N·m), so the physical arm follows the step
+    # profile essentially exactly. The old kp=100 was compliant enough
+    # that the pendulum's reaction rang the sim arm at ±rad/s — plant
+    # texture the rig doesn't have, which policies then overfit to. The
+    # historical "kp ≥ 200 destabilises the integrator" ceiling was NOT a
+    # timestep limit: it was the control-rate STAIRCASE target hammering
+    # the servo with one large impulse per tick. With the target
+    # interpolated at substep resolution (see step()), kp=1000 is stable
+    # under implicitfast at the 1 ms timestep and tracks the commanded
+    # path to ~2 mrad / ~0.08 rad/s.
     I_arm_about_motor = arm_I + ARM_MASS_KG * ARM_COM_M ** 2
     I_pen_at_arm_tip  = p.pendulum_mass_kg * ARM_LENGTH_M ** 2
     I_pen_self        = p.pendulum_mass_kg * p.pendulum_com_m ** 2 + PENDULUM_I_COM_SWING_KG_M2
     I_motor_joint     = I_arm_about_motor + I_pen_at_arm_tip + I_pen_self
-    kp = 100.0
+    kp = 1000.0
     kv = 2.0 * math.sqrt(kp * I_motor_joint)  # critical damping
 
     return f"""<?xml version="1.0"?>
@@ -337,6 +378,46 @@ class RotaryInvertedPendulumEnv(gym.Env):
         max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # accel-mode: velocity saturation cap
         max_action_delta_rad: float = MAX_ACTION_DELTA_RAD,  # position-mode: action × this = per-step target delta
         episode_length_s: float = 8.0,
+        # Fraction of episodes that start NEAR UPRIGHT instead of hanging.
+        # With hanging-only resets the catch/balance skill only receives
+        # gradient after a successful swing-up, which makes DR stage
+        # transitions brittle (observed: stage-2/3 collapses where the
+        # policy regresses to spinning/crashing). Mixing in near-upright
+        # starts trains the catch directly (Quanser-style initial-state
+        # randomisation; balance-first curricula in the Furuta RL
+        # literature). 0.0 preserves the legacy hanging-only behaviour;
+        # the eval env must pass 0.0 so best-model selection still scores
+        # the full swing-up + balance task.
+        upright_reset_frac: float = 0.0,
+        # Number of past frames in the observation (1 = legacy single frame).
+        # Each 6-dim frame already carries prev_action, so stacking K frames
+        # gives the policy BOTH observation history (filter velocity noise,
+        # infer the per-episode θ-bias from arm drift) and action history
+        # (reason about the ~17 ms in-flight command) in one knob. Frames
+        # concatenate oldest → newest; at reset the history is seeded with
+        # K copies of the initial frame. Must match between training,
+        # fine-tuning, and deployment (recorded in config.json).
+        obs_history_len: int = 1,
+        # Include velocities in each observation frame (legacy True). With
+        # False the frame is [motor_pos, sin θ, cos θ, prev_action] and the
+        # policy must derive velocities from the stacked position history —
+        # theoretically cleanest: no hand-picked finite-difference window or
+        # filter lag in the loop, and the sim/real observation gap shrinks
+        # to the position channels (which sim already quantises under DR).
+        # Requires obs_history_len >= 2 (a single positional frame is not
+        # Markovian); recommended 4. Recorded in config.json (must-match).
+        obs_include_velocities: bool = True,
+        # Model the firmware's measurement pipeline instead of reading MuJoCo
+        # state directly: positions quantised to encoder/step resolution,
+        # velocities as finite differences over the firmware's 8 ms window,
+        # the whole snapshot stale by `obs_staleness_s` — applied to the
+        # observation AND the velocity-mode P-law feedback (the real host
+        # uses one GET_STATE read for both). Sim-only realism knob: does not
+        # change obs shape, so checkpoints remain loadable either way, but
+        # policies should be trained and sim-evaluated with the same setting.
+        firmware_obs_model: bool = False,
+        obs_staleness_s: float | None = None,  # None → OBS_STALENESS_NOMINAL_S
+        dr_obs_staleness_range_s: tuple[float, float] | None = None,
         # Weights tuned for the standard quadratic-cost reward (see _reward).
         # At worst-case the per-step cost reaches ~22 (most of which is the
         # θ² term, max ~9.87 at hanging-down).
@@ -365,6 +446,14 @@ class RotaryInvertedPendulumEnv(gym.Env):
         reward_stillness_bonus_weight: float | None = None,
         reward_stillness_sigma_theta_rad: float = 0.3,        # bonus active within ~17°
         reward_stillness_sigma_motor_vel_rad_s: float = 1.0,  # full bonus only at α̇ < ~1 rad/s
+        # Alive terms (audit F1, 2026-07-21). Offset makes the per-step
+        # reward non-negative so terminating (hard-stop crash) always
+        # forfeits value; velocity-gated upright bonus makes spin-through
+        # farming unprofitable. None → 0 (canonical all-negative reward).
+        # See reward.py for the full rationale and recommended values
+        # (offset 15.0, upright alive 5.0).
+        reward_alive_offset: float | None = None,
+        reward_upright_alive_weight: float | None = None,
         reward_motor_jerk_weight: float | None = None,  # NEW (not in the Quanser
         # paper): penalty on (motor_vel_t - motor_vel_{t-1})², i.e. the physical
         # motor's change in angular velocity. Distinct from
@@ -401,9 +490,10 @@ class RotaryInvertedPendulumEnv(gym.Env):
         dr_theta_bias_max_rad: float | None = None,  # None → DR_THETA_BIAS_MAX_RAD
     ):
         super().__init__()
-        if action_mode not in ("accel", "position_delta"):
+        if action_mode not in ("accel", "velocity", "position_delta"):
             raise ValueError(
-                f"action_mode must be 'accel' or 'position_delta', got {action_mode!r}"
+                f"action_mode must be 'accel', 'velocity', or 'position_delta', "
+                f"got {action_mode!r}"
             )
         self.params = PendulumParams.load(params_path)
         self.control_freq_hz = control_freq_hz
@@ -412,6 +502,38 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self.max_velocity_rad_s = max_velocity_rad_s
         self.max_action_delta_rad = max_action_delta_rad
         self.episode_length_s = episode_length_s
+        if not 0.0 <= upright_reset_frac <= 1.0:
+            raise ValueError(f"upright_reset_frac must be in [0, 1], got {upright_reset_frac}")
+        self.upright_reset_frac = float(upright_reset_frac)
+        if int(obs_history_len) < 1:
+            raise ValueError(f"obs_history_len must be >= 1, got {obs_history_len}")
+        self.obs_history_len = int(obs_history_len)
+        self.obs_include_velocities = bool(obs_include_velocities)
+        if not self.obs_include_velocities and self.obs_history_len < 2:
+            raise ValueError(
+                "obs_include_velocities=False needs obs_history_len >= 2 — "
+                "velocities must be inferable from the position history"
+            )
+        self._obs_history: deque = deque(maxlen=self.obs_history_len)
+        self.firmware_obs_model = bool(firmware_obs_model)
+        self._fixed_obs_staleness_s = (
+            float(obs_staleness_s) if obs_staleness_s is not None
+            else OBS_STALENESS_NOMINAL_S
+        )
+        self._dr_obs_staleness_range_s = (
+            dr_obs_staleness_range_s if dr_obs_staleness_range_s is not None
+            else DR_OBS_STALENESS_RANGE_S
+        )
+        self._obs_staleness_s = self._fixed_obs_staleness_s
+        # Ring of (motor_qpos, pendulum_qpos) captured every physics substep,
+        # continuous across control steps within an episode. Sized to cover
+        # the velocity window + worst-case staleness with margin.
+        self._meas_ring: deque = deque(maxlen=32)
+        self._prev_cmd_pos = 0.0
+        self._meas_motor_pos = 0.0
+        self._meas_pen_phi = 0.0
+        self._meas_motor_vel = 0.0
+        self._meas_pen_vel = 0.0
         # All reward terms live in a single RewardWeights dataclass so the
         # sim env and the real env (real_env.py) share one source of truth.
         # Add new terms to reward.py, not here. None at call site → use
@@ -435,6 +557,14 @@ class RotaryInvertedPendulumEnv(gym.Env):
             ),
             sigma_theta=float(reward_stillness_sigma_theta_rad),
             sigma_motor_vel=float(reward_stillness_sigma_motor_vel_rad_s),
+            k_alive_offset=(
+                float(reward_alive_offset)
+                if reward_alive_offset is not None else 0.0
+            ),
+            k_upright_alive=(
+                float(reward_upright_alive_weight)
+                if reward_upright_alive_weight is not None else 0.0
+            ),
         )
         self._prev_action = 0.0
         self._prev_motor_vel = 0.0  # tracked for the motor-jerk reward term
@@ -491,6 +621,13 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self._n_substeps = max(1, n_substeps)
         self._dt_control = self._n_substeps * physics_dt
 
+        # Size the measurement ring for the velocity window plus worst-case
+        # staleness at the actual physics dt (replaces the placeholder above).
+        self._meas_win_substeps = max(1, int(round(FIRMWARE_VEL_WINDOW_S / physics_dt)))
+        stale_max_s = max(self._fixed_obs_staleness_s, self._dr_obs_staleness_range_s[1])
+        stale_max_substeps = int(math.ceil(stale_max_s / physics_dt))
+        self._meas_ring = deque(maxlen=self._meas_win_substeps + stale_max_substeps + 2)
+
         self._max_steps = int(episode_length_s * control_freq_hz)
         self._step_count = 0
         # Accel-mode state: action commands accel; we integrate to vel (capped)
@@ -511,6 +648,11 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # `_lagged_action` is the filter's internal state, reset each episode.
         self._action_lag_tau_s = 0.0
         self._lagged_action = 0.0
+        # Velocity-mode transport lag state: the P-law runs host-side with
+        # no delay, so lag/queue apply to the accel COMMAND it sends, not to
+        # the policy's velocity setpoint.
+        self._lagged_accel_cmd = 0.0
+        self._accel_cmd_queue: deque = deque()
 
         # Cache joint addresses (faster than name lookup each step).
         self._motor_qpos_addr = self.model.jnt_qposadr[
@@ -543,9 +685,12 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # document the expected scale. Last dim is prev_action ∈ [-1, 1]
         # — gives the policy an implicit read on its own command pipeline,
         # which restores Markov property under action delay (POMDP→MDP).
-        obs_high = np.array(
-            [MOTOR_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0], dtype=np.float32
+        frame_high = (
+            np.array([MOTOR_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0], dtype=np.float32)
+            if self.obs_include_velocities
+            else np.array([MOTOR_LIMIT_RAD, 1.0, 1.0, 1.0], dtype=np.float32)
         )
+        obs_high = np.tile(frame_high, self.obs_history_len)
         self.observation_space = spaces.Box(low=-obs_high, high=obs_high, dtype=np.float32)
 
         self._viewer = None
@@ -566,6 +711,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._action_lag_tau_s = self._fixed_action_lag_tau_s
             self._motor_tau_s = self._fixed_motor_tau_s
             self._noise_std_pos = 0.0
+            self._obs_staleness_s = self._fixed_obs_staleness_s
             # Reset model params to nominal in case a previous episode set them.
             self.model.dof_frictionloss[self._motor_dof_addr] = self._fixed_motor_frictionloss
 
@@ -584,6 +730,9 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self._action_queue = deque([0.0] * self._action_delay_steps,
                                    maxlen=max(1, self._action_delay_steps + 1))
         self._lagged_action = 0.0
+        self._lagged_accel_cmd = 0.0
+        self._accel_cmd_queue = deque([0.0] * self._action_delay_steps,
+                                      maxlen=max(1, self._action_delay_steps + 1))
 
         # Pendulum hangs down -> joint position pi (since theta=0 is upright,
         # and the joint is wired so theta = joint_pos = 0 means pendulum-down).
@@ -597,21 +746,58 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # time. Magnitude 0.7 × safe limit (≈ ±88°) keeps reset clear of
         # the immediate ±125° clamp while covering most of the working
         # range.
-        phi0 = self.np_random.uniform(-0.05, 0.05)
+        # A fraction of episodes start near upright (joint phi = pi ± 0.3,
+        # gentle spin) so the catch/balance skill gets direct gradient
+        # signal instead of only appearing after a successful swing-up.
+        if (self.upright_reset_frac > 0.0
+                and self.np_random.random() < self.upright_reset_frac):
+            phi0 = math.pi + self.np_random.uniform(-0.3, 0.3)
+            pen_vel0 = self.np_random.uniform(-0.5, 0.5)
+        else:
+            phi0 = self.np_random.uniform(-0.05, 0.05)
+            pen_vel0 = 0.0
         self.data.qpos[self._motor_qpos_addr] = self.np_random.uniform(
             -0.7 * MOTOR_SAFE_LIMIT_RAD, 0.7 * MOTOR_SAFE_LIMIT_RAD
         )
         self.data.qpos[self._pen_qpos_addr] = phi0
         self.data.qvel[self._motor_qvel_addr] = 0.0
-        self.data.qvel[self._pen_qvel_addr] = 0.0
+        self.data.qvel[self._pen_qvel_addr] = pen_vel0
         self._motor_target = float(self.data.qpos[self._motor_qpos_addr])
         self._lagged_target = self._motor_target  # start the lag at the true start pos
+        self._prev_cmd_pos = self._motor_target   # substep interpolation anchor
         self._motor_vel = 0.0
         self._step_count = 0
         self._prev_action = 0.0
         self._prev_motor_vel = 0.0
+        self._obs_history.clear()  # _obs() reseeds it with the initial frame
         mujoco.mj_forward(self.model, self.data)
+        if self.firmware_obs_model:
+            self.seed_measurement_ring()
         return self._obs(), {}
+
+    def seed_measurement_ring(self) -> None:
+        """(Re)fill the measurement ring from the CURRENT joint state.
+
+        Back-extrapolates positions with the current joint velocities so the
+        first window finite-difference reads the true initial velocity
+        (matters for near-upright resets, which start with spin — the real
+        firmware's buffer holds genuine motion at engage). Also used by
+        replay tooling after overwriting qpos/qvel directly.
+        """
+        motor0 = float(self.data.qpos[self._motor_qpos_addr])
+        pen0 = float(self.data.qpos[self._pen_qpos_addr])
+        motor_vel0 = float(self.data.qvel[self._motor_qvel_addr])
+        pen_vel0 = float(self.data.qvel[self._pen_qvel_addr])
+        self._prev_cmd_pos = motor0  # commanded path starts at the true position
+        dt_p = self.model.opt.timestep
+        n = self._meas_ring.maxlen
+        self._meas_ring.clear()
+        self._meas_ring.extend(
+            (motor0 - motor_vel0 * (n - 1 - k) * dt_p,
+             pen0 - pen_vel0 * (n - 1 - k) * dt_p)
+            for k in range(n)
+        )
+        self._capture_measured_state()
 
     def _sample_dr_params(self) -> None:
         """Sample per-episode randomisation: physical params + lag/delay."""
@@ -667,6 +853,10 @@ class RotaryInvertedPendulumEnv(gym.Env):
             if self.action_mode == "position_delta" else 0.0
         )
         self._noise_std_pos = DR_OBS_NOISE_STD_POS_RAD
+        self._obs_staleness_s = (
+            float(rng.uniform(*self._dr_obs_staleness_range_s))
+            if self.firmware_obs_model else self._fixed_obs_staleness_s
+        )
 
         # Per-episode stepper stiction. The lower bound includes 0 so that
         # episodes without any stiction can still appear during DR.
@@ -716,12 +906,47 @@ class RotaryInvertedPendulumEnv(gym.Env):
             n_sub = self._n_substeps
         actual_dt_s = n_sub * self.model.opt.timestep
 
-        if self.action_mode == "accel":
+        if self.action_mode in ("accel", "velocity"):
             # --- Accel-mode integration: action → accel → velocity (capped) → pos target. ---
             # Mirrors FastAccelStepper's moveByAcceleration() behaviour. The
             # per-episode envelope clamp models the stepper's torque-limited
             # accel ceiling under varying load.
-            accel_cmd = delayed_action * self.max_accel_rad_s2
+            if self.action_mode == "velocity":
+                # Velocity mode rides the SAME transport: the host converts
+                # the velocity setpoint to an accel command each tick with a
+                # saturating P-law and sends it via CMD_SET_ACCEL. The P-law
+                # runs host-side with no delay, so the transport lag belongs
+                # on the RESULTING accel command, not on the setpoint —
+                # `action` here is the un-lagged policy output, and the lag
+                # filter is applied to accel_cmd below.
+                v_des = action * self.max_velocity_rad_s
+                # P-law feedback is the host's own commanded-velocity
+                # integrator, NOT the measured velocity. Feeding the
+                # firmware-measured (quantised, windowed) velocity back at
+                # gain f injects a ±(LSB/window)·f ≈ ±17 rad/s² accel
+                # dither — measured on the rig and reproduced in sim, and
+                # it destroys calm balance in both. The stepper executes
+                # commands essentially perfectly, so the integrator is
+                # accurate by construction; a slow complementary correction
+                # from the measurement (below) heals drift from rail clamps
+                # or skipped steps while attenuating quantisation noise ~10×.
+                accel_cmd = (v_des - self._motor_vel) * self.control_freq_hz
+                accel_cmd = float(np.clip(accel_cmd,
+                                          -self.max_accel_rad_s2,
+                                          self.max_accel_rad_s2))
+                # Transport lag on the command the host actually sends.
+                if self._action_lag_tau_s > 0.0:
+                    dt_ctrl = 1.0 / self.control_freq_hz
+                    alpha = dt_ctrl / (self._action_lag_tau_s + dt_ctrl)
+                    self._lagged_accel_cmd = (
+                        (1.0 - alpha) * self._lagged_accel_cmd + alpha * accel_cmd
+                    )
+                    accel_cmd = self._lagged_accel_cmd
+                if self._action_delay_steps > 0:
+                    self._accel_cmd_queue.append(accel_cmd)
+                    accel_cmd = float(self._accel_cmd_queue.popleft())
+            else:
+                accel_cmd = delayed_action * self.max_accel_rad_s2
             accel_cmd = float(np.clip(accel_cmd,
                                        -self._motor_max_accel_rad_s2,
                                        self._motor_max_accel_rad_s2))
@@ -730,6 +955,13 @@ class RotaryInvertedPendulumEnv(gym.Env):
                 -self.max_velocity_rad_s,
                 self.max_velocity_rad_s,
             ))
+            # Complementary drift correction, mirroring the host: pull the
+            # commanded integrator gently toward the measured velocity so
+            # rail clamps / skipped steps can't accumulate open-loop error.
+            # λ = 0.1/tick lets ~10% of the measurement's quantisation
+            # noise through — the residual dither the policy trains against.
+            if self.action_mode == "velocity" and self.firmware_obs_model:
+                self._motor_vel += 0.1 * (self._meas_motor_vel - self._motor_vel)
             # Safety: zero velocity if we're at the safety rail and pushing outward.
             # Mirrors the firmware-side clamp on the real rig.
             if self._motor_target >= MOTOR_SAFE_LIMIT_RAD and self._motor_vel > 0.0:
@@ -741,7 +973,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
                 -MOTOR_SAFE_LIMIT_RAD,
                 MOTOR_SAFE_LIMIT_RAD,
             ))
-            self.data.ctrl[0] = self._motor_target
+            cmd_end = self._motor_target
         else:
             # --- Position-delta integration: action → per-step target delta. ---
             # Mirrors RLControl.ino: motor_target += action × MAX_ACTION_DELTA_RAD,
@@ -761,11 +993,45 @@ class RotaryInvertedPendulumEnv(gym.Env):
                 )
             else:
                 self._lagged_target = self._motor_target
-            self.data.ctrl[0] = self._lagged_target
+            cmd_end = self._lagged_target
 
-        for _ in range(n_sub):
-            mujoco.mj_step(self.model, self.data)
+        # The stepper glides continuously through the control period, so the
+        # PD target is interpolated at substep resolution. Feeding the
+        # tick's final target as a per-tick staircase hammers the stiff
+        # servo with one large impulse per control step — the actual source
+        # of the historical "kp >= 200 is unstable" ceiling and of the
+        # joint-velocity ringing the old compliant plant showed.
+        cmd_start = self._prev_cmd_pos
 
+        if self.firmware_obs_model:
+            # Measurement sources mirror the rig's sensors. MOTOR: the
+            # firmware reads its own step counter — the commanded/executed
+            # trajectory — so the ring stores the commanded path (linear
+            # from the previous target at the commanded velocity), NOT the
+            # MuJoCo joint. The PD actuator is only our approximation of
+            # the stepper's near-perfect execution; leaking its tracking
+            # error into the measurement (and thence the P-law) creates a
+            # sim-only inner-loop oscillation that destroys policies which
+            # balance fine on the real rig. PENDULUM: the AS5600 measures
+            # the physical joint, so its channel reads qpos.
+            for k in range(n_sub):
+                cmd_k = cmd_start + (cmd_end - cmd_start) * (k + 1) / n_sub
+                self.data.ctrl[0] = cmd_k
+                mujoco.mj_step(self.model, self.data)
+                self._meas_ring.append((
+                    cmd_k,
+                    float(self.data.qpos[self._pen_qpos_addr]),
+                ))
+            # One measurement per control tick, exactly like the host's
+            # GET_STATE: this snapshot feeds this step's observation and the
+            # NEXT step's P-law feedback.
+            self._capture_measured_state()
+        else:
+            for k in range(n_sub):
+                self.data.ctrl[0] = cmd_start + (cmd_end - cmd_start) * (k + 1) / n_sub
+                mujoco.mj_step(self.model, self.data)
+
+        self._prev_cmd_pos = cmd_end
         self._step_count += 1
 
         motor_pos_now = float(self.data.qpos[self._motor_qpos_addr])
@@ -787,6 +1053,8 @@ class RotaryInvertedPendulumEnv(gym.Env):
             "action_delay_steps": self._action_delay_steps,
             "action_lag_tau_s": self._action_lag_tau_s,
             "motor_tau_s": self._motor_tau_s,
+            "obs_staleness_s": self._obs_staleness_s if self.firmware_obs_model else 0.0,
+            "motor_vel_meas": self._meas_motor_vel if self.firmware_obs_model else None,
         }
         return self._obs(), reward, terminated, truncated, info
 
@@ -813,22 +1081,60 @@ class RotaryInvertedPendulumEnv(gym.Env):
         phi = float(self.data.qpos[self._pen_qpos_addr])
         return _wrap_pi(phi - math.pi)
 
+    def _capture_measured_state(self) -> None:
+        """Model one GET_STATE read from the ring of physics-rate positions.
+
+        Positions are quantised to the step-counter / AS5600 resolution and
+        stale by `_obs_staleness_s`; velocities are finite differences of the
+        quantised positions across the firmware's 8 ms window, so the
+        LSB-scale spikes emerge from the same mechanism as on the rig.
+        """
+        dt_p = self.model.opt.timestep
+        ring = self._meas_ring
+        k_stale = int(round(self._obs_staleness_s / dt_p))
+        idx_new = max(0, len(ring) - 1 - k_stale)
+        idx_old = max(0, idx_new - self._meas_win_substeps)
+        m_new, p_new = ring[idx_new]
+        m_old, p_old = ring[idx_old]
+        mq_new = round(m_new / MOTOR_STEP_LSB_RAD) * MOTOR_STEP_LSB_RAD
+        mq_old = round(m_old / MOTOR_STEP_LSB_RAD) * MOTOR_STEP_LSB_RAD
+        pq_new = round(p_new / PENDULUM_LSB_RAD) * PENDULUM_LSB_RAD
+        pq_old = round(p_old / PENDULUM_LSB_RAD) * PENDULUM_LSB_RAD
+        span_s = max(1, idx_new - idx_old) * dt_p
+        self._meas_motor_pos = mq_new
+        self._meas_pen_phi = pq_new
+        self._meas_motor_vel = (mq_new - mq_old) / span_s
+        self._meas_pen_vel = (pq_new - pq_old) / span_s
+
     def _obs(self) -> np.ndarray:
-        motor_pos = float(self.data.qpos[self._motor_qpos_addr])
-        phi = float(self.data.qpos[self._pen_qpos_addr])
-        motor_vel = float(self.data.qvel[self._motor_qvel_addr])
-        pen_vel = float(self.data.qvel[self._pen_qvel_addr])
+        if self.firmware_obs_model:
+            # Measured-state path: what the host actually reads back.
+            motor_pos = self._meas_motor_pos
+            phi = self._meas_pen_phi
+            motor_vel = self._meas_motor_vel
+            pen_vel = self._meas_pen_vel
+        else:
+            motor_pos = float(self.data.qpos[self._motor_qpos_addr])
+            phi = float(self.data.qpos[self._pen_qpos_addr])
+            motor_vel = float(self.data.qvel[self._motor_qvel_addr])
+            pen_vel = float(self.data.qvel[self._pen_qvel_addr])
 
         if self.domain_randomization:
-            # Quantise pendulum angle to AS5600 LSB resolution.
-            phi = round(phi / PENDULUM_LSB_RAD) * PENDULUM_LSB_RAD
+            if not self.firmware_obs_model:
+                # Quantise pendulum angle to AS5600 LSB resolution (the
+                # measured-state path already quantises at capture).
+                phi = round(phi / PENDULUM_LSB_RAD) * PENDULUM_LSB_RAD
             # Inject small position + velocity noise to mimic finite-diff jitter
             # and encoder noise on real hardware.
             rng = self.np_random
             motor_pos += rng.normal(0.0, self._noise_std_pos)
             phi += rng.normal(0.0, self._noise_std_pos)
-            motor_vel += rng.normal(0.0, DR_OBS_NOISE_STD_VEL_RAD_S)
-            pen_vel += rng.normal(0.0, DR_OBS_NOISE_STD_VEL_RAD_S)
+            vel_noise_std = (
+                DR_OBS_NOISE_STD_VEL_RESIDUAL_RAD_S if self.firmware_obs_model
+                else DR_OBS_NOISE_STD_VEL_RAD_S
+            )
+            motor_vel += rng.normal(0.0, vel_noise_std)
+            pen_vel += rng.normal(0.0, vel_noise_std)
 
         # Apply per-episode theta-bias to the OBSERVATION only. Physics and
         # reward (which uses self._theta_upright() on raw qpos) are unbiased
@@ -837,11 +1143,27 @@ class RotaryInvertedPendulumEnv(gym.Env):
         phi = phi + self._theta_bias_rad
 
         theta = _wrap_pi(phi - math.pi)
-        return np.array(
-            [motor_pos, math.sin(theta), math.cos(theta), motor_vel, pen_vel,
-             self._prev_action],
-            dtype=np.float32,
-        )
+        if self.obs_include_velocities:
+            frame = np.array(
+                [motor_pos, math.sin(theta), math.cos(theta), motor_vel,
+                 pen_vel, self._prev_action],
+                dtype=np.float32,
+            )
+        else:
+            frame = np.array(
+                [motor_pos, math.sin(theta), math.cos(theta),
+                 self._prev_action],
+                dtype=np.float32,
+            )
+        # Frame stacking: called exactly once per reset/step, so appending
+        # here keeps the history in lockstep with the control ticks.
+        if not self._obs_history:
+            self._obs_history.extend([frame] * self.obs_history_len)
+        else:
+            self._obs_history.append(frame)
+        if self.obs_history_len == 1:
+            return frame
+        return np.concatenate(self._obs_history)
 
     def _reward(self, action: float) -> float:
         # Standard quadratic-cost reward (Quanser QUBE-Servo / Furuta-pendulum

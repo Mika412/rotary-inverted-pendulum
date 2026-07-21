@@ -58,6 +58,19 @@ Both live in `sysid_params.json` after the runbook protocol. Re-derive
 them whenever the rig changes (new bearings, motor swap, etc.). See
 [`sysid_runbook.md`](sysid_runbook.md) for the measurement procedure.
 
+> **Accel-mode caveat (2026-07-20).** `BW_motor = 16 Hz` comes from the
+> *position-mode* step response — the 64 ms rise was almost entirely the
+> AccelStepper land-on-target ramp, which no longer exists in accel mode.
+> Accel commands take effect within ≤ 5 ms of actuation
+> (`sysid_accel.py step`); the real accel-mode rate ceiling is the
+> command-pipeline lag (FastAccelStepper forward-planning queue + serial,
+> τ ≈ 20 ms measured at the 20 ms-default queue, expected ~8–15 ms after
+> the 8 ms firmware change — see `docs/transport_delay.md`). Rule of thumb:
+> keep the control period ≥ the measured τ, i.e. τ ≈ 10 ms supports up to
+> ~100 Hz, τ ≈ 20 ms up to ~50 Hz. The lower (pendulum-driven) bound and
+> the slew/attractor analysis below are mode-independent and still apply;
+> only the "≤ 2–3 × BW_motor" upper bound is position-mode-specific.
+
 ## The valid control-rate window
 
 The sample rate has to satisfy *both* of these inequalities simultaneously:

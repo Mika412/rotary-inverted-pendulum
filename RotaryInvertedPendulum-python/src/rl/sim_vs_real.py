@@ -31,8 +31,11 @@ def replay_in_sim(env: RotaryInvertedPendulumEnv, *,
     env.data.qpos[env._pen_qpos_addr] = initial_phi
     env.data.qvel[:] = 0.0
     env._motor_target = initial_motor
-    env._motor_applied = initial_motor
     mujoco.mj_forward(env.model, env.data)
+    if env.firmware_obs_model:
+        # The ring was seeded by reset() from the random initial state;
+        # refill it from the overridden one.
+        env.seed_measurement_ring()
 
     n = len(actions)
     motor_pos = np.zeros(n)
@@ -60,6 +63,21 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default=None, help="optional matplotlib figure path")
     p.add_argument("--no-plot", action="store_true",
                    help="skip plotting; just print summary statistics")
+    p.add_argument("--max-velocity-rad-s", type=float, default=None,
+                   help="velocity-mode action scale. Default: from the npz "
+                        "(older logs didn't record it → env default 5.0)")
+    p.add_argument("--action-lag-tau", type=float, default=0.0,
+                   help="fixed first-order action lag (s) applied in the sim "
+                        "replay — set to the measured pipeline tau (~0.017) "
+                        "to test whether the lag model explains the gap")
+    p.add_argument("--firmware-model", action="store_true",
+                   help="enable the firmware measurement model (quantised, "
+                        "stale, window-differenced state; velocity-mode "
+                        "P-law on measured velocity) — A/B against the "
+                        "legacy clean-integrator replay")
+    p.add_argument("--staleness", type=float, default=None,
+                   help="fixed obs staleness (s) for the firmware model "
+                        "(default: env nominal)")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
     d = dict(np.load(args.log, allow_pickle=True))
@@ -83,10 +101,32 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Replaying {n} actions ({n * dt_s:.2f}s) in sim ...")
 
-    env = RotaryInvertedPendulumEnv(
+    # Replay must interpret actions the way the deploy loop did. run_policy
+    # records action_mode and the action scales in the npz.
+    action_mode = str(d.get("action_mode", "accel"))
+    env_kwargs = dict(
         control_freq_hz=control_freq,
         episode_length_s=n * dt_s + 1.0,  # plenty
+        action_mode=action_mode,
+        action_lag_tau_s=float(args.action_lag_tau),
+        firmware_obs_model=bool(args.firmware_model),
     )
+    if args.staleness is not None:
+        env_kwargs["obs_staleness_s"] = float(args.staleness)
+    if "max_accel_rad_s2" in d:
+        env_kwargs["max_accel_rad_s2"] = float(d["max_accel_rad_s2"])
+    if args.max_velocity_rad_s is not None:
+        env_kwargs["max_velocity_rad_s"] = float(args.max_velocity_rad_s)
+    elif "max_velocity_rad_s" in d:
+        env_kwargs["max_velocity_rad_s"] = float(d["max_velocity_rad_s"])
+    if "max_action_delta_rad" in d:
+        env_kwargs["max_action_delta_rad"] = float(d["max_action_delta_rad"])
+    print(f"  replay env: action_mode={action_mode}, "
+          f"lag tau={args.action_lag_tau*1000:.0f} ms, "
+          f"firmware_model={'ON' if args.firmware_model else 'off'}"
+          + (f" (staleness {args.staleness*1000:.0f} ms)"
+             if args.firmware_model and args.staleness is not None else ""))
+    env = RotaryInvertedPendulumEnv(**env_kwargs)
     sim = replay_in_sim(
         env,
         initial_motor=float(real_motor[0]),
@@ -96,21 +136,38 @@ def main(argv: list[str] | None = None) -> int:
     sim_motor = sim["motor_pos"]
     sim_pen = sim["pen_pos"]
 
-    common_n = min(len(sim_motor), len(real_motor))
-    motor_err = sim_motor[:common_n] - real_motor[:common_n]
-    pen_err = sim_pen[:common_n] - real_pen[:common_n]
+    # Alignment: log row i is (state read at tick i, action computed FROM that
+    # state) — run_policy reads, predicts, then sends. The sim state after
+    # stepping actions[i] therefore corresponds to the REAL state logged at
+    # row i+1. Comparing index-to-index would bake in a one-step phantom
+    # delay (28.6 ms at 35 Hz) that previous analyses misread as transport
+    # lag.
+    real_motor_aligned = real_motor[1:]
+    real_pen_aligned = real_pen[1:]
+    common_n = min(len(sim_motor), len(real_motor_aligned))
+    motor_err = sim_motor[:common_n] - real_motor_aligned[:common_n]
+    pen_err = sim_pen[:common_n] - real_pen_aligned[:common_n]
 
     print(f"  motor_pos rmse:    {float(np.sqrt(np.mean(motor_err**2))):.4f} rad")
     print(f"  motor_pos max abs err: {float(np.max(np.abs(motor_err))):.4f} rad")
     print(f"  pendulum_pos rmse: {float(np.sqrt(np.mean(pen_err**2))):.4f} rad")
     print(f"  pendulum_pos max abs err: {float(np.max(np.abs(pen_err))):.4f} rad")
+    # Open-loop replay of a chaotic system diverges eventually regardless of
+    # model quality — the early window is where fidelity is measurable.
+    for win_s in (1.0, 2.0, 3.0):
+        k = min(common_n, int(win_s * control_freq))
+        if k > 5:
+            print(f"  first {win_s:.0f}s: motor rmse "
+                  f"{float(np.sqrt(np.mean(motor_err[:k]**2))):.4f} rad, "
+                  f"pendulum rmse "
+                  f"{float(np.sqrt(np.mean(pen_err[:k]**2))):.4f} rad")
 
     # Lag estimate: how many steps to align sim_motor with real_motor
     # via cross-correlation
     from scipy.signal import correlate
-    if np.std(sim_motor) > 1e-6 and np.std(real_motor[:common_n]) > 1e-6:
+    if np.std(sim_motor) > 1e-6 and np.std(real_motor_aligned[:common_n]) > 1e-6:
         x = sim_motor - sim_motor.mean()
-        y = real_motor[:common_n] - real_motor[:common_n].mean()
+        y = real_motor_aligned[:common_n] - real_motor_aligned[:common_n].mean()
         c = correlate(y, x, mode="full")
         centre = len(x) - 1
         win = slice(max(0, centre - 10), min(len(c), centre + 10))
@@ -130,16 +187,16 @@ def main(argv: list[str] | None = None) -> int:
 
     t = np.arange(common_n) * dt_s
     fig, axes = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
-    axes[0].plot(t, real_motor[:common_n], "C0", label="real motor_pos")
+    axes[0].plot(t, real_motor_aligned[:common_n], "C0", label="real motor_pos")
     axes[0].plot(t, sim_motor[:common_n], "C3", label="sim motor_pos")
     if real_cmd is not None and cmd_label.startswith("commanded target"):
         # Position-mode: command and motor_pos share units (rad), can overlay.
-        axes[0].plot(t, real_cmd[:common_n], "k--", label=cmd_label, alpha=0.5)
+        axes[0].plot(t, real_cmd[1:common_n + 1], "k--", label=cmd_label, alpha=0.5)
     axes[0].set_ylabel("motor_pos (rad)")
     axes[0].legend(loc="upper right")
     axes[0].grid(True, alpha=0.3)
 
-    axes[1].plot(t, real_pen[:common_n], "C0", label="real pendulum_pos")
+    axes[1].plot(t, real_pen_aligned[:common_n], "C0", label="real pendulum_pos")
     axes[1].plot(t, sim_pen[:common_n], "C3", label="sim pendulum_pos")
     axes[1].set_ylabel("pendulum_pos (rad)")
     axes[1].legend(loc="upper right")

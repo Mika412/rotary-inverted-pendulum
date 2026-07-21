@@ -10,8 +10,8 @@ whatever the real hardware looks like on a given day.
 
 This doc summarises **what is randomized, by how much, and why**, plus
 how DR fits into the curriculum schedule and where the knobs live in
-code. For the broader RL plan (phases, decisions, status) see
-[`../RL_PLAN.md`](../RL_PLAN.md). For the transition-level contract see
+code. For the end-to-end pipeline this feeds into see
+[`end_to_end_runbook.md`](end_to_end_runbook.md). For the transition-level contract see
 [`rl_transitions.md`](rl_transitions.md). For the sysid measurements
 that set the bracketed values see [`sysid_runbook.md`](sysid_runbook.md).
 
@@ -73,17 +73,39 @@ effective pivot inertia at nominal, matching the measured `I_axis`.
 
 | Parameter                                  | Range                            | Source constant                    | Why this width                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------------------------ | -------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Motor first-order lag τ                    | [0.0, 0.010] s                   | `DR_MOTOR_TAU_RANGE_S`             | Phase 2.5 fits against real-hardware logs found τ ≈ 0; we still sweep up to 10 ms to keep a robustness margin against load-dependent slowdowns.                                                                                                                                                                                                          |
-| Action delay (transport delay on commands) | [4, 7] control steps             | `DR_ACTION_DELAY_STEPS_RANGE`      | At 100 Hz, brackets the measured ~50 ms hardware delay (5 steps) ±1 step margin. Phase 2.6 widened this after lowering `MOTOR_ACCELERATION` (100 k → 50 k steps/s²) on the Arduino. The curriculum scales this to physical ms at lower control rates — see below.                                                                                        |
+| Motor accel envelope                       | [110, 190] rad/s²                | `DR_MOTOR_ACCEL_RANGE_RAD_S2`      | Brackets `MAX_ACCEL_RAD_S2 = 150` so the policy trains both above and below its command cap — models load-dependent stepper torque headroom. |
+| Transport delay: integer-tick queue        | curriculum-staged (see below)    | `--dr-delay-min/max`               | Teacher-forced fits over the 2026-07-21 deploy logs put the TOTAL command→motion delay at ~30–45 ms at 35 Hz — more than one control tick. In velocity mode the queue delays the accel command the host sends (the P-law itself is host-side and instant). See [`transport_delay.md`](transport_delay.md). |
+| Transport delay: first-order lag τ         | curriculum-staged (see below)    | `--dr-action-lag-tau-min/max`      | Fractional-tick remainder on top of the integer queue; composes with it (filter, then queue). |
+| Motor first-order target lag τ             | [0.010, 0.030] s                 | `DR_MOTOR_TAU_RANGE_S`             | Position-delta mode only — models the stepper's ramp-to-target bandwidth. Not sampled in accel/velocity modes. |
 | Control-step dt jitter                     | n_substeps × (1 ± 0.05) per step | `DR_CONTROL_DT_JITTER_FRAC = 0.05` | Empirically the single most important DR. Without it, SAC at strict timing finds the **active-correction attractor** (motor saws ±0.5 rad even when balanced); with it, SAC finds the **calm minimal-action attractor** that dominates real-world performance. See [`control_rate_selection.md`](control_rate_selection.md) "calm vs active attractors". |
+| Obs staleness (firmware model only)        | [0.002, 0.010] s                 | `DR_OBS_STALENESS_RANGE_S`         | Age of the state snapshot when the host acts on it: encoder sample age (0–2 ms at the firmware's 500 Hz sampling) + GET_STATE serial round-trip. Only sampled when `firmware_obs_model` is on. |
 
 ### Observation noise (per step)
 
 | Parameter                   | Range                                 | Source constant              | Why this width                                                                                                                  |
 | --------------------------- | ------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
 | Pendulum angle quantisation | snapped to AS5600 LSB (2π / 4096 rad) | `PENDULUM_LSB_RAD`           | Models the encoder's 12-bit resolution. Always applied when DR is on.                                                           |
+| Motor angle quantisation (firmware model only) | snapped to step LSB (2π / 1600 rad) | `MOTOR_STEP_LSB_RAD`   | The firmware's motor position is the step counter at 8× microstepping. Applied at measurement capture when `firmware_obs_model` is on. |
 | Position noise σ            | 0.005 rad                             | `DR_OBS_NOISE_STD_POS_RAD`   | Mimics finite-diff jitter and encoder noise observed on the rig. Added to motor pos and pendulum angle.                         |
-| Velocity noise σ            | 0.05 rad/s                            | `DR_OBS_NOISE_STD_VEL_RAD_S` | Velocity is finite-differenced from a noisy position signal; σ chosen to match the observed jitter at this rig's filter cutoff. |
+| Velocity noise σ            | 0.15 rad/s (0.05 with firmware model) | `DR_OBS_NOISE_STD_VEL_RAD_S` / `DR_OBS_NOISE_STD_VEL_RESIDUAL_RAD_S` | The firmware's window finite-difference produces ±1-LSB spikes of ~0.2–0.5 rad/s. Legacy path brackets them with a 0.15 Gaussian; with `firmware_obs_model` on, the spikes emerge mechanistically from quantised differencing, so the Gaussian drops to a 0.05 residual (I²C/sample-time jitter) to avoid double-counting. |
+
+### The firmware measurement model (`firmware_obs_model`)
+
+Additive Gaussians approximate the rig's sensing; the firmware measurement
+model reproduces it **mechanistically**. When enabled (`--firmware-obs-model`
+/ `FIRMWARE_OBS_MODEL=1`), the sim keeps a physics-rate ring of joint
+positions and builds each observation the way `LowLevelServer.ino` builds a
+GET_STATE reply: positions quantised to encoder/step resolution and stale
+by 2–10 ms (DR-sampled), velocities finite-differenced over the firmware's
+8 ms window. The motor channel reads the COMMANDED path (the firmware's
+"sensor" is its own step counter, and the stepper executes commands
+near-perfectly); the pendulum channel reads the physical joint (AS5600).
+The model affects observations only — the velocity-mode P-law tracks the
+host's commanded-velocity integrator on both sim and rig (feeding the
+quantised measurement back at the control-frequency gain injected a
+±17 rad/s² accel dither; measured, then removed host-side on 2026-07-21).
+Obs shape is unchanged; the flag is recorded in `config.json` and
+inherited by `eval_randomized.py`.
 
 ## Curriculum staging
 
@@ -92,27 +114,20 @@ Training in three stages
 is more reliable than one shot at full DR width. Each stage `--resume`s
 from the last so capabilities accumulate.
 
-The two parameters that are annealed across stages are **action delay**
-and **dt jitter**. The other DR ranges are constant for all stages
-because the policy benefits from seeing them from the start.
+Only the **transport delay** is annealed across stages; every other DR
+dimension activates at its full range from stage 2 (stage 1 runs without
+DR so the swing-up + balance skill is found first).
 
-| Stage          | Action delay (physical) | Motor τ    | dt jitter | Steps             |
-| -------------- | ----------------------- | ---------- | --------- | ----------------- |
-| **1 — easy**   | [0, 20] ms              | [0, 5] ms  | ±20 %     | `STEPS_PER_STAGE` |
-| **2 — medium** | [20, 50] ms             | [0, 10] ms | ±10 %     | `STEPS_PER_STAGE` |
-| **3 — final**  | [30, 60] ms             | [0, 10] ms | ±5 %      | `STEPS_PER_STAGE` |
+| Stage          | Tick delay | Lag τ      | DR overall | Steps             |
+| -------------- | ---------- | ---------- | ---------- | ----------------- |
+| **1 — skill**  | 0          | 0          | off        | `STEPS_PER_STAGE` |
+| **2 — ramp**   | {0, 1}     | [0, 20] ms | on         | `STEPS_PER_STAGE` |
+| **3 — final**  | 1          | [0, 15] ms | on         | `STEPS_PER_STAGE` |
 
-Notes:
-
-- The script converts physical-ms ranges into integer step counts at the
-  configured `CONTROL_FREQ`. At low rates (e.g. 35 Hz) stages 2 and 3
-  can collide after rounding; in that case stage 3 is skipped and the
-  final policy is the stage-2 best model. The script logs this clearly.
-- The dt-jitter anneal is intentional: high jitter early forces the
-  policy out of the active-correction attractor; lower jitter later
-  lets it specialise for deployment-realistic timing.
-- Stage 3 brackets the hardware's ~50 ms delay with ~one step of margin
-  on each side at 35 Hz (the canonical rate for this rig).
+Stage 3 concentrates the training mass on the measured total delay
+(~30–45 ms at 35 Hz: one 28.6 ms tick + fractional remainder) instead of
+spreading it over delays the rig never produces — wide delay DR was
+observed (2026-05-20) to make policies needlessly conservative.
 
 ## Reset diversity (not strictly DR, but adjacent)
 
