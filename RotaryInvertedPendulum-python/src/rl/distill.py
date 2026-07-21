@@ -40,6 +40,7 @@ import torch.nn.functional as F
 from stable_baselines3 import SAC
 
 from pendulum_env import RotaryInvertedPendulumEnv
+from run_config import find_run_config
 
 
 # ---------------------------------------------------------------------------
@@ -99,18 +100,36 @@ def _teacher_sim_rollouts(
     n_steps: int,
     control_freq_hz: float,
     seed: int = 0,
+    teacher_config: dict | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Roll out the deterministic teacher in the DR sim env and collect (obs, action).
 
     Used to augment the real-rig replay buffer when its size or coverage
     is insufficient for the student to fit (compounding errors at deploy
     time despite low MSE — classic behavior-cloning covariate shift).
+
+    The env is built from the teacher's config.json (action mode, scales,
+    obs stacking, firmware measurement model) — an env with the wrong obs
+    layout would silently produce garbage augmentation data. Transport
+    delay is randomised over the stage-3 training range (1 tick +
+    [0, 15] ms) so the augmented obs distribution covers the rig.
     """
-    env = RotaryInvertedPendulumEnv(
+    cfg = teacher_config or {}
+    env_kwargs = dict(
         control_freq_hz=control_freq_hz,
         episode_length_s=8.0,
         domain_randomization=True,
+        action_mode=str(cfg.get("action_mode", "accel")),
+        obs_history_len=int(cfg.get("obs_history_len") or 1),
+        obs_include_velocities=bool(cfg.get("obs_include_velocities", True)),
+        firmware_obs_model=bool(cfg.get("firmware_obs_model", False)),
+        dr_action_delay_steps_range=(1, 1),
+        dr_action_lag_tau_range_s=(0.0, 0.015),
     )
+    for key in ("max_accel_rad_s2", "max_velocity_rad_s", "max_action_delta_rad"):
+        if cfg.get(key) is not None:
+            env_kwargs[key] = float(cfg[key])
+    env = RotaryInvertedPendulumEnv(**env_kwargs)
     env.reset(seed=seed)
     obs_list: list[np.ndarray] = []
     act_list: list[np.ndarray] = []
@@ -185,9 +204,16 @@ def stage_dataset(
 
     if sim_augment_steps > 0:
         print(f"[dataset] generating {sim_augment_steps} sim rollout steps with the teacher")
+        teacher_config = find_run_config(teacher_path)
+        if teacher_config:
+            print(f"[dataset]   env from config.json: "
+                  f"action_mode={teacher_config.get('action_mode')}, "
+                  f"K={teacher_config.get('obs_history_len')}, "
+                  f"fw_model={teacher_config.get('firmware_obs_model')}")
         sim_obs, sim_act = _teacher_sim_rollouts(
             model, n_steps=sim_augment_steps,
             control_freq_hz=control_freq_hz, seed=seed,
+            teacher_config=teacher_config,
         )
         obs = np.concatenate([obs, sim_obs], axis=0)
         actions = np.concatenate([actions, sim_act], axis=0)
@@ -199,9 +225,15 @@ def stage_dataset(
     print(f"[dataset] saved -> {out_path} ({out_path.stat().st_size / 1e6:.1f} MB)")
 
     # Coverage diagnostic: print a small theta x motor_pos histogram.
-    # obs columns: [motor_pos, sin(theta), cos(theta), motor_vel, pen_vel]
-    theta = np.arctan2(obs[:, 1], obs[:, 2])
-    motor_pos = obs[:, 0]
+    # Frames stack oldest -> newest; read the NEWEST frame's channels
+    # ([motor_pos, sin, cos, ...] at the tail of the obs vector). With
+    # K=1 this reduces to columns 0..2 as before.
+    obs_dim_total = obs.shape[1]
+    k_frames = int((locals().get('teacher_config') or find_run_config(teacher_path) or {}).get('obs_history_len') or 1)
+    frame = obs_dim_total // max(1, k_frames)
+    base = obs_dim_total - frame
+    theta = np.arctan2(obs[:, base + 1], obs[:, base + 2])
+    motor_pos = obs[:, base + 0]
     print("[dataset] coverage histogram (theta deg x motor_pos deg):")
     theta_edges = np.linspace(-180.0, 180.0, 7)  # 6 bins of 60°
     motor_edges = np.linspace(-130.0, 130.0, 6)  # 5 bins

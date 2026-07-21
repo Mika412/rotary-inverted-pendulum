@@ -103,7 +103,8 @@ def export(student_path: Path, header_path: Path, *, source_name: str | None = N
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Export a student MLP as a PROGMEM C header")
     p.add_argument("--student", required=True, type=Path,
-                   help="path to a student.pt produced by distill.py")
+                   help="path to a student.pt produced by distill.py or "
+                        "dagger_distill.py")
     p.add_argument("--header", required=True, type=Path,
                    help="output path for the generated .h (e.g. policy_weights.h)")
     p.add_argument("--source-name", default=None,
