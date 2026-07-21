@@ -2,24 +2,26 @@
 # Curriculum-learning training script. 3 stages, each --resumes from the
 # previous, so the policy doesn't relearn the basics every time.
 #
-#   Stage 1: NO DR                          (find the swing-up + balance skill)
-#   Stage 2: action-lag tau ∈ [0, 30 ms]    (introduce transport delay)
-#   Stage 3: action-lag tau ∈ [10, 30 ms]   (concentrate around real ≈ 20 ms)
+#   Stage 1: NO DR                                   (find the swing-up + balance skill)
+#   Stage 2: delay ∈ {0, 1} ticks + tau ∈ [0, 20 ms] (introduce transport delay)
+#   Stage 3: delay = 1 tick + tau ∈ [0, 15 ms]       (concentrate on the measurement)
 #
-# Action-lag DR is the continuous, fractional-step replacement for the
-# legacy integer-step `--dr-delay-min/max` queue, which was calibrated for
-# the position-mode era (~50 ms transport delay) and was teaching the
-# policy to handle a much larger delay than the post-accel-mode rig
-# actually has (~20 ms — measured 2026-05-20 via accel_lag_moving_probe.py).
+# Transport-delay model: an integer-tick queue composed with a first-order
+# lag, both applied (in velocity mode) to the accel COMMAND the host sends
+# — the P-law itself runs host-side with no delay. Teacher-forced one-step
+# fits over the 2026-07-21 deploy logs measured the TOTAL command→motion
+# delay at ~30–45 ms at 35 Hz and ~15–30 ms at 50 Hz — i.e. consistently
+# MORE than one control tick at 35 Hz. The earlier "τ ≈ 17 ms" story came
+# from the standalone probe, which misses the read-side latency the full
+# closed loop pays every tick; and the pre-2026-07-21 replay analysis
+# additionally suffered a one-step alignment bug in sim_vs_real.py.
+# Stage 3 = 1 tick + [0, 15 ms] brackets the measurement at both rates
+# (28.6–43.6 ms at 35 Hz, 20–35 ms at 50 Hz). See docs/transport_delay.md.
 #
-# Stage-3 range rationale: the 2026-05-20 50 Hz deploy showed stage 2
-# ([0, 30 ms]) BEAT stage 3 ([0, 40 ms]) on the rig — wider DR means less
-# training mass concentrated near the rig's actual tau, and the policy
-# became more conservative to handle scenarios that don't occur.
-# Concentrating stage 3 on [10, 30 ms] keeps the curriculum widening (so
-# the policy still generalises) but centres the training mass at 20 ms
-# instead of 20 ms ± 10 ms uniform → policy specialises near reality
-# while remaining robust to the band sim might mis-estimate by.
+# Stage-3 concentration rationale (unchanged): wider DR spreads training
+# mass over scenarios the rig never produces and the policy turns
+# conservative — concentrate near the measurement, keep stage 2 wider
+# only as a curriculum ramp.
 #
 # Per the 2026-05-16 DR-sensitivity probe, every other DR dimension
 # (motor accel envelope, pendulum mass/COM/friction, dt jitter, encoder
@@ -40,26 +42,55 @@
 #
 # Run from this directory, e.g. `uv run bash curriculum_train.sh <prefix>`.
 #
-# Action mode: the DR knobs and 50 Hz rate here are tuned for accel mode
-# (the default). For a position-mode policy (RLControl.ino's mode), set
-# ACTION_MODE=position_delta, and typically CONTROL_FREQ=35 with
-# REWARD_ACTION_RATE_WEIGHT=0.05.
+# Defaults = the validated vel_v8 production recipe (2026-07-22):
+# velocity mode @ 35 Hz, ±3.5 rad/s authority, K=4 frame stacking, gSDE,
+# stillness bonus 5, firmware measurement model on. `bash
+# curriculum_train.sh <name>` with no env vars trains the canonical
+# teacher. Legacy modes (accel / position_delta) remain selectable.
 #
 # Environment overrides (defaults shown):
-#     CONTROL_FREQ=50
-#     ACTION_MODE=accel                    # or position_delta
+#     CONTROL_FREQ=35
+#     ACTION_MODE=velocity                 # or accel / position_delta (legacy)
 #     MAX_ACCEL_RAD_S2=150
+#     MAX_VELOCITY_RAD_S=3.5               # velocity-mode action scale = the
+#                                          # policy's correction authority (also
+#                                          # the accel-mode speed cap).
 #     MAX_ACTION_DELTA_RAD=                 # position mode only; unset → env default 0.10
 #     STEPS_PER_STAGE=100000
 #     SEED=0
 #     DEVICE=cuda                          # use cpu on macOS laptop
-#     DR_LAG_TAU_MIN_S2=0.000              # stage 2 lower bound (s)
-#     DR_LAG_TAU_MAX_S2=0.030              # stage 2 upper bound (s)
-#     DR_LAG_TAU_MIN_S3=0.010              # stage 3 lower bound (s) — centres around 20 ms
-#     DR_LAG_TAU_MAX_S3=0.030              # stage 3 upper bound (s)
+#     DR_LAG_TAU_MIN_S2=0.000              # stage 2 lag lower bound (s)
+#     DR_LAG_TAU_MAX_S2=0.020              # stage 2 lag upper bound (s)
+#     DR_LAG_TAU_MIN_S3=0.000              # stage 3 lag lower bound (s)
+#     DR_LAG_TAU_MAX_S3=0.015              # stage 3 lag upper bound (s)
+#     DR_DELAY_MIN_S2=0                    # stage 2 integer-tick delay lower bound
+#     DR_DELAY_MAX_S2=1                    # stage 2 integer-tick delay upper bound
+#     DR_DELAY_MIN_S3=1                    # stage 3 integer-tick delay lower bound
+#     DR_DELAY_MAX_S3=1                    # stage 3 integer-tick delay upper bound
+#     FIRMWARE_OBS_MODEL=                  # if set (any value), sim observations and
+#                                          # the velocity-mode P-law feedback come from
+#                                          # a model of the firmware measurement
+#                                          # pipeline (quantised positions, 8 ms
+#                                          # window-difference velocities, 2–10 ms
+#                                          # staleness) instead of perfect MuJoCo
+#                                          # state. Recorded in config.json.
 #     REWARD_ACTION_RATE_WEIGHT=           # if set, re-enables the (a_t − a_{t-1})² penalty
 #                                          # to suppress motor chatter at balance. Try 0.02.
 #                                          # Unset (default) leaves the env's 0.0 (disabled).
+#     OBS_HISTORY_LEN=                     # frames stacked into the observation;
+#                                          # unset → env default 1 (single frame).
+#                                          # 4 gives the policy obs+action history
+#                                          # to filter sensor noise and infer the
+#                                          # per-episode θ-bias.
+#     DROP_VEL_OBS=                        # if set (any value), observation frames
+#                                          # are positions-only — the policy derives
+#                                          # velocities from the stacked history.
+#                                          # Requires OBS_HISTORY_LEN >= 2.
+#     USE_SDE=                             # if set (any value), train with gSDE
+#                                          # (smooth state-dependent exploration
+#                                          # instead of per-step Gaussian noise).
+#                                          # Only affects stage 1 — resumed stages
+#                                          # keep the checkpoint's setting.
 
 set -euo pipefail
 
@@ -67,16 +98,25 @@ PREFIX="${1:-curriculum}"
 SEED="${SEED:-0}"
 STEPS_PER_STAGE="${STEPS_PER_STAGE:-100000}"
 DEVICE="${DEVICE:-cuda}"
-CONTROL_FREQ="${CONTROL_FREQ:-50}"
-ACTION_MODE="${ACTION_MODE:-accel}"
+CONTROL_FREQ="${CONTROL_FREQ:-35}"
+ACTION_MODE="${ACTION_MODE:-velocity}"
 MAX_ACCEL_RAD_S2="${MAX_ACCEL_RAD_S2:-150}"
 MAX_ACTION_DELTA_RAD="${MAX_ACTION_DELTA_RAD:-}"
+MAX_VELOCITY_RAD_S="${MAX_VELOCITY_RAD_S:-3.5}"
 DR_LAG_TAU_MIN_S2="${DR_LAG_TAU_MIN_S2:-0.000}"
-DR_LAG_TAU_MAX_S2="${DR_LAG_TAU_MAX_S2:-0.030}"
-DR_LAG_TAU_MIN_S3="${DR_LAG_TAU_MIN_S3:-0.010}"
-DR_LAG_TAU_MAX_S3="${DR_LAG_TAU_MAX_S3:-0.030}"
+DR_LAG_TAU_MAX_S2="${DR_LAG_TAU_MAX_S2:-0.020}"
+DR_LAG_TAU_MIN_S3="${DR_LAG_TAU_MIN_S3:-0.000}"
+DR_LAG_TAU_MAX_S3="${DR_LAG_TAU_MAX_S3:-0.015}"
+DR_DELAY_MIN_S2="${DR_DELAY_MIN_S2:-0}"
+DR_DELAY_MAX_S2="${DR_DELAY_MAX_S2:-1}"
+DR_DELAY_MIN_S3="${DR_DELAY_MIN_S3:-1}"
+DR_DELAY_MAX_S3="${DR_DELAY_MAX_S3:-1}"
+FIRMWARE_OBS_MODEL="${FIRMWARE_OBS_MODEL:-1}"
 REWARD_ACTION_RATE_WEIGHT="${REWARD_ACTION_RATE_WEIGHT:-}"
-REWARD_STILLNESS_BONUS_WEIGHT="${REWARD_STILLNESS_BONUS_WEIGHT:-}"
+REWARD_STILLNESS_BONUS_WEIGHT="${REWARD_STILLNESS_BONUS_WEIGHT:-5}"
+USE_SDE="${USE_SDE:-1}"
+OBS_HISTORY_LEN="${OBS_HISTORY_LEN:-4}"
+DROP_VEL_OBS="${DROP_VEL_OBS:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
 # Expanded via ${arr[@]+"${arr[@]}"} below — plain "${arr[@]}" on an empty
@@ -95,6 +135,21 @@ COMMON_ARGS=(--action-mode "$ACTION_MODE")
 if [ -n "$MAX_ACTION_DELTA_RAD" ]; then
     COMMON_ARGS+=(--max-action-delta-rad "$MAX_ACTION_DELTA_RAD")
 fi
+if [ -n "$MAX_VELOCITY_RAD_S" ]; then
+    COMMON_ARGS+=(--max-velocity-rad-s "$MAX_VELOCITY_RAD_S")
+fi
+if [ -n "$USE_SDE" ]; then
+    COMMON_ARGS+=(--use-sde)
+fi
+if [ -n "$OBS_HISTORY_LEN" ]; then
+    COMMON_ARGS+=(--obs-history-len "$OBS_HISTORY_LEN")
+fi
+if [ -n "$DROP_VEL_OBS" ]; then
+    COMMON_ARGS+=(--drop-velocity-obs)
+fi
+if [ -n "$FIRMWARE_OBS_MODEL" ]; then
+    COMMON_ARGS+=(--firmware-obs-model)
+fi
 
 run_stage1="${PREFIX}_stage1"
 run_stage2="${PREFIX}_stage2"
@@ -102,9 +157,18 @@ run_stage3="${PREFIX}_stage3"
 
 echo "Curriculum config:"
 echo "  action mode: ${ACTION_MODE}"
+if [ -n "$USE_SDE" ]; then
+    echo "  exploration: gSDE"
+fi
+if [ -n "$FIRMWARE_OBS_MODEL" ]; then
+    echo "  firmware measurement model: ON"
+fi
+if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
+    echo "  reward_stillness_bonus_weight: $REWARD_STILLNESS_BONUS_WEIGHT"
+fi
 echo "  control rate: ${CONTROL_FREQ} Hz, max accel: ${MAX_ACCEL_RAD_S2} rad/s²"
-echo "  stage 2 action-lag tau: [$(awk -v t="$DR_LAG_TAU_MIN_S2" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S2" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
-echo "  stage 3 action-lag tau: [$(awk -v t="$DR_LAG_TAU_MIN_S3" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S3" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
+echo "  stage 2 delay: [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks + lag tau [$(awk -v t="$DR_LAG_TAU_MIN_S2" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S2" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
+echo "  stage 3 delay: [${DR_DELAY_MIN_S3}, ${DR_DELAY_MAX_S3}] ticks + lag tau [$(awk -v t="$DR_LAG_TAU_MIN_S3" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S3" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
 if [ -n "$REWARD_ACTION_RATE_WEIGHT" ]; then
     echo "  reward_action_rate_weight: $REWARD_ACTION_RATE_WEIGHT (re-enabled, default 0.0)"
 fi
@@ -121,7 +185,7 @@ python -u train_sac.py \
     --run-name "$run_stage1" \
     --seed "$SEED"
 
-echo "=== Stage 2 (action-lag tau [${DR_LAG_TAU_MIN_S2}, ${DR_LAG_TAU_MAX_S2}] s) ==="
+echo "=== Stage 2 (delay [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks, lag tau [${DR_LAG_TAU_MIN_S2}, ${DR_LAG_TAU_MAX_S2}] s) ==="
 python -u train_sac.py \
     --total-steps "$STEPS_PER_STAGE" \
     --device "$DEVICE" \
@@ -130,13 +194,15 @@ python -u train_sac.py \
     --domain-randomization \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S2" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S2" \
+    --dr-delay-min "$DR_DELAY_MIN_S2" \
+    --dr-delay-max "$DR_DELAY_MAX_S2" \
     "${COMMON_ARGS[@]}" \
     ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --resume "runs/${run_stage1}/best_model.zip" \
     --run-name "$run_stage2" \
     --seed "$SEED"
 
-echo "=== Stage 3 (action-lag tau [${DR_LAG_TAU_MIN_S3}, ${DR_LAG_TAU_MAX_S3}] s) ==="
+echo "=== Stage 3 (delay [${DR_DELAY_MIN_S3}, ${DR_DELAY_MAX_S3}] ticks, lag tau [${DR_LAG_TAU_MIN_S3}, ${DR_LAG_TAU_MAX_S3}] s) ==="
 python -u train_sac.py \
     --total-steps "$STEPS_PER_STAGE" \
     --device "$DEVICE" \
@@ -145,6 +211,8 @@ python -u train_sac.py \
     --domain-randomization \
     --dr-action-lag-tau-min "$DR_LAG_TAU_MIN_S3" \
     --dr-action-lag-tau-max "$DR_LAG_TAU_MAX_S3" \
+    --dr-delay-min "$DR_DELAY_MIN_S3" \
+    --dr-delay-max "$DR_DELAY_MAX_S3" \
     "${COMMON_ARGS[@]}" \
     ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --resume "runs/${run_stage2}/best_model.zip" \

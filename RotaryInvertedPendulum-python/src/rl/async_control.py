@@ -116,6 +116,15 @@ class PolicySnapshot:
 
     def __init__(self, actor: nn.Module, device: str = "cpu"):
         self._device = torch.device(device)
+        # gSDE actors cache sampled exploration noise (exploration_mat /
+        # weights_dist) whose tensors carry autograd history, and torch
+        # refuses to deepcopy non-leaf tensors. Resampling under no_grad
+        # rebuilds that cache grad-free; the live actor rebuilds its own
+        # graph on its next training forward pass, so this is side-effect
+        # free beyond one extra noise sample.
+        if getattr(actor, "use_sde", False):
+            with torch.no_grad():
+                actor.reset_noise()
         self._net = copy.deepcopy(actor).to(self._device).eval()
         for p in self._net.parameters():
             p.requires_grad_(False)

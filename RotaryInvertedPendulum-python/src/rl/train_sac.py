@@ -57,12 +57,17 @@ def _resolved_config(args: argparse.Namespace) -> dict:
             else MAX_VELOCITY_RAD_S
         ),
         "reward_action_rate_weight": float(args.reward_action_rate_weight or 0.0),
+        "reward_alive_offset": float(args.reward_alive_offset),
+        "reward_upright_alive_weight": float(args.reward_upright_alive_weight),
         "reward_stillness_bonus_weight": float(args.reward_stillness_bonus_weight or 0.0),
         "reward_motor_jerk_weight": float(args.reward_motor_jerk_weight or 0.0),
         "reward_motor_vel_weight": (
             float(args.reward_motor_vel_weight)
             if args.reward_motor_vel_weight is not None else 0.005
         ),
+        "obs_history_len": int(args.obs_history_len),
+        "obs_include_velocities": not args.drop_velocity_obs,
+        "firmware_obs_model": bool(args.firmware_obs_model),
     }
 
 
@@ -83,10 +88,26 @@ def make_env(
     reward_motor_vel_weight: float | None = None,
     reward_motor_jerk_weight: float | None = None,
     reward_stillness_bonus_weight: float | None = None,
+    reward_alive_offset: float | None = None,
+    reward_upright_alive_weight: float | None = None,
     dr_theta_bias_max_rad: float | None = None,
+    upright_reset_frac: float = 0.0,
+    obs_history_len: int = 1,
+    obs_include_velocities: bool = True,
+    firmware_obs_model: bool = False,
+    action_delay_steps: int = 0,
+    action_lag_tau_s: float = 0.0,
 ):
     def _thunk():
         env_kwargs = dict(
+            upright_reset_frac=upright_reset_frac,
+            obs_history_len=obs_history_len,
+            obs_include_velocities=obs_include_velocities,
+            firmware_obs_model=firmware_obs_model,
+            action_delay_steps=action_delay_steps,
+            action_lag_tau_s=action_lag_tau_s,
+            reward_alive_offset=reward_alive_offset,
+            reward_upright_alive_weight=reward_upright_alive_weight,
             domain_randomization=domain_randomization,
             dr_motor_accel_range_rad_s2=dr_motor_accel_range_rad_s2,
             dr_action_delay_steps_range=dr_action_delay_steps_range,
@@ -154,14 +175,39 @@ def train(args: argparse.Namespace) -> Path:
         reward_motor_vel_weight=args.reward_motor_vel_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
         reward_stillness_bonus_weight=args.reward_stillness_bonus_weight,
+        reward_alive_offset=args.reward_alive_offset,
+        reward_upright_alive_weight=args.reward_upright_alive_weight,
         max_velocity_rad_s=args.max_velocity_rad_s,
         dr_theta_bias_max_rad=args.dr_theta_bias_max_rad,
+        upright_reset_frac=args.upright_reset_frac,
+        obs_history_len=args.obs_history_len,
+        obs_include_velocities=not args.drop_velocity_obs,
+        firmware_obs_model=args.firmware_obs_model,
     )])
-    # Eval env is always deterministic — no DR (no action-lag, no obs
-    # noise) AND no theta-bias (so best_model is selected on the
-    # bias-free reference scenario, not on a particular bias sample).
+    # Eval env is always deterministic — no DR (no obs noise, no random
+    # lag) AND no theta-bias (so best_model is selected on the bias-free
+    # reference scenario, not on a particular bias sample). It also keeps
+    # hanging-only resets (upright_reset_frac=0) so the eval score always
+    # reflects the full swing-up + balance task.
+    #
+    # Transport delay is NOT zeroed: the reference scenario is the NOMINAL
+    # RIG, so the eval env pins delay/lag to the midpoint of the training
+    # DR ranges. Selecting best_model at zero delay when every training
+    # episode has >= 1 tick of delay picks checkpoints out-of-distribution
+    # (observed on vel_v7: stage-3 rollout reward climbed while the
+    # zero-delay eval declined — best_model was chosen by the wrong test).
+    eval_delay_steps = int(round((dr_delay[0] + dr_delay[1]) / 2)) if dr_delay else 0
+    eval_lag_tau_s = (
+        (args.dr_action_lag_tau_min + args.dr_action_lag_tau_max) / 2.0
+        if args.dr_action_lag_tau_max is not None else 0.0
+    )
+    if args.domain_randomization and (eval_delay_steps or eval_lag_tau_s):
+        print(f"eval env transport pinned to DR midpoint: "
+              f"delay={eval_delay_steps} ticks, lag tau={eval_lag_tau_s*1000:.1f} ms")
     eval_env = DummyVecEnv([make_env(
         domain_randomization=False,
+        action_delay_steps=eval_delay_steps,
+        action_lag_tau_s=eval_lag_tau_s,
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
@@ -170,13 +216,36 @@ def train(args: argparse.Namespace) -> Path:
         reward_motor_vel_weight=args.reward_motor_vel_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
         reward_stillness_bonus_weight=args.reward_stillness_bonus_weight,
+        reward_alive_offset=args.reward_alive_offset,
+        reward_upright_alive_weight=args.reward_upright_alive_weight,
         max_velocity_rad_s=args.max_velocity_rad_s,
         dr_theta_bias_max_rad=0.0,  # force bias-free eval reference
+        obs_history_len=args.obs_history_len,
+        obs_include_velocities=not args.drop_velocity_obs,
+        # Part of the plant model, not DR: the deterministic eval reference
+        # should score the policy against the same measurement pipeline it
+        # was trained for (quantisation + nominal staleness; no noise here).
+        firmware_obs_model=args.firmware_obs_model,
     )])
+
+    # γ sets the effective horizon in *steps*, so a fixed 0.99 silently
+    # shortens the time horizon when the control rate goes up (~2.9 s at
+    # 35 Hz but ~2.0 s at 50 Hz). Unless --gamma is given, hold the
+    # canonical 35 Hz horizon constant: gamma = 0.99^(35/f_ctrl).
+    gamma = (
+        float(args.gamma) if args.gamma is not None
+        else 0.99 ** (35.0 / args.control_freq)
+    )
+    print(f"gamma = {gamma:.4f} "
+          f"({'explicit' if args.gamma is not None else f'auto-derived for {args.control_freq:g} Hz'})")
 
     if args.resume:
         print(f"Resuming from {args.resume}")
         model = SAC.load(args.resume, env=train_env, device=args.device)
+        if abs(model.gamma - gamma) > 1e-6:
+            print(f"  overriding checkpoint gamma {model.gamma:.4f} → {gamma:.4f} "
+                  "(constant-horizon policy; pass --gamma to pin a value)")
+            model.gamma = gamma
     else:
         model = SAC(
             "MlpPolicy",
@@ -185,10 +254,11 @@ def train(args: argparse.Namespace) -> Path:
             buffer_size=200_000,
             batch_size=256,
             tau=0.005,
-            gamma=0.99,
+            gamma=gamma,
             train_freq=1,
             gradient_steps=1,
             ent_coef="auto",
+            use_sde=args.use_sde,
             verbose=1,
             tensorboard_log=str(run_dir / "tb"),
             seed=args.seed,
@@ -245,6 +315,9 @@ def evaluate(args: argparse.Namespace) -> None:
         render_mode="human",
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
+        obs_history_len=args.obs_history_len,
+        obs_include_velocities=not args.drop_velocity_obs,
+        firmware_obs_model=args.firmware_obs_model,
         max_accel_rad_s2=args.max_accel_rad_s2,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
@@ -334,12 +407,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "fine-tuning and deployment. 35 Hz is the empirically-best "
                         "operating point for this rig — see "
                         "docs/control_rate_selection.md for the principled selection.")
-    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+    p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
+                   default="accel",
                    help="action semantics. 'accel' (default): action → angular "
-                        "acceleration. 'position_delta' (RLControl.ino's mode): "
-                        "action → per-step motor-target delta. Training, "
-                        "fine-tuning, and deployment must use the same mode. "
-                        "Position mode pairs with --reward-action-rate-weight 0.05.")
+                        "acceleration. 'velocity': action → velocity setpoint, "
+                        "tracked by a saturating accel P-law (same firmware "
+                        "transport as accel; one fewer integrator between "
+                        "action and pendulum coupling — see the action-space "
+                        "literature cited in .notes/audit_2026-07-20.md). "
+                        "'position_delta' (RLControl.ino's mode): action → "
+                        "per-step motor-target delta. Training, fine-tuning, "
+                        "and deployment must use the same mode. Position mode "
+                        "pairs with --reward-action-rate-weight 0.05.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
                    help="accel-mode: action ∈ [-1, 1] maps to angular accel ∈ "
                         "[-max, +max] rad/s². Default 150 ≈ 76%% of the motor's "
@@ -364,6 +443,55 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "the optimizer prefer policies that keep the motor "
                         "still, not just the pendulum upright. Targets the "
                         "'chattery but balanced' attractor directly.")
+    p.add_argument("--gamma", type=float, default=None,
+                   help="SAC discount factor. Default None → auto-derived "
+                        "as 0.99^(35/control_freq) so the effective time "
+                        "horizon (~2.9 s, the canonical 35 Hz setting) "
+                        "stays constant across control rates instead of "
+                        "silently shrinking at higher Hz.")
+    p.add_argument("--use-sde", action="store_true",
+                   help="use generalized State-Dependent Exploration "
+                        "(gSDE, Raffin 2022) instead of per-step Gaussian "
+                        "noise. Gives temporally-smooth exploration — the "
+                        "principled alternative to action-rate reward "
+                        "penalties (which collapsed entropy in accel "
+                        "mode). Fresh runs only; ignored on --resume "
+                        "(SAC.load keeps the checkpoint's setting).")
+    p.add_argument("--obs-history-len", type=int, default=1,
+                   help="number of past 6-dim frames stacked into the "
+                        "observation (oldest → newest). Each frame carries "
+                        "prev_action, so K>1 gives the policy obs AND action "
+                        "history — lets it filter velocity noise, infer the "
+                        "per-episode θ-bias, and account for in-flight "
+                        "commands. Must match fine-tuning and deployment "
+                        "(recorded in config.json). Try 4.")
+    p.add_argument("--drop-velocity-obs", action="store_true",
+                   help="exclude velocities from the observation frames "
+                        "([motor_pos, sin θ, cos θ, prev_action] only) so "
+                        "the policy derives its own velocity estimate from "
+                        "the stacked position history — removes the "
+                        "finite-difference window and its noise spikes from "
+                        "the loop entirely. Requires --obs-history-len >= 2 "
+                        "(use 4). Must match fine-tuning and deployment "
+                        "(recorded in config.json).")
+    p.add_argument("--firmware-obs-model", action="store_true",
+                   help="model the firmware measurement pipeline in sim: "
+                        "positions quantised to encoder/step resolution, "
+                        "velocities finite-differenced over the firmware's "
+                        "8 ms window, snapshot stale by 2–10 ms (DR) — fed "
+                        "to both the observation and the velocity-mode "
+                        "P-law feedback, mirroring the real host. Sim-only "
+                        "realism knob (obs shape unchanged); recorded in "
+                        "config.json so resumes/evals stay consistent.")
+    p.add_argument("--upright-reset-frac", type=float, default=0.25,
+                   help="fraction of TRAINING episodes that reset near "
+                        "upright (phi = pi ± 0.3 rad, gentle spin) instead "
+                        "of hanging. Trains the catch/balance skill "
+                        "directly instead of only after successful "
+                        "swing-ups — mitigates the stage-2/3 collapse-to-"
+                        "spinning failure mode. The eval env always uses "
+                        "hanging-only resets so scores stay comparable. "
+                        "Set 0.0 for the legacy behaviour.")
     p.add_argument("--dr-theta-bias-max-rad", type=float, default=None,
                    help="Per-episode pendulum encoder θ-bias DR range "
                         "(rad). Default None → env default "
@@ -375,6 +503,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "the policy must be robust to it from stage 1. "
                         "Set 0.0 to disable explicitly (eval env auto-"
                         "uses 0.0 for a deterministic reference).")
+    p.add_argument("--reward-alive-offset", type=float, default=15.0,
+                   help="constant per-step reward offset (audit F1). Chosen "
+                        "≥ the worst realistic per-step quadratic cost "
+                        "(~14 on this rig) so per-step reward is non-negative "
+                        "and terminating (hard-stop crash) always forfeits "
+                        "value — removes the 'suicide by hard stop' local "
+                        "optimum that all-negative rewards + termination "
+                        "create. Set 0.0 for the legacy canonical reward.")
+    p.add_argument("--reward-upright-alive-weight", type=float, default=5.0,
+                   help="velocity-gated upright bonus (audit F1): +k per step "
+                        "while |θ| ≤ 15° AND |θ̇| ≤ 2 rad/s (same gates as the "
+                        "honest balance metrics). Swinging *through* upright "
+                        "at speed earns nothing, so spin-through farming is "
+                        "unprofitable. Set 0.0 for the legacy reward.")
     p.add_argument("--reward-stillness-bonus-weight", type=float, default=None,
                    help="Multiplicative stillness bonus weight. Default None "
                         "→ 0 (disabled, canonical Quanser reward). When set "

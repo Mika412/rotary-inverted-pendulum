@@ -123,20 +123,33 @@ def main(argv: list[str] | None = None) -> int:
                         "this rate even at high --gradient-steps. 35 Hz is "
                         "the canonical operating point for this rig — see "
                         "docs/control_rate_selection.md.")
-    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+    p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
+                   default="accel",
                    help="how the action drives the motor. Must match the mode the "
                         "sim policy was trained with. 'accel' (default): "
-                        "CMD_SET_ACCEL. 'position_delta': CMD_SET_TARGET.")
+                        "CMD_SET_ACCEL. 'velocity': velocity setpoint converted "
+                        "host-side to accel commands (same CMD_SET_ACCEL "
+                        "transport). 'position_delta': CMD_SET_TARGET.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
-                   help="accel mode: action maps to angular accel [-max, +max] "
+                   help="accel/velocity mode: accel command clamp [-max, +max] "
                         "rad/s². Must match the sim training value (150).")
+    p.add_argument("--max-velocity-rad-s", type=float, default=5.0,
+                   help="velocity mode: action maps to velocity setpoint "
+                        "[-max, +max] rad/s. Must match the sim training "
+                        "value (5.0).")
     p.add_argument("--max-action-delta-rad", type=float, default=0.10,
                    help="position_delta mode: per-tick motor-target delta of "
                         "action × this (rad). Must match sim training (0.10).")
     p.add_argument("--gradient-steps", type=int, default=4,
                    help="SAC gradient updates per train() call. Higher "
                         "extracts more from each real transition")
-    p.add_argument("--learning-rate", type=float, default=3e-4)
+    p.add_argument("--learning-rate", type=float, default=1e-4,
+                   help="fine-tune learning rate. Default 1e-4 — lower than "
+                        "sim training's 3e-4 on purpose: full-rate gradient "
+                        "steps on scarce real data are the classic way to "
+                        "destroy a sim-trained policy (see RLPD, "
+                        "arXiv:2302.02948, for the full recipe: 50/50 "
+                        "sim/real batches + LayerNorm critic).")
     p.add_argument("--learning-starts", type=int, default=100,
                    help="number of buffer transitions before training begins")
     p.add_argument("--checkpoint-freq", type=int, default=10,
@@ -152,6 +165,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--timing-violation-threshold-ms", type=float, default=5.0,
                    help="control-loop overrun above this for 3 consecutive "
                         "ticks raises TimingViolation and disengages motor")
+    p.add_argument("--obs-history-len", type=int, default=None,
+                   help="frames stacked into the observation. Default None → "
+                        "inherit from the checkpoint's config.json (1 for "
+                        "legacy checkpoints). Must match sim training — the "
+                        "obs shapes differ, so a mismatch fails loudly.")
+    p.add_argument("--eval-every", type=int, default=5,
+                   help="every N episodes, run the episode with DETERMINISTIC "
+                        "actions and track the best-scoring policy as "
+                        "best_model.zip (the fine-tune analogue of sim "
+                        "training's EvalCallback — without it, last.zip is "
+                        "whatever the policy happened to be at the final "
+                        "episode, which is often not the best one seen). "
+                        "Eval episodes still feed the replay buffer and "
+                        "train. Set 0 to disable.")
     p.add_argument("--deterministic", action="store_true",
                    help="use deterministic actions during data collection. "
                         "Default is stochastic, matching SAC training-time "
@@ -161,6 +188,17 @@ def main(argv: list[str] | None = None) -> int:
                         "delta. Must match the sim training value, otherwise "
                         "fine-tune gradient pulls the policy off the basin "
                         "found in sim.")
+    p.add_argument("--reward-alive-offset", type=float, default=None,
+                   help="Mirror of train_sac.py's flag (audit F1 alive "
+                        "offset). Default None → inherit the value recorded "
+                        "in the checkpoint's config.json (0.0 for legacy "
+                        "checkpoints). Must match sim training or the "
+                        "fine-tune gradient re-values every state.")
+    p.add_argument("--reward-upright-alive-weight", type=float, default=None,
+                   help="Mirror of train_sac.py's flag (audit F1 velocity-"
+                        "gated upright bonus). Default None → inherit from "
+                        "the checkpoint's config.json (0.0 for legacy "
+                        "checkpoints). Must match sim training.")
     p.add_argument("--reward-stillness-bonus-weight", type=float, default=None,
                    help="Mirror of train_sac.py's flag — multiplicative "
                         "stillness bonus near upright. Must match the sim "
@@ -182,14 +220,43 @@ def main(argv: list[str] | None = None) -> int:
     # Validate flags against the source checkpoint's recorded training
     # config — fine-tuning with mismatched action mode / rate / reward
     # would silently corrupt the policy and the replay buffer.
+    # Alive terms: None → inherit from the checkpoint's recorded config so
+    # fine-tunes of fix-trained policies keep optimising the same objective
+    # without retyping flags (legacy checkpoints without the keys → 0.0).
+    saved_cfg = find_run_config(args.policy) or {}
+    reward_alive_offset = (
+        float(args.reward_alive_offset)
+        if args.reward_alive_offset is not None
+        else float(saved_cfg.get("reward_alive_offset") or 0.0)
+    )
+    reward_upright_alive_weight = (
+        float(args.reward_upright_alive_weight)
+        if args.reward_upright_alive_weight is not None
+        else float(saved_cfg.get("reward_upright_alive_weight") or 0.0)
+    )
+    obs_history_len = (
+        int(args.obs_history_len)
+        if args.obs_history_len is not None
+        else int(saved_cfg.get("obs_history_len") or 1)
+    )
+    # Always inherited from the checkpoint — obs construction is not a
+    # fine-tune-time choice.
+    obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
+
     expected = {
         "action_mode": args.action_mode,
         "control_freq_hz": float(args.control_freq),
         "reward_action_rate_weight": float(args.reward_action_rate_weight or 0.0),
         "reward_stillness_bonus_weight": float(args.reward_stillness_bonus_weight or 0.0),
+        "reward_alive_offset": reward_alive_offset,
+        "reward_upright_alive_weight": reward_upright_alive_weight,
+        "obs_history_len": obs_history_len,
+        "obs_include_velocities": obs_include_velocities,
     }
-    if args.action_mode == "accel":
+    if args.action_mode in ("accel", "velocity"):
         expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
+        if args.action_mode == "velocity":
+            expected["max_velocity_rad_s"] = float(args.max_velocity_rad_s)
     else:
         expected["max_action_delta_rad"] = float(args.max_action_delta_rad)
     check_config(args.policy, expected, ignore=args.ignore_config_mismatch)
@@ -212,9 +279,14 @@ def main(argv: list[str] | None = None) -> int:
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
+        max_velocity_rad_s=args.max_velocity_rad_s,
         max_action_delta_rad=args.max_action_delta_rad,
         episode_length_s=args.episode_length_s,
         reset_settle_s=args.reset_settle_s,
+        reward_alive_offset=reward_alive_offset,
+        reward_upright_alive_weight=reward_upright_alive_weight,
+        obs_history_len=obs_history_len,
+        obs_include_velocities=obs_include_velocities,
     )
     if args.reward_action_rate_weight is not None:
         env_kwargs["reward_action_rate_weight"] = args.reward_action_rate_weight
@@ -228,7 +300,11 @@ def main(argv: list[str] | None = None) -> int:
     # Override the loaded checkpoint's tensorboard_log (often a foreign
     # absolute path from the box that trained it).
     model.tensorboard_log = str(run_dir / "tb")
+    # Assigning `learning_rate` alone is a silent no-op: SAC.train() samples
+    # the lr from `lr_schedule`, which SAC.load() built from the checkpoint's
+    # learning rate. Rebuild the schedule so --learning-rate actually applies.
     model.learning_rate = args.learning_rate
+    model._setup_lr_schedule()
 
     if args.resume_buffer:
         rb_path = Path(args.resume_buffer)
@@ -313,12 +389,15 @@ def main(argv: list[str] | None = None) -> int:
     recent_lengths: deque[int] = deque(maxlen=100)
 
     # ---- Main loop ----
+    best_eval_reward = float("-inf")
     try:
         for ep_idx in range(args.episodes):
             if stop_flag.is_set():
                 break
+            is_eval = args.eval_every > 0 and (ep_idx + 1) % args.eval_every == 0
             print(f"\n[ep {ep_idx + 1}/{args.episodes}] reset (settle "
-                  f"{args.reset_settle_s} s) → engage → run")
+                  f"{args.reset_settle_s} s) → engage → run"
+                  + ("  [deterministic eval]" if is_eval else ""))
             try:
                 env.reset()
             except Exception as e:
@@ -329,7 +408,7 @@ def main(argv: list[str] | None = None) -> int:
                 env, snapshot, queue, stop_flag,
                 control_freq_hz=args.control_freq,
                 timing_violation_threshold_s=args.timing_violation_threshold_ms / 1000.0,
-                deterministic_actions=args.deterministic,
+                deterministic_actions=args.deterministic or is_eval,
                 dt_jitter_frac=args.dt_jitter_frac,
             )
             ctrl_thread = threading.Thread(
@@ -384,6 +463,12 @@ def main(argv: list[str] | None = None) -> int:
                   f"violations={ep_stats.tick_stats.n_violations}  "
                   f"train_calls={n_train}  train_s={train_s:.2f}")
             _log_episode(ep_stats, n_train, train_s)
+
+            if is_eval and ep_stats.cumulative_reward > best_eval_reward:
+                best_eval_reward = ep_stats.cumulative_reward
+                model.save(run_dir / "best_model.zip")
+                print(f"  new best deterministic eval ({best_eval_reward:+.1f}) "
+                      f"→ best_model.zip")
 
             # Flush logger to TB once per episode. SB3's `train()` records
             # scalars internally but doesn't dump — that normally happens in
