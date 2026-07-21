@@ -45,7 +45,7 @@ import numpy as np
 from stable_baselines3 import SAC
 
 from lowlevel_client import LowLevelClient
-from run_config import check_config
+from run_config import check_config, find_run_config
 
 
 MOTOR_SAFE_LIMIT_RAD = math.radians(125.0)
@@ -57,21 +57,30 @@ def _wrap_pi(x: float) -> float:
 
 
 def make_obs(motor_pos: float, phi: float, motor_vel: float, pen_vel: float,
-             prev_action: float) -> np.ndarray:
-    """Build the 6-dim observation matching pendulum_env.py.
+             prev_action: float, include_velocities: bool = True) -> np.ndarray:
+    """Build one observation frame matching pendulum_env.py.
 
     phi is the pendulum joint angle (0 = hanging down, +/- pi = upright).
     theta = phi - pi   (so theta=0 at upright, theta=+/-pi at hanging down).
     prev_action is the action issued last tick, in [-1, 1] — restores Markov
     property under action delay by giving the policy a read on its own queue.
+    With include_velocities=False the frame is positions-only and the policy
+    derives velocities from the stacked history.
     """
     theta = _wrap_pi(phi - math.pi)
+    if include_velocities:
+        return np.array([
+            motor_pos,
+            math.sin(theta),
+            math.cos(theta),
+            motor_vel,
+            pen_vel,
+            prev_action,
+        ], dtype=np.float32)
     return np.array([
         motor_pos,
         math.sin(theta),
         math.cos(theta),
-        motor_vel,
-        pen_vel,
         prev_action,
     ], dtype=np.float32)
 
@@ -86,13 +95,21 @@ def main(argv: list[str] | None = None) -> int:
                         "the policy was trained at — see "
                         "docs/control_rate_selection.md. Default 35 Hz "
                         "matches this rig's canonical design rate.")
-    p.add_argument("--action-mode", choices=("accel", "position_delta"), default="accel",
+    p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
+                   default="accel",
                    help="how the action drives the motor. 'accel' (default): via "
-                        "CMD_SET_ACCEL. 'position_delta': per-tick motor-target "
-                        "delta via CMD_SET_TARGET. Must match the training mode.")
+                        "CMD_SET_ACCEL. 'velocity': velocity setpoint converted "
+                        "host-side to an accel command each tick (same "
+                        "CMD_SET_ACCEL transport). 'position_delta': per-tick "
+                        "motor-target delta via CMD_SET_TARGET. Must match the "
+                        "training mode.")
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
-                   help="accel mode: action maps to angular accel [-max, +max] "
+                   help="accel/velocity mode: accel command clamp [-max, +max] "
                         "rad/s². Must match training-time max_accel_rad_s2 (150).")
+    p.add_argument("--max-velocity-rad-s", type=float, default=5.0,
+                   help="velocity mode: action maps to velocity setpoint "
+                        "[-max, +max] rad/s. Must match training-time "
+                        "max_velocity_rad_s (5.0).")
     p.add_argument("--max-action-delta-rad", type=float, default=0.10,
                    help="position_delta mode: per-tick motor-target delta of "
                         "action × this (rad). Must match training (default 0.10).")
@@ -108,46 +125,55 @@ def main(argv: list[str] | None = None) -> int:
                         "training-time behaviour). Default is deterministic = mean. "
                         "Useful while ent_coef is still high and the deterministic "
                         "mean lands in degenerate compromises.")
+    p.add_argument("--obs-history-len", type=int, default=None,
+                   help="frames stacked into the observation. Default None → "
+                        "read from the checkpoint's config.json (1 for legacy "
+                        "checkpoints). Must match training.")
     p.add_argument("--ignore-config-mismatch", action="store_true",
                    help="downgrade the config.json validation abort to a warning")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
+
+    saved_cfg = find_run_config(args.policy) or {}
+    obs_history_len = (
+        int(args.obs_history_len) if args.obs_history_len is not None
+        else int(saved_cfg.get("obs_history_len") or 1)
+    )
+    obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
+
+    # The log is written with np.savez — require a .npz path so a slip like
+    # `--log runs/<run>/last.zip` can't shadow (or, with a .npz-suffixed
+    # typo, overwrite) a model checkpoint.
+    if args.log and not str(args.log).endswith(".npz"):
+        p.error(f"--log path must end in .npz, got {args.log!r}")
 
     # Validate flags against the checkpoint's recorded training config
     # (both action modes share obs/action spaces, so a mismatch would
     # otherwise fail silently on the rig). Checks the mode-relevant
     # action scale only.
     expected = {"action_mode": args.action_mode,
-                "control_freq_hz": float(args.control_freq)}
-    if args.action_mode == "accel":
+                "control_freq_hz": float(args.control_freq),
+                "obs_history_len": obs_history_len,
+                "obs_include_velocities": obs_include_velocities}
+    if args.action_mode in ("accel", "velocity"):
         expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
+        if args.action_mode == "velocity":
+            expected["max_velocity_rad_s"] = float(args.max_velocity_rad_s)
     else:
         expected["max_action_delta_rad"] = float(args.max_action_delta_rad)
     check_config(args.policy, expected, ignore=args.ignore_config_mismatch)
 
     print(f"Loading policy from {args.policy}")
     if str(args.policy).endswith(".pt"):
-        # Distilled student MLP. The float (StudentMLP) and QAT (QATStudent)
-        # variants share the same predict() signature; the only difference is
-        # the FakeQuant nodes in QAT's forward pass. Detect QAT by the
-        # presence of the activation observer buffer in the state dict.
+        # Distilled student MLP (distill.py / dagger_distill.py output).
         from distill import StudentMLP, _student_predict_factory
         import torch
         from gymnasium import spaces
         ckpt = torch.load(args.policy, map_location=args.device, weights_only=True)
-        is_qat = "obs_in.max_abs" in ckpt["state_dict"]
-        if is_qat:
-            from distill_quantised import QATStudent
-            student = QATStudent(
-                hidden=int(ckpt["hidden"]),
-                obs_dim=int(ckpt["obs_dim"]),
-                act_dim=int(ckpt["act_dim"]),
-            )
-        else:
-            student = StudentMLP(
-                hidden=int(ckpt["hidden"]),
-                obs_dim=int(ckpt["obs_dim"]),
-                act_dim=int(ckpt["act_dim"]),
-            )
+        student = StudentMLP(
+            hidden=int(ckpt["hidden"]),
+            obs_dim=int(ckpt["obs_dim"]),
+            act_dim=int(ckpt["act_dim"]),
+        )
         student.load_state_dict(ckpt["state_dict"])
         predict_fn = _student_predict_factory(student, device=args.device)
         obs_dim = int(ckpt["obs_dim"])
@@ -217,20 +243,38 @@ def main(argv: list[str] | None = None) -> int:
             # while disengaged are dropped (motor_engaged gate). Zero accel /
             # current-position target both mean "hold still" until the first
             # policy action lands.
-            if args.action_mode == "accel":
-                client.set_acceleration(0.0)
-            else:
+            if args.action_mode == "position_delta":
                 client.set_target(motor_target)
+            else:
+                client.set_acceleration(0.0)
             print("Motor engaged.")
         else:
             print("DRY RUN: motor stays disengaged.")
 
         prev_action = 0.0
 
+        # Observation frame stack (oldest → newest), mirroring the envs:
+        # seeded with K copies of the first frame, then one append per tick.
+        from collections import deque
+        obs_history: deque = deque(maxlen=obs_history_len)
+
         loop_count = 0
         next_tick = time.monotonic()
         max_steps = int(args.duration_s * args.control_freq)
         ep_reward_proxy = 0.0
+
+        # Honest balance counters (mirrors analyze_deploy.honest_balance_metrics).
+        # "Balanced" requires near-upright AND slow — the legacy cos-proxy above
+        # scores ~0.8 for a continuously spinning pendulum and 0.95+ for a
+        # vibrational (Kapitza-style) policy, so it can't certify true balance.
+        BAL_THETA_RAD = math.radians(15.0)
+        BAL_PEN_VEL_RAD_S = 2.0
+        bal_steps = 0          # total balanced steps
+        bal_streak = 0         # current balanced streak (steps)
+        bal_streak_max = 0     # longest balanced streak (steps)
+        phi_travel = 0.0       # gross pendulum travel (rad) — spins rack this up
+        phi_last = None
+        v_cmd = 0.0            # velocity-mode commanded-velocity integrator
 
         # Trajectory log buffers (sim convention throughout for ease of analysis)
         log_t_us = np.zeros(max_steps, dtype=np.int64)
@@ -259,19 +303,50 @@ def main(argv: list[str] | None = None) -> int:
                 motor_vel = -s.motor_vel_rad_s
                 pen_vel = -s.pendulum_vel_rad_s
 
-                obs = make_obs(motor_pos, phi, motor_vel, pen_vel, prev_action)
+                frame = make_obs(motor_pos, phi, motor_vel, pen_vel,
+                                 prev_action, obs_include_velocities)
+                if not obs_history:
+                    obs_history.extend([frame] * obs_history_len)
+                else:
+                    obs_history.append(frame)
+                obs = (frame if obs_history_len == 1
+                       else np.concatenate(obs_history))
                 action, _ = model.predict(obs, deterministic=not args.stochastic)
                 a = float(np.clip(action.flatten()[0], -1.0, 1.0))
 
-                if args.action_mode == "accel":
+                if args.action_mode in ("accel", "velocity"):
                     # Accel-mode: action maps directly to commanded angular accel.
+                    # Velocity-mode: action is a velocity setpoint, converted to
+                    # an accel command via a saturating P-law on the firmware-
+                    # reported motor velocity (same CMD_SET_ACCEL transport).
                     # Safety clamp: if we're at the position limit and the policy
                     # would push us further into it, zero the accel command.
-                    cmd_value = a * args.max_accel_rad_s2
+                    if args.action_mode == "velocity":
+                        # P-law feedback is the host's own commanded-velocity
+                        # integrator (v_cmd), not the firmware-measured
+                        # velocity — the measurement's ±0.5 rad/s quantisation
+                        # times the control-frequency gain injected a
+                        # ±17 rad/s² accel dither. The complementary
+                        # correction below heals integrator drift while
+                        # attenuating that noise ~10×. Mirrors real_env.py
+                        # and the sim's velocity mode.
+                        v_des = a * args.max_velocity_rad_s
+                        cmd_value = float(np.clip(
+                            (v_des - v_cmd) * args.control_freq,
+                            -args.max_accel_rad_s2, args.max_accel_rad_s2,
+                        ))
+                    else:
+                        cmd_value = a * args.max_accel_rad_s2
                     if motor_pos >= MOTOR_SAFE_LIMIT_RAD and cmd_value > 0.0:
                         cmd_value = 0.0
                     elif motor_pos <= -MOTOR_SAFE_LIMIT_RAD and cmd_value < 0.0:
                         cmd_value = 0.0
+                    if args.action_mode == "velocity":
+                        v_cmd = float(np.clip(
+                            v_cmd + cmd_value / args.control_freq,
+                            -args.max_velocity_rad_s, args.max_velocity_rad_s,
+                        ))
+                        v_cmd += 0.1 * (motor_vel - v_cmd)
                 else:
                     # Position-delta mode: integrate the per-tick target delta,
                     # clamp to the safety rail (the firmware clamps again), send
@@ -284,10 +359,10 @@ def main(argv: list[str] | None = None) -> int:
 
                 if not args.dry_run:
                     try:
-                        if args.action_mode == "accel":
-                            client.set_acceleration(cmd_value)
-                        else:
+                        if args.action_mode == "position_delta":
                             client.set_target(cmd_value)
+                        else:
+                            client.set_acceleration(cmd_value)
                     except OSError:
                         # Serial syscall interrupted, almost always by SIGTERM
                         # /SIGINT. Treat as interruption and exit cleanly.
@@ -297,6 +372,17 @@ def main(argv: list[str] | None = None) -> int:
                 # Reward for live monitoring
                 theta = _wrap_pi(s.pendulum_pos_rad - math.pi)
                 ep_reward_proxy += 0.5 * (1.0 + math.cos(theta))
+
+                # Honest balance counters.
+                if abs(theta) <= BAL_THETA_RAD and abs(pen_vel) <= BAL_PEN_VEL_RAD_S:
+                    bal_steps += 1
+                    bal_streak += 1
+                    bal_streak_max = max(bal_streak_max, bal_streak)
+                else:
+                    bal_streak = 0
+                if phi_last is not None:
+                    phi_travel += abs(phi - phi_last)
+                phi_last = phi
 
                 # Log this step (sim convention; un-flip already applied above).
                 # The "commanded" quantity is the angular accel (accel-mode) or
@@ -313,7 +399,8 @@ def main(argv: list[str] | None = None) -> int:
                     log_action[loop_count] = a
 
                 if loop_count % args.control_freq == 0:
-                    cmd_label = "accel_cmd" if args.action_mode == "accel" else "target"
+                    cmd_label = ("target" if args.action_mode == "position_delta"
+                                 else "accel_cmd")
                     print(
                         f"t={loop_count * dt:.1f}s  motor={motor_pos:+.3f} "
                         f"{cmd_label}={cmd_value:+6.2f}  theta={theta:+.3f}  "
@@ -331,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             # position mode the last moveTo target already holds the motor, so
             # we just disengage.
             try:
-                if args.action_mode == "accel":
+                if args.action_mode != "position_delta":
                     client.set_acceleration(0.0)
                 client.disengage_motor()
             except Exception:
@@ -339,6 +426,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Loop finished. Steps: {loop_count}, "
                   f"avg upright proxy: {ep_reward_proxy / max(1, loop_count):.3f}, "
                   f"motor disengaged.")
+            if loop_count > 0:
+                print(f"Honest balance (|θ|≤15° AND |θ̇|≤{BAL_PEN_VEL_RAD_S:.0f} rad/s): "
+                      f"fraction {bal_steps / loop_count:.3f}, "
+                      f"longest streak {bal_streak_max * dt:.2f} s, "
+                      f"pendulum travel {phi_travel / (2 * math.pi):.1f} rev "
+                      f"(spinning if ≫1 after swing-up)")
 
             if args.log and loop_count > 0:
                 np.savez(
@@ -352,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
                     action=log_action[:loop_count],
                     control_freq_hz=np.float32(args.control_freq),
                     max_accel_rad_s2=np.float32(args.max_accel_rad_s2),
+                    max_velocity_rad_s=np.float32(args.max_velocity_rad_s),
                     max_action_delta_rad=np.float32(args.max_action_delta_rad),
                     action_mode=str(args.action_mode),
                     policy_path=str(args.policy),

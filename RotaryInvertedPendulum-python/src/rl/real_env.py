@@ -92,8 +92,9 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         port: str = "/dev/cu.usbserial-110",
         baud: int = 2_000_000,
         control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
-        action_mode: str = "accel",  # "accel" or "position_delta" — must match sim training
+        action_mode: str = "accel",  # "accel", "velocity", or "position_delta" — must match sim training
         max_accel_rad_s2: float = 100.0,
+        max_velocity_rad_s: float = 5.0,  # velocity-mode action scale; matches sim MAX_VELOCITY_RAD_S
         max_action_delta_rad: float = MAX_ACTION_DELTA_RAD,  # position-mode per-step target delta
         episode_length_s: float = 6.0,
         # Max seconds to wait for the pendulum to come to rest between
@@ -126,21 +127,37 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         reward_stillness_bonus_weight: float | None = None,
         reward_stillness_sigma_theta_rad: float = 0.3,
         reward_stillness_sigma_motor_vel_rad_s: float = 1.0,
+        # Alive terms — must match sim training (see reward.py, audit F1).
+        reward_alive_offset: float | None = None,
+        reward_upright_alive_weight: float | None = None,
+        obs_history_len: int = 1,  # frames per observation — must match sim training
+        obs_include_velocities: bool = True,  # False: positions-only frames — must match sim training
         params_path: str | Path | None = None,
     ):
         super().__init__()
-        if action_mode not in ("accel", "position_delta"):
+        if action_mode not in ("accel", "velocity", "position_delta"):
             raise ValueError(
-                f"action_mode must be 'accel' or 'position_delta', got {action_mode!r}"
+                f"action_mode must be 'accel', 'velocity', or 'position_delta', "
+                f"got {action_mode!r}"
             )
         self.port = port
         self.baud = baud
         self.control_freq_hz = control_freq_hz
         self.action_mode = action_mode
         self.max_accel_rad_s2 = max_accel_rad_s2
+        self.max_velocity_rad_s = max_velocity_rad_s
         self.max_action_delta_rad = max_action_delta_rad
         self.episode_length_s = episode_length_s
         self.reset_settle_s = reset_settle_s  # rest-detection timeout
+        if int(obs_history_len) < 1:
+            raise ValueError(f"obs_history_len must be >= 1, got {obs_history_len}")
+        self.obs_history_len = int(obs_history_len)
+        self.obs_include_velocities = bool(obs_include_velocities)
+        if not self.obs_include_velocities and self.obs_history_len < 2:
+            raise ValueError(
+                "obs_include_velocities=False needs obs_history_len >= 2"
+            )
+        self._obs_history: deque = deque(maxlen=self.obs_history_len)
         self.terminate_on_hard_stop = terminate_on_hard_stop
         self.hard_stop_penalty = float(hard_stop_penalty)
         # All reward terms live in a single RewardWeights dataclass shared
@@ -162,6 +179,14 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             ),
             sigma_theta=float(reward_stillness_sigma_theta_rad),
             sigma_motor_vel=float(reward_stillness_sigma_motor_vel_rad_s),
+            k_alive_offset=(
+                float(reward_alive_offset)
+                if reward_alive_offset is not None else 0.0
+            ),
+            k_upright_alive=(
+                float(reward_upright_alive_weight)
+                if reward_upright_alive_weight is not None else 0.0
+            ),
         )
         # Motor-jerk term needs prev_motor_vel tracking. real_env doesn't
         # currently expose a CLI flag for it (sim-only feature), but the
@@ -194,9 +219,12 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         )
         # Observation bounds match the sim env exactly. Last dim is
         # prev_action ∈ [-1, 1], present from the accel-mode rework.
-        obs_high = np.array(
-            [MOTOR_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0], dtype=np.float32
+        frame_high = (
+            np.array([MOTOR_LIMIT_RAD, 1.0, 1.0, 200.0, 200.0, 1.0], dtype=np.float32)
+            if self.obs_include_velocities
+            else np.array([MOTOR_LIMIT_RAD, 1.0, 1.0, 1.0], dtype=np.float32)
         )
+        obs_high = np.tile(frame_high, self.obs_history_len)
         self.observation_space = spaces.Box(
             low=-obs_high, high=obs_high, dtype=np.float32
         )
@@ -272,19 +300,43 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         )
         return False
 
-    def _build_obs(self, motor_pos: float, phi: float) -> np.ndarray:
+    def _build_obs(self, motor_pos: float, phi: float, *,
+                   push: bool = True) -> np.ndarray:
+        """Build the stacked observation from the current state.
+
+        `push=True` (normal reset/step path) appends the new frame to the
+        history first. Error paths pass `push=False` so a failed serial read
+        doesn't advance the frame clock with a stale duplicate.
+        """
         theta = _wrap_pi(phi - math.pi)
-        return np.array(
-            [
-                motor_pos,
-                math.sin(theta),
-                math.cos(theta),
-                self._motor_vel,
-                self._pen_vel,
-                self._prev_action,
-            ],
-            dtype=np.float32,
-        )
+        if self.obs_include_velocities:
+            frame = np.array(
+                [
+                    motor_pos,
+                    math.sin(theta),
+                    math.cos(theta),
+                    self._motor_vel,
+                    self._pen_vel,
+                    self._prev_action,
+                ],
+                dtype=np.float32,
+            )
+        else:
+            # Positions-only frame: the firmware velocities are still read
+            # and used for the reward and rest detection — they just aren't
+            # shown to the policy, which derives its own from the history.
+            frame = np.array(
+                [motor_pos, math.sin(theta), math.cos(theta),
+                 self._prev_action],
+                dtype=np.float32,
+            )
+        if not self._obs_history:
+            self._obs_history.extend([frame] * self.obs_history_len)
+        elif push:
+            self._obs_history.append(frame)
+        if self.obs_history_len == 1:
+            return frame
+        return np.concatenate(self._obs_history)
 
     def _reward(self, action: float, motor_pos: float, phi: float) -> float:
         # Delegates to reward.compute_reward — same code path the sim
@@ -360,10 +412,12 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         self._phi_prev = phi
         self._motor_vel = 0.0
         self._pen_vel = 0.0
+        self._v_cmd = 0.0  # velocity-mode commanded-velocity integrator
         self._prev_action = 0.0
         self._step_count = 0
         self._next_tick = time.monotonic()
 
+        self._obs_history.clear()  # reseeded by _build_obs with the initial frame
         return self._build_obs(motor_pos, phi), {}
 
     def apply_action(self, action) -> float:
@@ -385,14 +439,38 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             raise RuntimeError("env.apply_action() called before reset() or motor disengaged")
 
         a = float(np.clip(np.asarray(action).flatten()[0], -1.0, 1.0))
-        if self.action_mode == "accel":
-            accel_cmd = a * self.max_accel_rad_s2
+        if self.action_mode in ("accel", "velocity"):
+            if self.action_mode == "velocity":
+                # Saturating P-law tracking the velocity setpoint. Feedback
+                # is the host's OWN commanded-velocity integrator, not the
+                # firmware-measured velocity: the measurement is quantised
+                # to ±(LSB/window) ≈ ±0.5 rad/s, and multiplying that error
+                # by the control-frequency gain injected a persistent
+                # ±17 rad/s² accel dither (the wobble every raw deploy
+                # showed). The stepper executes commands essentially
+                # perfectly, so the integrator is accurate by construction;
+                # a slow complementary correction from the measurement
+                # (after send, below) heals drift from rail clamps or
+                # skipped steps while attenuating quantisation noise ~10×.
+                v_des = a * self.max_velocity_rad_s
+                accel_cmd = float(np.clip(
+                    (v_des - self._v_cmd) * self.control_freq_hz,
+                    -self.max_accel_rad_s2, self.max_accel_rad_s2,
+                ))
+            else:
+                accel_cmd = a * self.max_accel_rad_s2
             if self._motor_pos_prev >= MOTOR_SAFE_LIMIT_RAD and accel_cmd > 0.0:
                 accel_cmd = 0.0
             elif self._motor_pos_prev <= -MOTOR_SAFE_LIMIT_RAD and accel_cmd < 0.0:
                 accel_cmd = 0.0
             self._last_accel_cmd = accel_cmd
             client.set_acceleration(accel_cmd)
+            if self.action_mode == "velocity":
+                self._v_cmd = float(np.clip(
+                    self._v_cmd + accel_cmd / self.control_freq_hz,
+                    -self.max_velocity_rad_s, self.max_velocity_rad_s,
+                ))
+                self._v_cmd += 0.1 * (self._motor_vel - self._v_cmd)
         else:
             self._motor_target = float(np.clip(
                 self._motor_target + a * self.max_action_delta_rad,
@@ -414,7 +492,8 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         try:
             t_us, motor_pos, phi, motor_vel, pen_vel = self._read_raw_state()
         except OSError:
-            return self._build_obs(self._motor_pos_prev, self._phi_prev), 0.0, True, False, {}
+            return (self._build_obs(self._motor_pos_prev, self._phi_prev,
+                                    push=False), 0.0, True, False, {})
 
         self._motor_vel = motor_vel
         self._pen_vel = pen_vel
@@ -453,7 +532,8 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             a = self.apply_action(action)
         except OSError:
             # Serial syscall interrupted during set_acceleration — treat as termination.
-            return self._build_obs(self._motor_pos_prev, self._phi_prev), 0.0, True, False, {}
+            return (self._build_obs(self._motor_pos_prev, self._phi_prev,
+                                    push=False), 0.0, True, False, {})
 
         # Pace to the requested control rate. Note: this is the bug-prone
         # part — if the SAC training loop runs gradient updates between
