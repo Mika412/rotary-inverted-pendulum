@@ -2,7 +2,8 @@
 
 Python tooling for the rotary inverted pendulum: gamepad control,
 system identification, and the RL pipeline (env, SAC trainer, deployment
-client). See [`../RL_PLAN.md`](../RL_PLAN.md) for the broader plan.
+client). See [`../docs/end_to_end_runbook.md`](../docs/end_to_end_runbook.md)
+for the end-to-end RL pipeline.
 
 ## Environment setup
 

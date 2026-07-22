@@ -4,8 +4,9 @@ How to take a freshly-built rig from "no policy at all" to "balances
 standalone on the Nano, no laptop tether". Each step lists the command,
 the expected wall-clock cost, and what the next step depends on.
 
-For *why* the pipeline is shaped this way, see [`../RL_PLAN.md`](../RL_PLAN.md).
 For *how a single transition works*, see [`rl_transitions.md`](rl_transitions.md).
+For the decision log behind the hardware/firmware shape of the pipeline, see
+[`transport_delay.md`](transport_delay.md).
 
 ```
    ┌──────────┐    ┌──────────┐    ┌──────────────┐    ┌──────────────┐
@@ -30,47 +31,21 @@ If you only need the upright/balance behaviour and are happy keeping the
 laptop attached: stop after step 3. Steps 4–6 only exist to remove the
 tether.
 
-## Action mode — accel (default) vs position-delta
+## Action mode — velocity is the production mode
 
-Every step works in either action mode (see
-[`rl_transitions.md`](rl_transitions.md)):
+The validated pipeline uses **`velocity`** mode end-to-end: the policy's
+action is a velocity setpoint (±3.5 rad/s), converted to accel commands
+each tick by a P-law tracking the controller's own commanded-velocity
+integrator (never the quantised measured velocity — that injected a
+±17 rad/s² dither, removed 2026-07-21), over the same `CMD_SET_ACCEL`
+firmware transport in every deployment. All defaults — the curriculum,
+`train_sac.py` at 35 Hz, `RLControl.ino` — are set for this mode; run
+the commands as written.
 
-- **`accel`** (default) — action → angular acceleration. Run the commands
-  as written; `--action-mode` defaults to `accel`.
-- **`position_delta`** — action → per-tick motor-target delta (`moveTo`),
-  the mode `RLControl.ino` runs on-device. To use it:
-  - Add `--action-mode position_delta` to every `train_sac.py`,
-    `run_policy.py`, and `finetune_async.py` command, plus
-    `--reward-action-rate-weight 0.05` at 35 Hz.
-  - For the curriculum (step 1), pass these as environment variables:
-
-    ```bash
-    ACTION_MODE=position_delta \
-    REWARD_ACTION_RATE_WEIGHT=0.05 \
-    CONTROL_FREQ=35 \
-    DEVICE=cpu \
-    uv run bash curriculum_train.sh pos_v1
-    ```
-
-  - Validate in sim first — watch it balance in the viewer (macOS needs
-    `mjpython`; pass the same flags so the eval env matches):
-
-    ```bash
-    uv run mjpython train_sac.py \
-        --action-mode position_delta --reward-action-rate-weight 0.05 \
-        --control-freq 35 \
-        --eval runs/pos_v1_stage3/best_model.zip --eval-seconds 30
-    ```
-
-Training, fine-tuning, and deployment must all use the same `--action-mode`.
-One flashed `LowLevelServer` serves both modes (`CMD_SET_ACCEL` /
-`CMD_SET_TARGET`); the host picks per command.
-
-This is enforced automatically: training records its must-match knobs in
-`runs/<name>/config.json`, and `run_policy.py` / `finetune_async.py` /
-`train_sac.py --resume/--eval` abort on a mismatch (override with
-`--ignore-config-mismatch`). Checkpoints predating `config.json` skip the
-check.
+Legacy modes remain selectable for comparisons (`--action-mode accel` /
+`position_delta`, see [`rl_transitions.md`](rl_transitions.md)) but no
+current tooling defaults to them and RLControl.ino no longer speaks
+position-delta.
 
 ## Prerequisites
 
@@ -103,25 +78,23 @@ microstepping, swapped motor).
 
 The repo's canonical recipe trains a SAC actor through three DR stages
 of increasing realism. End-to-end ~25 min on the MacBook (CPU, single
-env). Outputs `runs/<run-name>/last.zip`.
+env). The trained teacher is `runs/<name>_stage3/best_model.zip`.
 
 ```bash
 cd RotaryInvertedPendulum-python/src/rl
 bash curriculum_train.sh
 ```
 
-`curriculum_train.sh` reads `sysid_params.json`, derives DR ranges from
-physical-time-units, runs three stages, and writes the final policy
-plus checkpoints. **Control rate is not uniform across the components:**
-`curriculum_train.sh` defaults to **50 Hz** (accel mode's validated rate),
-while the Python entrypoints (`train_sac.py`, `run_policy.py`,
-`finetune_async.py`) default to **35 Hz**. Whatever rate you train at,
-fine-tuning and deployment MUST use the same one — a policy trained at one
-rate produces garbage at another. So set it explicitly and consistently:
-`CONTROL_FREQ=…` for the curriculum, `--control-freq …` for the Python
-tools. Position mode uses 35 Hz (see the Action-mode section above). See
-[`control_rate_selection.md`](control_rate_selection.md) for how the rate
-is chosen.
+`curriculum_train.sh` reads `sysid_params.json` and runs three DR stages
+(no DR → transport-delay ramp → concentrated on the measured rig delay).
+Its defaults ARE the validated production recipe — velocity mode, 35 Hz,
+±3.5 rad/s, K=4 frame stacking, gSDE, stillness bonus, firmware
+measurement model — so a bare invocation trains the canonical teacher.
+Every component now defaults to 35 Hz; if you override the rate, keep it
+identical across training, fine-tuning, and deployment — a policy trained
+at one rate produces garbage at another (measured: an over-budget
+inference that sagged the on-device loop to 25 Hz turned a balancing
+policy into a spinner).
 
 ## 2. Fine-tune on the real rig — async
 
@@ -147,14 +120,14 @@ cd RotaryInvertedPendulum-python/src/rl
 
 # First fine-tune session
 python finetune_async.py \
-    --policy runs/<sim-run>/last.zip \
+    --policy runs/<sim-run>_stage3/best_model.zip \
     --port /dev/cu.usbserial-1130 \
     --episodes 50 \
     --run-name async_v1
 
 # Subsequent sessions, buffer-resumed
 python finetune_async.py \
-    --policy runs/async_v1/last.zip \
+    --policy runs/async_v1/best_model.zip \
     --resume-buffer runs/async_v1/replay_buffer.pkl \
     --port /dev/cu.usbserial-1130 \
     --episodes 30 \
@@ -176,87 +149,92 @@ time on it. Cheap (30 seconds of rig time).
 
 ```bash
 python run_policy.py \
-    --policy runs/async_v1_extend/last.zip \
+    --policy runs/<run>_async/best_model.zip \
     --port /dev/cu.usbserial-1130 \
-    --duration-s 30
+    --duration-s 30 \
+    --log recordings/<run>_ft.npz
 ```
 
-Watch the printed `upright` proxy at the end:
-- **mean ≥ 0.9** → solid teacher, proceed to step 4 to remove the tether.
-- **mean 0.85–0.9** → acceptable; can proceed but a few more fine-tune
-  episodes (back to step 2 with `--resume-buffer`) usually buys
-  robustness.
-- **mean < 0.85** → fine-tuning didn't converge. Diagnose before
-  distilling: check the
-  [policy improvement ideas](policy_improvement_ideas.md) backlog,
-  consider re-sysid, consider a wider `--gradient-steps`.
+Always deploy `best_model.zip` (deterministic-eval best), never
+`last.zip`. Judge by the HONEST metrics printed at the end (balanced
+fraction / streaks / revolutions — the upright proxy is spoofable by
+spinning):
+- **balanced fraction ≥ 0.85, verdict BALANCED** → solid teacher,
+  proceed to step 4 to remove the tether. (2026-07-21 reference: 0.911.)
+- **0.4–0.85** → more fine-tune episodes (back to step 2 with
+  `--resume-buffer`) usually keep climbing if the deterministic evals
+  were still rising.
+- **below that** → diagnose before distilling: re-sysid, replay the log
+  through `sim_vs_real.py`, check the transport-delay assumptions.
 
 If you're happy keeping the laptop attached, **you can stop here**.
 The teacher runs at 35 Hz over USB serial just fine.
 
-## 4. Distill — shrink the actor for the Nano
+## 4. Distill — shrink the actor for the deployment transport
 
-The fine-tuned SAC actor is 67 K parameters (≈ 270 KB float32) — far
-too big for the Nano's 32 KB flash. Distill into a 5→32→32→1 student
-(≈ 5 KB). Cheap (~1 minute):
+Two sub-steps: behaviour cloning, then DAgger **aimed at the transport
+the network will deploy into**. Both cheap (~1 min + ~20 min, no rig).
 
 ```bash
+# 4a. Behaviour cloning: real-rig buffer + sim-augmented teacher rollouts
 python distill.py \
-    --teacher runs/async_v1_extend/last.zip \
-    --buffer  runs/async_v1_extend/replay_buffer.pkl \
-    --out-dir runs/async_v1_extend/distill_h32_aug
+    --teacher runs/<run>_async/best_model.zip \
+    --buffer  runs/<run>_async/replay_buffer.pkl \
+    --out-dir runs/<run>_async/distill_h16_aug \
+    --hidden 16
+
+# 4b. DAgger at the DEVICE transport (the step that makes it deploy)
+python dagger_distill.py \
+    --teacher runs/<run>_async/best_model.zip \
+    --bc-dir  runs/<run>_async/distill_h16_aug \
+    --out-dir runs/<run>_async/distill_h16_dagger_dev \
+    --transport device
 ```
 
-`distill.py`:
-1. Loads teacher + replay buffer (real-rig observations).
-2. Re-evaluates the deterministic-mean teacher action on each obs.
-3. Augments with 100 K teacher rollouts in the DR sim (helps when
-   the real-rig buffer is small/sparse).
-4. Trains a tiny MLP via supervised regression with a tanh head.
-5. Sanity-checks numpy parity with PyTorch (catches export bugs).
+Why this shape (all measured, 2026-07-22):
 
-Acceptance for the student: validation MSE ≲ 0.02 in action units, plus
-the tethered rollout in the next step. Closed-loop sim eval was removed
-from `distill.py` because it isn't a meaningful gate for real-rig
-fine-tuned teachers — they routinely fail the sim eval even when they
-balance perfectly on hardware.
+- **H=16 is the production width.** It runs in ~8 ms on the Nano; H=32
+  float (~23 ms) does not fit the 28.6 ms tick and silently sagged the
+  loop to 25 Hz.
+- **BC alone does not deploy** (closed-loop gate 0.12 despite good MSE —
+  covariate shift near the unstable equilibrium). DAgger fixes it, but
+  ONLY when its rollouts run under the deployment transport: the
+  standalone Nano has no serial/USB/host latency (`--transport device`),
+  and aiming the DAgger there was worth 0.881 → 0.892 on the rig.
+- **Do not skip imitation in favour of training a tiny actor with RL
+  directly.** Tried twice: the tiny
+  direct-RL actors matched the big teacher in sim and even fine-tuned
+  well tethered, then failed standalone at ~0.24 both times — RL
+  produces sharp, timing-exploiting controllers that break when the
+  transport changes, while the student's slight underfit acts as gain
+  reduction and buys exactly that robustness.
 
-## 5. Test the student on the rig — tethered
+Acceptance: the DAgger gate (printed per round, honest balanced fraction
+in the device-transport sim) should reach **≥ 0.7**; sim under-predicts
+smooth students on the rig (0.763 gated → 0.892 measured).
 
-Confirms the student is a faithful distillation of the teacher *before*
-flashing it onto the Nano. Same `run_policy.py` flow but with the `.pt`
-file. Cheap (30 s of rig time):
+## 5. Test the student on the rig — tethered (optional)
+
+A quick sanity that the student behaves before flashing. Note it runs
+under the TETHERED transport, which the device-aimed student was not
+optimised for — expect it somewhat below the teacher here; the real
+acceptance test is step 6's on-device capture.
 
 ```bash
 python run_policy.py \
-    --policy runs/async_v1_extend/distill_h32_aug/student.pt \
+    --policy runs/<run>_async/distill_h16_dagger_dev/student.pt \
     --port /dev/cu.usbserial-1130 \
     --duration-s 30
 ```
-
-Expect the upright proxy to be **within ~0.05** of the teacher's score
-from step 3. Larger gap → covariate-shift problem; either grow the sim
-augmentation (`distill.py --sim-augment-steps 200000`), increase student
-capacity (H=48 still fits comfortably), or accept and move on.
 
 ## 6. Flash the standalone sketch — remove the tether
 
 ```bash
 # Export PROGMEM weights into the Arduino sketch directory
 python export_weights.py \
-    --student runs/async_v1_extend/distill_h32_aug/student.pt \
+    --student runs/<run>_async/distill_h16_dagger_dev/student.pt \
     --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h \
-    --source-name async_v1_extend/distill_h32_aug
-
-# (Optional but recommended) update the boot self-test reference values
-# in RLControl.ino to match the new student. Compute via:
-#   python -c "import torch, numpy as np; from distill import StudentMLP, _student_predict_factory; \
-#       ckpt = torch.load('runs/async_v1_extend/distill_h32_aug/student.pt', \
-#           map_location='cpu', weights_only=True); \
-#       m = StudentMLP(hidden=ckpt['hidden'], obs_dim=ckpt['obs_dim'], act_dim=ckpt['act_dim']); \
-#       m.load_state_dict(ckpt['state_dict']); pred = _student_predict_factory(m); \
-#       print('hanging:', float(pred(np.array([0,0,-1,0,0],dtype=np.float32))[0])); \
-#       print('upright:', float(pred(np.array([0,0,1,0,0],dtype=np.float32))[0]))"
+    --source-name <run>/distill_h16_dagger_dev
 
 # Flash
 cd ../../..
@@ -265,18 +243,27 @@ arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
     RotaryInvertedPendulum-arduino/RLControl
 ```
 
-Pin the pendulum hanging straight down at the moment the **3 s startup
-delay** ends (when the LED switches from slow blink to fast blink) —
-that pose becomes the encoder zero for the engagement.
+Keep the pendulum hanging straight down through the 1 s settle delay
+after boot (LED solid HIGH) — that pose becomes the encoder zero for
+the engagement. The sketch then swings up and balances autonomously.
 
-Verify on serial monitor at 500 kbaud:
-- Boot prints `[boot] policy(hanging) = X.XXXX` and
-  `[boot] policy(upright) = X.XXXX`. These should match the values you
-  computed in the helper one-liner above to ≤ 1e-3 (AVR float vs
-  PyTorch). If they don't, the C++ forward pass / PROGMEM access is
-  broken — re-export, recompile, re-flash.
-- Once engaged: pendulum should swing up and balance within ~3 s, hold
-  ≥ 30 s undisturbed, recover from a flick disturbance.
+**Score it with the honest metrics** (the same gate as every other
+deployment — opening the port resets the Nano, so hang the pendulum
+still before launching):
+
+```bash
+cd RotaryInvertedPendulum-python/src/rl
+python analyze_onboard.py --port /dev/cu.usbserial-1130 --duration-s 60 \
+    --log recordings/onboard_<run>.npz
+```
+
+Read the header line first: it must say **~35.0 Hz**. An off-rate
+capture (the script warns loudly) means inference exceeded the tick
+budget and the numbers evaluate a broken deployment, not the policy.
+2026-07-22 reference: balanced fraction **0.892**, 5 s streaks, verdict
+BALANCED. Boot also prints `[boot] policy(hanging/upright) = …` on
+serial (500 kbaud) — compare against the PyTorch student on the same
+reference frames if you suspect an export/PROGMEM bug.
 
 ## Re-running individual steps
 
@@ -286,16 +273,19 @@ Every step is idempotent and can be re-run on its own:
 |---|---|---|
 | Tweak rewards or DR ranges | step 1 | scratch |
 | Add real-rig data | step 2 | `--resume-buffer` |
-| Try a smaller / larger student | step 4 | existing teacher |
+| Re-distill (new teacher or transport) | step 4 | existing teacher |
+| More DAgger rounds | step 4b | existing `--bc-dir` |
 | Re-flash with the same student | step 6 | existing `.h` |
 
 ## Troubleshooting
 
-- **Teacher balances tethered but student fails on Nano**: the most
-  likely bug is the encoder zero — captured *at engage time* in
-  `RLControl.ino`, but if the sketch was uploaded with the pendulum in
-  a non-hanging pose and not re-positioned during the 3 s delay, the
-  policy frame is rotated. Reset the Arduino with the pendulum hanging.
+- **Policy balances tethered but spins on the Nano**: check, in order:
+  (1) `analyze_onboard`'s rate line — if the loop isn't ~35 Hz, the
+  network is too big for the tick (H=16 is the budget); (2) whether the
+  flashed network is an imitation student or a direct-RL actor — actors
+  are transport-brittle and fail standalone even when excellent tethered
+  (measured twice, 2026-07-22); (3) the encoder zero — captured at
+  engage time; reset the Arduino with the pendulum hanging still.
 - **Boot self-test prints `[FATAL] FastAccelStepper config rejected`**:
   the requested `MOTOR_MAX_SPEED` exceeds FastAccelStepper's AVR cap of
   50 kSteps/s for a single stepper. Check the constant in

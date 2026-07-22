@@ -4,8 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Active initiatives
 
-- **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The living plan, phase status, and decisions log are in `RL_PLAN.md` at the repo root. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`. Companion docs:
+- **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `docs/end_to_end_runbook.md` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`. Companion docs:
   - `docs/rl_transitions.md` — the `(s, a, r, s')` transition contract in plain English.
+  - `docs/transport_delay.md` — measured action-delay history and the decision log of hardware/firmware changes (including the position → acceleration action-mode switch).
+  - `docs/domain_randomization.md` — what is randomized, by how much, and why.
   - `docs/async_control_architecture.md` — the threaded runtime that holds the configured control rate strictly during fine-tuning.
   - `docs/control_rate_selection.md` — how to pick `control_freq_hz` and `max_action_delta_rad` from sysid measurements.
   - `docs/sysid_runbook.md` — the measurement procedure for the inputs the two docs above depend on.

@@ -2,7 +2,7 @@
 
 [![Watch the build video](assets/youtube-thumbnail-pendulum-build.jpg)](https://www.youtube.com/watch?v=rKChjuuR7K8)
 
-A DIY rotary inverted pendulum you can print, solder, and train at home — for about **£20** in parts. It's an open, hackable take on the rigs you'd usually buy from a lab-equipment vendor (Quanser's [QUBE Servo 2](https://www.quanser.com/products/qube-servo-2) lists at around £4,500). The pendulum balances itself with a reinforcement-learning policy trained in simulation, fine-tuned on the real hardware, and quantised to run on an Arduino Nano.
+A DIY rotary inverted pendulum you can print, solder, and train at home — for about **£20** in parts. It's an open, hackable take on the rigs you'd usually buy from a lab-equipment vendor (Quanser's [QUBE Servo 2](https://www.quanser.com/products/qube-servo-2) lists at around £4,500). The pendulum balances itself with a reinforcement-learning policy trained in simulation, fine-tuned on the real hardware, and distilled to run standalone on an Arduino Nano.
 
 ## What's in this repo
 
