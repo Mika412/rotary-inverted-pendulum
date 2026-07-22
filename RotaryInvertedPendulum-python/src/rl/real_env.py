@@ -392,6 +392,31 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
                     "tare_pendulum did not ack — re-flash LowLevelServer.ino "
                     "to pick up the CMD_TARE_PENDULUM=0x06 handler."
                 )
+            # Verify the tare captured HANGING, not a perfectly-balanced
+            # upright. A well-balancing policy can leave the pendulum at
+            # true upright with ~zero velocity at disengage; it then sits
+            # still long enough to pass the rest check, the tare records
+            # upright as phi=0, and the whole episode runs in an inverted
+            # frame (observed ep36, vel_v9_async). Discrimination is free:
+            # a hanging pendulum stays near phi=0, while an unactuated
+            # upright one MUST fall (unstable, ~0.1 s time constant) —
+            # so watch for 2 s and re-settle + re-tare if it moves.
+            for attempt in range(3):
+                fell = False
+                t_end = time.monotonic() + 2.0
+                while time.monotonic() < t_end:
+                    _, _, phi_chk, _, _ = self._read_raw_state()
+                    if abs(phi_chk) > 0.8:
+                        fell = True
+                        break
+                    time.sleep(0.05)
+                if not fell:
+                    break
+                print("  [reset] tare captured a balanced-upright pendulum "
+                      "(it fell during verification) — re-settling + re-taring")
+                self._wait_for_pendulum_rest(client)
+                if not client.tare_pendulum():
+                    raise RuntimeError("tare_pendulum did not ack on re-tare")
 
         # Read current state, engage, then prime the firmware's command state.
         # Priming must come AFTER engage: the firmware drops SET_ACCEL /

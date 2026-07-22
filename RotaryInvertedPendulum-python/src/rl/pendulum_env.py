@@ -182,6 +182,15 @@ DR_OBS_NOISE_STD_POS_RAD = 0.005
 # physics, the reward, and the eval env are unchanged). 0.05 rad ≈ 2.9°
 # brackets the measured rest band with headroom.
 DR_THETA_BIAS_MAX_RAD = 0.05
+# Per-episode base tilt: the rig sits on a table that is not perfectly
+# level. Unlike the constant theta-bias above (encoder zero offset), a
+# tilted base shifts TRUE upright by an amount that varies with arm
+# position — gravity acquires a component in the pendulum's swing plane
+# proportional to the tilt projected onto that plane, which sweeps
+# sinusoidally as the arm rotates. Modelled exactly by rotating the
+# gravity vector per episode: tilt angle uniform in [0, max], direction
+# uniform in [0, 2pi). 0.017 rad ~= 1 deg covers a normal table.
+DR_BASE_TILT_MAX_RAD = 0.017
 # Velocity-observation noise. The firmware computes velocity as
 # (newest − oldest)/Δt over an ~8 ms window of 12-bit AS5600 samples, so
 # ±1 LSB of quantisation/I²C jitter alone produces spikes up to
@@ -488,6 +497,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         dr_motor_tau_range_s: tuple[float, float] | None = None,  # position-mode only
         dr_control_dt_jitter_frac: float | None = None,
         dr_theta_bias_max_rad: float | None = None,  # None → DR_THETA_BIAS_MAX_RAD
+        dr_base_tilt_max_rad: float | None = None,   # None → DR_BASE_TILT_MAX_RAD
     ):
         super().__init__()
         if action_mode not in ("accel", "velocity", "position_delta"):
@@ -610,6 +620,11 @@ class RotaryInvertedPendulumEnv(gym.Env):
             else DR_THETA_BIAS_MAX_RAD
         )
         self._theta_bias_rad = 0.0  # sampled per-episode in reset()
+        self._dr_base_tilt_max_rad = (
+            float(dr_base_tilt_max_rad)
+            if dr_base_tilt_max_rad is not None
+            else DR_BASE_TILT_MAX_RAD
+        )
 
         xml = build_mjcf(self.params)
         self.model = mujoco.MjModel.from_xml_string(xml)
@@ -712,6 +727,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             self._motor_tau_s = self._fixed_motor_tau_s
             self._noise_std_pos = 0.0
             self._obs_staleness_s = self._fixed_obs_staleness_s
+            self.model.opt.gravity[:] = (0.0, 0.0, -GRAVITY)
             # Reset model params to nominal in case a previous episode set them.
             self.model.dof_frictionloss[self._motor_dof_addr] = self._fixed_motor_frictionloss
 
@@ -853,6 +869,17 @@ class RotaryInvertedPendulumEnv(gym.Env):
             if self.action_mode == "position_delta" else 0.0
         )
         self._noise_std_pos = DR_OBS_NOISE_STD_POS_RAD
+        # Base tilt: rotate gravity by a random small angle about a random
+        # horizontal axis. The pendulum's swing-plane component of the
+        # resulting horizontal gravity varies with arm position — the
+        # position-dependent bias no constant-offset DR can express.
+        tilt = float(rng.uniform(0.0, self._dr_base_tilt_max_rad))
+        azim = float(rng.uniform(0.0, 2.0 * math.pi))
+        self.model.opt.gravity[:] = (
+            GRAVITY * math.sin(tilt) * math.cos(azim),
+            GRAVITY * math.sin(tilt) * math.sin(azim),
+            -GRAVITY * math.cos(tilt),
+        )
         self._obs_staleness_s = (
             float(rng.uniform(*self._dr_obs_staleness_range_s))
             if self.firmware_obs_model else self._fixed_obs_staleness_s

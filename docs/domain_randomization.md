@@ -79,6 +79,7 @@ effective pivot inertia at nominal, matching the measured `I_axis`.
 | Motor first-order target lag τ             | [0.010, 0.030] s                 | `DR_MOTOR_TAU_RANGE_S`             | Position-delta mode only — models the stepper's ramp-to-target bandwidth. Not sampled in accel/velocity modes. |
 | Control-step dt jitter                     | n_substeps × (1 ± 0.05) per step | `DR_CONTROL_DT_JITTER_FRAC = 0.05` | Empirically the single most important DR. Without it, SAC at strict timing finds the **active-correction attractor** (motor saws ±0.5 rad even when balanced); with it, SAC finds the **calm minimal-action attractor** that dominates real-world performance. See [`control_rate_selection.md`](control_rate_selection.md) "calm vs active attractors". |
 | Obs staleness (firmware model only)        | [0.002, 0.010] s                 | `DR_OBS_STALENESS_RANGE_S`         | Age of the state snapshot when the host acts on it: encoder sample age (0–2 ms at the firmware's 500 Hz sampling) + GET_STATE serial round-trip. Only sampled when `firmware_obs_model` is on. |
+| Base tilt (gravity rotation)               | angle [0, 1°], direction [0, 2π) | `DR_BASE_TILT_MAX_RAD`             | The rig sits on an imperfectly level table. Tilt shifts TRUE upright by an amount that varies with arm position (a sinusoidal, position-dependent bias the constant θ-bias DR cannot express). Modelled by rotating the gravity vector per episode. |
 
 ### Observation noise (per step)
 
