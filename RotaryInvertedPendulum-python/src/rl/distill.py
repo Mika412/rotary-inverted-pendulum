@@ -172,35 +172,45 @@ def stage_dataset(
     """
     print(f"[dataset] loading teacher: {teacher_path}")
     model = SAC.load(str(teacher_path), device=device)
-    print(f"[dataset] loading replay buffer: {buffer_path}")
-    model.load_replay_buffer(str(buffer_path))
-
-    rb = model.replay_buffer
-    n = int(rb.size())
-    print(f"[dataset] buffer holds {n} transitions")
-
-    # SB3's ReplayBuffer stores observations as (buffer_size, n_envs, *obs_shape).
-    obs_full = np.asarray(rb.observations, dtype=np.float32)
-    if obs_full.ndim == 3:
-        # (buffer_size, n_envs=1, obs_dim) -> (buffer_size, obs_dim)
-        obs_full = obs_full[:, 0, :]
-    # Buffer is a ring; only [0:n] are filled if not full, otherwise rotate.
-    if rb.full:
-        # rb.pos is the next write index = oldest valid sample
-        pos = int(rb.pos)
-        obs = np.concatenate([obs_full[pos:], obs_full[:pos]], axis=0)
+    if buffer_path is None:
+        # Sim-only teacher (no rig fine-tune yet): the dataset is purely
+        # teacher rollouts in the DR sim.
+        if sim_augment_steps <= 0:
+            raise SystemExit("--buffer omitted requires --sim-augment-steps > 0")
+        print("[dataset] no replay buffer — sim-rollout-only dataset")
+        n = 0
+        obs = np.empty((0, model.observation_space.shape[0]), dtype=np.float32)
+        actions = np.empty((0, model.action_space.shape[0]), dtype=np.float32)
     else:
-        obs = obs_full[:n]
+        print(f"[dataset] loading replay buffer: {buffer_path}")
+        model.load_replay_buffer(str(buffer_path))
 
-    # Re-evaluate teacher deterministically in batches (cheap on CPU).
-    actions = np.empty((n, model.action_space.shape[0]), dtype=np.float32)
-    t0 = time.time()
-    for i in range(0, n, batch_size):
-        chunk = obs[i : i + batch_size]
-        a, _ = model.predict(chunk, deterministic=True)
-        actions[i : i + batch_size] = a
-    dt = time.time() - t0
-    print(f"[dataset] re-evaluated teacher on {n} obs in {dt:.1f}s")
+        rb = model.replay_buffer
+        n = int(rb.size())
+        print(f"[dataset] buffer holds {n} transitions")
+
+        # SB3's ReplayBuffer stores observations as (buffer_size, n_envs, *obs_shape).
+        obs_full = np.asarray(rb.observations, dtype=np.float32)
+        if obs_full.ndim == 3:
+            # (buffer_size, n_envs=1, obs_dim) -> (buffer_size, obs_dim)
+            obs_full = obs_full[:, 0, :]
+        # Buffer is a ring; only [0:n] are filled if not full, otherwise rotate.
+        if rb.full:
+            # rb.pos is the next write index = oldest valid sample
+            pos = int(rb.pos)
+            obs = np.concatenate([obs_full[pos:], obs_full[:pos]], axis=0)
+        else:
+            obs = obs_full[:n]
+
+        # Re-evaluate teacher deterministically in batches (cheap on CPU).
+        actions = np.empty((n, model.action_space.shape[0]), dtype=np.float32)
+        t0 = time.time()
+        for i in range(0, n, batch_size):
+            chunk = obs[i : i + batch_size]
+            a, _ = model.predict(chunk, deterministic=True)
+            actions[i : i + batch_size] = a
+        dt = time.time() - t0
+        print(f"[dataset] re-evaluated teacher on {n} obs in {dt:.1f}s")
 
     if sim_augment_steps > 0:
         print(f"[dataset] generating {sim_augment_steps} sim rollout steps with the teacher")
@@ -413,8 +423,10 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description="Distill SAC teacher to a Nano-sized student MLP")
     p.add_argument("--teacher", required=True, type=Path,
                    help="path to the SAC .zip checkpoint to distill")
-    p.add_argument("--buffer", required=True, type=Path,
-                   help="path to the teacher's replay_buffer.pkl (real-rig data)")
+    p.add_argument("--buffer", type=Path, default=None,
+                   help="path to the teacher's replay_buffer.pkl (real-rig "
+                        "data). Omit for sim-only teachers — the dataset is "
+                        "then purely sim rollouts.")
     p.add_argument("--out-dir", required=True, type=Path,
                    help="output directory; dataset.npz and student.pt go here")
     p.add_argument("--hidden", type=int, default=32,
