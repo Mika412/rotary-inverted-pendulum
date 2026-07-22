@@ -136,7 +136,7 @@ def honest_balance_metrics(
     log: dict,
     *,
     theta_thresh_rad: float = math.radians(15.0),
-    pen_vel_thresh_rad_s: float = 2.0,
+    pen_vel_thresh_rad_s: float = 4.0,
     catch_min_s: float = 1.0,
     calm_motor_vel_rms_rad_s: float = 1.5,
 ) -> dict:

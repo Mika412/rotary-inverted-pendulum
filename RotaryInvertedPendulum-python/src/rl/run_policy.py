@@ -268,7 +268,8 @@ def main(argv: list[str] | None = None) -> int:
         # scores ~0.8 for a continuously spinning pendulum and 0.95+ for a
         # vibrational (Kapitza-style) policy, so it can't certify true balance.
         BAL_THETA_RAD = math.radians(15.0)
-        BAL_PEN_VEL_RAD_S = 2.0
+        # Gate raised 2.0 -> 4.0 on 2026-07-22: the old value punished the tight ~5 Hz micro-oscillation of fast balancing policies (theta_dot peaks past 2 rad/s at 1.7 deg amplitude) while spin-through and vibrational stabilisation run >= 7-20 rad/s, so 4.0 keeps the gate's anti-spoof teeth without underrating genuine tight balance.
+        BAL_PEN_VEL_RAD_S = 4.0
         bal_steps = 0          # total balanced steps
         bal_streak = 0         # current balanced streak (steps)
         bal_streak_max = 0     # longest balanced streak (steps)

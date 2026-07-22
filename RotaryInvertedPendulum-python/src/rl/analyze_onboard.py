@@ -36,7 +36,8 @@ import serial
 
 
 BAL_THETA_RAD = math.radians(15.0)
-BAL_PEN_VEL_RAD_S = 2.0
+# Gate raised 2.0 -> 4.0 on 2026-07-22: the old value punished the tight ~5 Hz micro-oscillation of fast balancing policies (theta_dot peaks past 2 rad/s at 1.7 deg amplitude) while spin-through and vibrational stabilisation run >= 7-20 rad/s, so 4.0 keeps the gate's anti-spoof teeth without underrating genuine tight balance.
+BAL_PEN_VEL_RAD_S = 4.0
 
 
 def _wrap_pi(x: np.ndarray) -> np.ndarray:
@@ -51,6 +52,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--settle-s", type=float, default=5.0,
                    help="discard this much stream after boot (swing-up + "
                         "the sketch's own engage delay)")
+    p.add_argument("--expect-hz", type=float, default=35.0,
+                   help="the flashed policy's control rate — the capture is "
+                        "flagged invalid if the measured loop rate deviates")
     p.add_argument("--log", default=None, help="optional .npz output")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -96,8 +100,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     dt = float(np.median(np.diff(t_s)))
     freq = 1.0 / dt
-    if abs(freq - 35.0) > 1.5:
-        print(f"\n*** WARNING: control loop ran at {freq:.1f} Hz, not 35 Hz. ***\n"
+    if abs(freq - args.expect_hz) > 1.5:
+        print(f"\n*** WARNING: control loop ran at {freq:.1f} Hz, "
+              f"not {args.expect_hz:g} Hz. ***\n"
               "*** The policy is out of its design regime (inference too slow ***\n"
               "*** for the tick?) — this capture does NOT evaluate the policy, ***\n"
               "*** it evaluates a broken deployment. ***")

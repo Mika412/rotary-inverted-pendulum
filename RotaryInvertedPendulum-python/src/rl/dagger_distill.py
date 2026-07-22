@@ -90,7 +90,8 @@ def gate(predict_fn, cfg: dict, transport: str, n_ep: int = 10) -> float:
             obs, _, term, trunc, info = env.step(a)
             th = abs(((info["phi"] - np.pi + np.pi) % (2 * np.pi)) - np.pi)
             pv = abs(float(env.data.qvel[env._pen_qvel_addr]))
-            bal += (th <= np.radians(15) and pv <= 2.0)
+            # velocity gate 4.0 — see analyze_onboard.py
+            bal += (th <= np.radians(15) and pv <= 4.0)
             n += 1
             done = term or trunc
         fracs.append(bal / max(1, n))

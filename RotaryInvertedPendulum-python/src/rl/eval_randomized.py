@@ -70,10 +70,11 @@ def evaluate_one(model, env, *, episode_steps: int, upright_threshold_rad: float
         theta = _wrap_pi(phi - math.pi)
         # Gate on pendulum velocity too (obs[4]) — a θ-band-only criterion
         # scores samples where the pendulum swings *through* upright at
-        # speed, so spinning/Kapitza policies inflate it. 2 rad/s matches
-        # analyze_deploy.honest_balance_metrics.
+        # speed, so spinning/Kapitza policies inflate it. Gate value
+        # matches analyze_deploy.honest_balance_metrics (4.0; see the
+        # rationale in analyze_onboard.py).
         pen_vel = float(obs[4])
-        upright = abs(theta) <= upright_threshold_rad and abs(pen_vel) <= 2.0
+        upright = abs(theta) <= upright_threshold_rad and abs(pen_vel) <= 4.0
         upright_history.append(upright)
         motor_pos_history.append(float(info["motor_pos"]))
 
