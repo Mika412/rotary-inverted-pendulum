@@ -1,21 +1,34 @@
 /**
  * RLControl.ino — Standalone on-device RL controller for the rotary inverted pendulum.
  *
- * Runs a distilled student MLP (5 -> 32 -> 32 -> 1, ReLU/ReLU/tanh, ~5 KB
- * float32 weights in PROGMEM) at a fixed 35 Hz to swing up + balance the
- * pendulum without any laptop tether. Distilled from
- * `runs/async_35hz_v2_extend/last.zip` via `distill.py` and exported by
- * `export_weights.py`.
+ * Runs a distilled student MLP (24 -> H -> H -> 1, ReLU/ReLU/tanh, float32
+ * weights in PROGMEM) at a fixed 35 Hz to swing up + balance the pendulum
+ * without any laptop tether. Distilled from the vel_v8 line via
+ * `distill.py` (+ DAgger) and exported by `export_weights.py`.
  *
- * Action mode: POSITION-DELTA. Each tick the action is scaled by
- * MAX_ACTION_DELTA_RAD, added to an integrated motor-position target, and
- * issued as stepper->moveTo(). Flash weights from a policy trained with
- * `--action-mode position_delta` and the same MAX_ACTION_DELTA_RAD (0.10).
+ * Action mode: VELOCITY. The policy's tanh output is a velocity setpoint
+ * (action × MAX_VELOCITY_RAD_S). A saturating P-law converts it to an
+ * acceleration command each tick — with feedback from the controller's OWN
+ * commanded-velocity integrator (v_cmd), NOT the measured velocity: the
+ * measurement is quantised to ~±0.5 rad/s and multiplying that error by
+ * the control-frequency gain would inject a ±17 rad/s² accel dither (the
+ * defect removed from the tethered host on 2026-07-21). A slow
+ * complementary correction from the measured velocity heals integrator
+ * drift. The accel command is issued via moveByAcceleration(), exactly the
+ * transport the policy was trained against.
  *
- * Step generation runs from a Timer1 ISR via FastAccelStepper. The main loop
- * is therefore free to spend ~15 ms on inference without stalling the stepper
- * acceleration ramp — earlier AccelStepper-based revisions had to interleave
- * stepper.run() calls inside the MAC loops to keep the motor responsive.
+ * Observation: K=4 stacked frames, oldest -> newest, each frame
+ *   [motor_pos, sin(theta), cos(theta), motor_vel, pen_vel, prev_action]
+ * Velocities are (newest - oldest)/dt finite differences over a 5-sample /
+ * 8 ms window of 500 Hz encoder+step-counter samples — the SAME
+ * computation LowLevelServer's GET_STATE serves the tethered stack, so the
+ * on-device policy sees identical measurement statistics to its training
+ * and fine-tuning data. Flash weights from a policy trained with
+ * `--action-mode velocity --obs-history-len 4` at 35 Hz.
+ *
+ * Step generation runs from a Timer1 ISR via FastAccelStepper. The main
+ * loop is therefore free to spend ~10 ms on inference without stalling the
+ * stepper ramp; between control ticks it services the 500 Hz sampler.
  *
  * Wiring: STEP must be on pin 9 (Timer1 OC1A on ATmega328); DIR on pin 2 and
  * ENABLE on pin 5 are unconstrained.
@@ -25,9 +38,9 @@
  *     stepper frame. LowLevelServer flips signs on get_state output and
  *     run_policy.py un-flips on receive — net no-op. So in this standalone
  *     sketch we use the raw frame directly: NO sign flip on read or write.
- *   - phi = 0 means pendulum hanging down (encoder zeros at boot).
+ *   - phi = 0 means pendulum hanging down (encoder zeros at engage).
  *   - theta = wrap_pi(phi - pi); theta = 0 means upright.
- *   - motor_pos = 0 at boot (stepper.currentPosition() starts at 0).
+ *   - motor_pos = 0 at engage (stepper position re-zeroed).
  *
  * Boot procedure:
  *   1. Power on or finish flashing. The sketch waits for a valid AS5600
@@ -47,7 +60,7 @@
  *   'D' / 'd' : disengage motor (manual stop)
  *   'M' / 'm' : print AS5600 magnet diagnostics
  *
- * Telemetry CSV (when toggled on, ~35 Hz):
+ * Telemetry CSV (when toggled on, 1 Hz):
  *   t_us, motor_pos_rad×1000, phi_rad×1000, action×1000, state, freq_hz, overruns
  */
 
@@ -55,18 +68,7 @@
 #include <AS5600.h>
 #include <Wire.h>
 
-// Define POLICY_QUANTISED to use the int8/QAT student exported by
-// `export_weights_quantised.py`. Default (undefined) uses the float
-// student exported by `export_weights.py`. The float build is the
-// canonical production path; the quantised build is a Phase-5.5 stretch
-// experiment — see docs/quantisation.md.
-// #define POLICY_QUANTISED
-
-#ifdef POLICY_QUANTISED
-#include "policy_weights_quantised.h"
-#else
 #include "policy_weights.h"
-#endif
 
 // =============================================================================
 // PINS
@@ -92,59 +94,74 @@ const long SERIAL_BAUD_RATE = 500000;  // matches PIDControl / SysIdRecord
 const long I2C_CLOCK_HZ = 400000;
 
 // =============================================================================
-// MOTOR ENVELOPE.
-//
-// On a 16 MHz Nano with a *single* stepper, FastAccelStepper raises its
-// internal max_speed_in_ticks to TICKS_PER_S/50000 inside
-// `StepperQueue::adjustSpeedToStepperCount()` (pd_avr/avr_queue.cpp:328) —
-// so up to 50 kSteps/s is permitted. (The fallback before adjustment is
-// only 1 kStep/s, which is what initially caused setSpeedInHz to fail.)
-//
-// Acceleration A/B-tested 50 k vs 100 k on the rig: 100 k sounds buzzy
-// and over-drives the policy's catch logic (multi-revolution spin
-// instead of balance). 50 k gives a smooth whirr and matches the
-// AccelStepper-era LowLevelServer setting — keep both sketches synced.
+// MOTOR ENVELOPE — mirrors LowLevelServer so the on-device transport matches
+// what the policy trained against.
 // =============================================================================
-const uint32_t MOTOR_MAX_SPEED = 50000;
-const int32_t MOTOR_ACCELERATION = 50000;
+// Boot-time speed cap ≈ 5 rad/s: same as LowLevelServer's MOTOR_MIN_STEP_US.
+// The velocity-mode P-law keeps the commanded speed inside ±MAX_VELOCITY_RAD_S
+// (3.5); this cap is the physical backstop above it.
+const uint32_t MOTOR_MIN_STEP_US = 785;  // ≈ 5 rad/s
+
+// Brake authority when past the rail — 150 rad/s², matching
+// pendulum_env.py MAX_ACCEL_RAD_S2. See rail handling in control_tick().
+const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
+    (int32_t)(150.0f * (1600.0f / (2.0f * PI)));
 
 // =============================================================================
 // CONTROL PARAMETERS
 // =============================================================================
-// Fixed control rate — MUST match the rate the policy was trained at.
-// `runs/async_35hz_v2_extend` was trained at 35 Hz. CONTROL_PERIOD_US =
-// round(1e6 / 35) = 28571.
+// Fixed control rate — MUST match the rate the policy was trained at
+// (vel_v8 line: 35 Hz).
 const float CONTROL_FREQUENCY_HZ = 35.0f;
 const unsigned long CONTROL_PERIOD_US = (unsigned long)(1000000.0f / CONTROL_FREQUENCY_HZ);
 const float CONTROL_DT_S = 1.0f / CONTROL_FREQUENCY_HZ;
 
-// Per-step action scale: matches `max_action_delta_rad=0.10` in pendulum_env.py
-// and run_policy.py — the policy's [-1,+1] tanh output is scaled by this to
-// produce the per-step motor target delta.
-const float MAX_ACTION_DELTA_RAD = 0.10f;
+// Velocity-mode action scaling — must match training config.json:
+//   max_velocity_rad_s = 3.5 (action scale), max_accel_rad_s2 = 150.
+const float MAX_VELOCITY_RAD_S = 3.5f;
+const float MAX_ACCEL_RAD_S2 = 150.0f;
+// Complementary correction gain pulling v_cmd toward the measured velocity
+// (per tick). Matches run_policy.py / real_env.py.
+const float V_CMD_LAMBDA = 0.1f;
 
-// Velocity finite-diff low-pass cutoff — auto-derived in run_policy.py as
-// min(20, max(10, 0.4 × control_freq)). At 35 Hz: 14 Hz.
-//   alpha = dt / (RC + dt),  RC = 1 / (2π × 14 Hz) ≈ 0.01137 s
-//   alpha = (1/35) / (0.01137 + 1/35) ≈ 0.715
-// We compute it explicitly to avoid a magic number.
-const float VEL_FILTER_CUTOFF_HZ = 14.0f;
+// Observation stacking — must match training config.json (obs_history_len).
+const uint8_t OBS_FRAMES = 4;
+const uint8_t FRAME_DIM = 6;
+#if defined(POLICY_OBS_DIM)
+#if POLICY_OBS_DIM != 24
+#error "policy_weights.h obs dim != 24 — flash weights from a K=4 velocity-mode policy"
+#endif
+#endif
 
 // Motor position safety limits in policy frame.
-//   SAFE_LIMIT (±125°) — matches MOTOR_SAFE_LIMIT_RAD in pendulum_env.py:45.
-//     Used to clip the integrated motor target so the policy never *commands*
-//     past the safe envelope.
-//   HARD_LIMIT (±132°) — slightly inside the ±135° mechanical hard stops noted
-//     in RL_PLAN.md. Crossing it disengages the motor and returns to WAITING.
+//   SAFE_LIMIT (±125°) — matches MOTOR_SAFE_LIMIT_RAD in pendulum_env.py.
+//   HARD_LIMIT (±132°) — slightly inside the ±135° mechanical hard stops.
+//     Crossing it disengages the motor and returns to WAITING.
 const float MOTOR_SAFE_LIMIT_RAD = 2.18166f;   // 125° × π/180
 const float MOTOR_HARD_LIMIT_RAD = 2.30383f;   // 132° × π/180
 
 // =============================================================================
+// MEASUREMENT SAMPLER — port of LowLevelServer's 500 Hz ring buffer.
+// GET_STATE-equivalent read: positions from the newest sample, velocities as
+// (newest - oldest)/Δt over VEL_WINDOW samples (5 samples = 8 ms). The
+// policy was trained and fine-tuned on exactly these statistics.
+// =============================================================================
+const uint16_t SAMPLE_PERIOD_US = 2000;
+const uint8_t SAMPLE_BUFFER_SIZE = 16;
+const uint8_t VEL_WINDOW = 5;
+
+static int32_t motor_step_buf[SAMPLE_BUFFER_SIZE];
+static float pen_rad_buf[SAMPLE_BUFFER_SIZE];
+static uint32_t time_us_buf[SAMPLE_BUFFER_SIZE];
+static uint8_t buf_head = 0;
+static bool buf_filled = false;
+static uint32_t last_sample_us = 0;
+
+static void update_sample_buffer();
+
+// =============================================================================
 // STATE
 // =============================================================================
-// FastAccelStepper uses an engine+stepper-pointer pattern: the engine owns
-// the Timer1 ISR and dispenses up to 3 stepper handles connected to specific
-// hardware pins. We only need one stepper here.
 FastAccelStepperEngine engine = FastAccelStepperEngine();
 FastAccelStepper *stepper = NULL;
 AS5600 as5600;
@@ -152,21 +169,11 @@ AS5600 as5600;
 enum State { WAITING, RUNNING };
 State state = WAITING;
 
-// Filtered velocities (rad/s) in policy frame.
-float motor_vel_f = 0.0f;
-float pen_vel_f = 0.0f;
+// Observation frame ring: frames[0] = oldest ... frames[OBS_FRAMES-1] = newest.
+static float frames[OBS_FRAMES][FRAME_DIM];
 
-// Previous-step positions for finite-diff velocity (policy frame).
-float motor_pos_prev = 0.0f;
-float phi_prev = 0.0f;
-
-// Commanded motor target in policy frame (radians). Integrated from the
-// policy's per-step action.
-float motor_target_rad = 0.0f;
-
-// Per-tick low-pass coefficient. Computed in setup() once, since CONTROL_DT_S
-// and VEL_FILTER_CUTOFF_HZ are compile-time constants.
-float vel_alpha = 0.0f;
+// Commanded-velocity integrator (rad/s) — the P-law feedback state.
+static float v_cmd = 0.0f;
 
 // Telemetry / diagnostics
 unsigned int loop_overruns = 0;
@@ -194,18 +201,12 @@ static inline float read_motor_pos_rad()
 
 /**
  * Read the AS5600 with multi-revolution tracking; returns cumulative angle in
- * radians, zeroed by the most recent reset_pendulum_tracking() call (or boot
- * if never called). Same algorithm as LowLevelServer's
- * convertRawAngleToRadians() but with sign convention left at raw (we don't
- * apply the asymmetric sign flip the LowLevelServer applies on output, since
- * there's no client to un-flip).
+ * radians, zeroed by the most recent reset_pendulum_tracking() call. Raw
+ * frame (no sign flip) — see header comment.
  *
  * Re-zeroing lives here because the policy's frame requires `phi = 0` ↔
- * pendulum hanging down. If we captured the zero at boot — i.e. whatever
- * angle the pendulum was at the moment `arduino-cli upload` finished — the
- * policy would interpret the user's "hanging" position as some random
- * theta and command nonsensical actions. Instead we re-zero at every
- * (re-)engagement, after the user has had time to position the rig.
+ * pendulum hanging down, captured at every (re-)engagement after the user
+ * has had time to position the rig.
  */
 static volatile bool _encoder_zero_pending = true;
 
@@ -243,120 +244,92 @@ static float read_pendulum_rad()
 }
 
 // =============================================================================
+// SAMPLER
+// =============================================================================
+
+static void reset_sample_buffer()
+{
+    buf_head = 0;
+    buf_filled = false;
+    last_sample_us = micros();
+}
+
+/** Take one sample if SAMPLE_PERIOD_US has elapsed. Called every loop() pass;
+ *  self-paces to ~500 Hz. Costs one I2C read (~0.2 ms) when it fires. */
+static void update_sample_buffer()
+{
+    uint32_t now_us = micros();
+    if ((uint32_t)(now_us - last_sample_us) < SAMPLE_PERIOD_US) return;
+    last_sample_us = now_us;
+
+    motor_step_buf[buf_head] = stepper->getCurrentPosition();
+    pen_rad_buf[buf_head] = read_pendulum_rad();
+    time_us_buf[buf_head] = now_us;
+    buf_head = (buf_head + 1) % SAMPLE_BUFFER_SIZE;
+    if (buf_head == 0) buf_filled = true;
+}
+
+/** GET_STATE-equivalent snapshot: newest positions + window-diff velocities. */
+static void read_measured_state(float* motor_pos, float* phi,
+                                float* motor_vel, float* pen_vel)
+{
+    uint8_t n_samples = buf_filled ? SAMPLE_BUFFER_SIZE : buf_head;
+    if (n_samples == 0)
+    {
+        *motor_pos = read_motor_pos_rad();
+        *phi = read_pendulum_rad();
+        *motor_vel = 0.0f;
+        *pen_vel = 0.0f;
+        return;
+    }
+
+    uint8_t newest = (uint8_t)((buf_head + SAMPLE_BUFFER_SIZE - 1) % SAMPLE_BUFFER_SIZE);
+    *motor_pos = (float)motor_step_buf[newest] * RAD_PER_STEP;
+    *phi = pen_rad_buf[newest];
+
+    if (n_samples < VEL_WINDOW)
+    {
+        *motor_vel = 0.0f;
+        *pen_vel = 0.0f;
+        return;
+    }
+    uint8_t oldest = (uint8_t)((buf_head + SAMPLE_BUFFER_SIZE - VEL_WINDOW) % SAMPLE_BUFFER_SIZE);
+    float dt_s = (float)((uint32_t)(time_us_buf[newest] - time_us_buf[oldest])) * 1e-6f;
+    if (dt_s <= 0.0f)
+    {
+        *motor_vel = 0.0f;
+        *pen_vel = 0.0f;
+        return;
+    }
+    int32_t motor_step_delta = motor_step_buf[newest] - motor_step_buf[oldest];
+    *motor_vel = ((float)motor_step_delta * RAD_PER_STEP) / dt_s;
+    *pen_vel = (pen_rad_buf[newest] - pen_rad_buf[oldest]) / dt_s;
+}
+
+// =============================================================================
 // POLICY FORWARD PASS
 // =============================================================================
 //
-// 5 -> H -> H -> 1 MLP, ReLU/ReLU/tanh. Weights live in PROGMEM and are
+// 24 -> H -> H -> 1 MLP, ReLU/ReLU/tanh. Weights live in PROGMEM and are
 // read with pgm_read_*(); only the H+H activation buffers + the input
-// live in SRAM.
-//
-// Step generation runs from a Timer1 ISR (FastAccelStepper), so the
-// inference time has no effect on motor stepping — no interleaved
-// stepper polling needed inside the MAC loops.
-//
-// Two implementations live behind a compile-time switch (POLICY_QUANTISED):
-//
-//   Float path (default):  ~12 µs/MAC software float, ~5 ms at H=16.
-//   Int8 path (quantised): ~5 cycles/MAC int8 MUL, ~0.4 ms at H=16
-//                          (~10× faster). See docs/quantisation.md.
-//
-// Both paths take the same (obs, action*) signature so the caller doesn't
-// care which is compiled in.
-
-#ifdef POLICY_QUANTISED
-
-// -----------------------------------------------------------------------------
-// Int8 forward pass — symmetric per-tensor quantisation.
-//
-// Per-layer:
-//   accum_i32 = bias_i32 + sum( W_int8 * x_int8 )
-//   For hidden layers: y_int8 = clamp((accum * M_q15) >> 15, 0, 127)
-//                      (ReLU folds in here as the lower clamp).
-//   For the final layer: y_float = accum_i32 * dequant_l3, then tanh.
-//
-// The single-int32 multiply for the rescale (accum_i32 * M_q15) doesn't
-// overflow on an ATmega328 because for typical scales accum is at most
-// ~2^18 and M_q15 fits in int16, so the product fits in int32. The
-// export script raises if either bound is violated.
-
-static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
-{
-    int8_t x[POLICY_OBS_DIM];
-    int8_t h1[POLICY_HIDDEN_DIM];
-    int8_t h2[POLICY_HIDDEN_DIM];
-
-    // Per-channel input quantisation: each obs dim has its own inverse-scale
-    // factor. (Per-channel input scales recover precision near the
-    // equilibrium where motor_pos / sin / cos are small.)
-    for (int j = 0; j < POLICY_OBS_DIM; j++)
-    {
-        float inv_s = pgm_read_float(&POLICY_INV_SCALE_OBS_IN[j]);
-        float q = obs[j] * inv_s;
-        long qi = (long)(q < 0.0f ? q - 0.5f : q + 0.5f);
-        if (qi >  127) qi =  127;
-        if (qi < -127) qi = -127;
-        x[j] = (int8_t)qi;
-    }
-
-    // Layer 1: int8 matmul + bias + per-row Q15 rescale + ReLU.
-    // M_Q15_L1[i] is per output neuron — each row gets its own rescale
-    // factor, which has the per-channel input scales already absorbed.
-    for (int i = 0; i < POLICY_HIDDEN_DIM; i++)
-    {
-        int32_t accum = (int32_t)pgm_read_dword(&POLICY_B1[i]);
-        for (int j = 0; j < POLICY_OBS_DIM; j++)
-        {
-            int8_t w = (int8_t)pgm_read_byte(&POLICY_W1[i][j]);
-            accum += (int32_t)w * (int32_t)x[j];
-        }
-        int16_t m_q15 = (int16_t)pgm_read_word(&POLICY_M_Q15_L1[i]);
-        int32_t scaled = (accum * (int32_t)m_q15 + (1L << 14)) >> 15;
-        if (scaled > 127) scaled = 127;
-        if (scaled < 0)   scaled = 0;   // ReLU
-        h1[i] = (int8_t)scaled;
-    }
-
-    // Layer 2: same shape, per-row rescale.
-    for (int i = 0; i < POLICY_HIDDEN_DIM; i++)
-    {
-        int32_t accum = (int32_t)pgm_read_dword(&POLICY_B2[i]);
-        for (int j = 0; j < POLICY_HIDDEN_DIM; j++)
-        {
-            int8_t w = (int8_t)pgm_read_byte(&POLICY_W2[i][j]);
-            accum += (int32_t)w * (int32_t)h1[j];
-        }
-        int16_t m_q15 = (int16_t)pgm_read_word(&POLICY_M_Q15_L2[i]);
-        int32_t scaled = (accum * (int32_t)m_q15 + (1L << 14)) >> 15;
-        if (scaled > 127) scaled = 127;
-        if (scaled < 0)   scaled = 0;
-        h2[i] = (int8_t)scaled;
-    }
-
-    // Layer 3: int8 matmul + bias, per-output dequantise to float, then tanh.
-    int32_t accum = (int32_t)pgm_read_dword(&POLICY_B3[0]);
-    for (int j = 0; j < POLICY_HIDDEN_DIM; j++)
-    {
-        int8_t w = (int8_t)pgm_read_byte(&POLICY_W3[0][j]);
-        accum += (int32_t)w * (int32_t)h2[j];
-    }
-    float dequant = pgm_read_float(&POLICY_DEQUANT_L3[0]);
-    float y = (float)accum * dequant;
-    *action = tanhf(y);
-}
-
-#else  // POLICY_QUANTISED — float path below
-
-// -----------------------------------------------------------------------------
-// Float forward pass — production default.
+// live in SRAM. Software-float cost is ~12 µs/MAC: ~8 ms at H=16 —
+// comfortably inside the 28.6 ms tick. H=32 (~23 ms) does NOT fit at
+// 35 Hz (measured 2026-07-22: the loop sagged to 25 Hz and the policy
+// broke) — H=16 is the production width, and the imitation pipeline
+// works best at that size anyway (see docs/end_to_end_runbook.md).
+// Stepping runs from the Timer1 ISR so inference never stalls the motor —
+// but the 500 Hz measurement sampler DOES run in the main loop, so the
+// hidden-layer row loops call update_sample_buffer() between rows
+// (~0.7-0.9 ms each) to keep the velocity window fed during inference.
 
 static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
 {
     float h1[POLICY_HIDDEN_DIM];
     float h2[POLICY_HIDDEN_DIM];
 
-    // Layer 1: obs (5) -> h1 (H), ReLU.
     for (int i = 0; i < POLICY_HIDDEN_DIM; i++)
     {
+        update_sample_buffer();  // keep the 500 Hz window fed during inference
         float sum = pgm_read_float(&POLICY_B1[i]);
         for (int j = 0; j < POLICY_OBS_DIM; j++)
         {
@@ -365,9 +338,9 @@ static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
         h1[i] = sum > 0.0f ? sum : 0.0f;
     }
 
-    // Layer 2: h1 (H) -> h2 (H), ReLU.
     for (int i = 0; i < POLICY_HIDDEN_DIM; i++)
     {
+        update_sample_buffer();
         float sum = pgm_read_float(&POLICY_B2[i]);
         for (int j = 0; j < POLICY_HIDDEN_DIM; j++)
         {
@@ -376,7 +349,6 @@ static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
         h2[i] = sum > 0.0f ? sum : 0.0f;
     }
 
-    // Layer 3: h2 (H) -> action (1), tanh.
     float sum = pgm_read_float(&POLICY_B3[0]);
     for (int j = 0; j < POLICY_HIDDEN_DIM; j++)
     {
@@ -385,7 +357,30 @@ static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
     *action = tanhf(sum);
 }
 
-#endif  // POLICY_QUANTISED
+// =============================================================================
+// OBSERVATION FRAMES
+// =============================================================================
+
+static void fill_frame(float* f, float motor_pos, float theta,
+                       float motor_vel, float pen_vel, float prev_action)
+{
+    f[0] = motor_pos;
+    f[1] = sinf(theta);
+    f[2] = cosf(theta);
+    f[3] = motor_vel;
+    f[4] = pen_vel;
+    f[5] = prev_action;
+}
+
+/** Shift the ring left (drop oldest) and write the newest frame in place. */
+static void push_frame(float motor_pos, float theta,
+                       float motor_vel, float pen_vel, float prev_action)
+{
+    memmove(&frames[0][0], &frames[1][0],
+            sizeof(float) * FRAME_DIM * (OBS_FRAMES - 1));
+    fill_frame(frames[OBS_FRAMES - 1], motor_pos, theta,
+               motor_vel, pen_vel, prev_action);
+}
 
 // =============================================================================
 // STATE MACHINE
@@ -393,15 +388,19 @@ static void policy_forward(const float obs[POLICY_OBS_DIM], float* action)
 
 static void prime_initial_state()
 {
-    // Mirror run_policy.py:131-134 priming: target = current motor pos, zero
-    // velocities, zero filters, so the first finite-diff reads as 0.
-    float motor_pos = read_motor_pos_rad();
-    float phi = read_pendulum_rad();  // returns 0 right after reset_pendulum_tracking()
-    motor_target_rad = constrain(motor_pos, -MOTOR_SAFE_LIMIT_RAD, MOTOR_SAFE_LIMIT_RAD);
-    motor_pos_prev = motor_pos;
-    phi_prev = phi;
-    motor_vel_f = 0.0f;
-    pen_vel_f = 0.0f;
+    // Mirror the sim/real reset: frame ring seeded with OBS_FRAMES copies
+    // of the initial frame; velocities and prev_action start at zero;
+    // v_cmd starts at zero (motor at rest).
+    float motor_pos = read_motor_pos_rad();          // 0 after re-zero
+    float phi = read_pendulum_rad();                 // 0 after re-zero
+    float theta = wrap_pi(phi - (float)PI);
+    for (uint8_t k = 0; k < OBS_FRAMES; k++)
+    {
+        fill_frame(frames[k], motor_pos, theta, 0.0f, 0.0f, 0.0f);
+    }
+    v_cmd = 0.0f;
+    last_action = 0.0f;
+    reset_sample_buffer();
 }
 
 static void transition_to_running()
@@ -428,57 +427,66 @@ static void transition_to_waiting()
 // CONTROL TICK (called once per CONTROL_PERIOD_US)
 // =============================================================================
 
-static void control_tick(float dt_s)
+static void control_tick()
 {
-    // 1. Read state.
-    float motor_pos = read_motor_pos_rad();
-    float phi = read_pendulum_rad();
+    // 1. GET_STATE-equivalent read: newest sample + window-diff velocities.
+    float motor_pos, phi, motor_vel, pen_vel;
+    read_measured_state(&motor_pos, &phi, &motor_vel, &pen_vel);
 
-    // 2. Hard-limit safety: trip back to WAITING if motor strayed past the
-    // mechanical envelope. The policy is supposed to keep us inside SAFE_LIMIT,
-    // but trust nothing; AccelStepper might still be ramping past a recently
-    // updated target.
+    // 2. Hard-limit safety: trip back to WAITING if the motor strayed past
+    // the mechanical envelope.
     if (fabs(motor_pos) > MOTOR_HARD_LIMIT_RAD)
     {
         transition_to_waiting();
         return;
     }
 
-    // 3. Finite-diff + IIR low-pass velocities. Use the *measured* dt
-    // (passed in from the loop) rather than the nominal CONTROL_DT_S so a
-    // long-running tick doesn't inflate the velocity estimate. Matches
-    // run_policy.py's dt_meas approach. The IIR alpha is left at its
-    // CONTROL_DT_S-derived value because typical dt jitter is <5 % and
-    // recomputing alpha each tick costs more than it pays back.
-    float motor_vel_inst = (motor_pos - motor_pos_prev) / dt_s;
-    float pen_vel_inst = (phi - phi_prev) / dt_s;
-    motor_vel_f += vel_alpha * (motor_vel_inst - motor_vel_f);
-    pen_vel_f += vel_alpha * (pen_vel_inst - pen_vel_f);
-    motor_pos_prev = motor_pos;
-    phi_prev = phi;
-
-    // 4. Build observation: [motor_pos, sin(theta), cos(theta), motor_vel, pen_vel].
+    // 3. Push the newest observation frame. prev_action is the action
+    // applied during the PREVIOUS tick — same convention as the sim env
+    // and run_policy.py (the frame the policy reads always carries the
+    // most recently applied action).
     float theta = wrap_pi(phi - (float)PI);
-    float obs[POLICY_OBS_DIM];
-    obs[0] = motor_pos;
-    obs[1] = sinf(theta);
-    obs[2] = cosf(theta);
-    obs[3] = motor_vel_f;
-    obs[4] = pen_vel_f;
+    push_frame(motor_pos, theta, motor_vel, pen_vel, last_action);
 
-    // 5. Forward pass.
+    // 4. Forward pass on the flattened frame stack (oldest -> newest).
+    // frames[][] is contiguous, so it IS the obs vector.
     float action;
-    policy_forward(obs, &action);
+    policy_forward(&frames[0][0], &action);
     if (action > 1.0f) action = 1.0f;
     else if (action < -1.0f) action = -1.0f;
     last_action = action;
 
-    // 6. Integrate into motor target (clipped to safe envelope) and command.
-    motor_target_rad += action * MAX_ACTION_DELTA_RAD;
-    if (motor_target_rad >  MOTOR_SAFE_LIMIT_RAD) motor_target_rad =  MOTOR_SAFE_LIMIT_RAD;
-    if (motor_target_rad < -MOTOR_SAFE_LIMIT_RAD) motor_target_rad = -MOTOR_SAFE_LIMIT_RAD;
-    int32_t target_steps = (int32_t)(motor_target_rad * STEPS_PER_RAD);
-    stepper->moveTo(target_steps);
+    // 5. Velocity-mode P-law on the commanded integrator (host layer of the
+    // tethered stack, verbatim): accel = clip((v_des - v_cmd) * f), zeroed
+    // at the rail when pushing outward; v_cmd integrates the applied accel
+    // and takes a slow correction from the measured velocity.
+    float v_des = action * MAX_VELOCITY_RAD_S;
+    float accel_cmd = (v_des - v_cmd) * CONTROL_FREQUENCY_HZ;
+    if (accel_cmd >  MAX_ACCEL_RAD_S2) accel_cmd =  MAX_ACCEL_RAD_S2;
+    if (accel_cmd < -MAX_ACCEL_RAD_S2) accel_cmd = -MAX_ACCEL_RAD_S2;
+    if (motor_pos >= MOTOR_SAFE_LIMIT_RAD && accel_cmd > 0.0f) accel_cmd = 0.0f;
+    else if (motor_pos <= -MOTOR_SAFE_LIMIT_RAD && accel_cmd < 0.0f) accel_cmd = 0.0f;
+
+    v_cmd += accel_cmd * CONTROL_DT_S;
+    if (v_cmd >  MAX_VELOCITY_RAD_S) v_cmd =  MAX_VELOCITY_RAD_S;
+    if (v_cmd < -MAX_VELOCITY_RAD_S) v_cmd = -MAX_VELOCITY_RAD_S;
+    v_cmd += V_CMD_LAMBDA * (motor_vel - v_cmd);
+
+    // 6. Firmware layer (LowLevelServer CMD_SET_ACCEL, verbatim): past the
+    // rail, override with a fixed opposing brake — moveByAcceleration(0)
+    // would coast at current speed, not stop.
+    int32_t accel_steps_s2 = (int32_t)(accel_cmd * STEPS_PER_RAD);
+    int32_t cur_steps = stepper->getCurrentPosition();
+    int32_t safe_limit_steps = (int32_t)(MOTOR_SAFE_LIMIT_RAD * STEPS_PER_RAD);
+    if (cur_steps >= safe_limit_steps)
+    {
+        accel_steps_s2 = -MOTOR_BRAKE_ACCEL_STEPS_S2;
+    }
+    else if (cur_steps <= -safe_limit_steps)
+    {
+        accel_steps_s2 = +MOTOR_BRAKE_ACCEL_STEPS_S2;
+    }
+    stepper->moveByAcceleration(accel_steps_s2, true);
 }
 
 // =============================================================================
@@ -509,11 +517,18 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     if (!print_enabled) return;
     // CSV: t_us, motor_pos_rad*1000, phi_rad*1000, action*1000, state, freq_hz, overruns
     // Integer transmission avoids the ~500 µs Serial.print(float) cost.
+    // Positions come from the sampler ring's newest entry (same source the
+    // policy reads) so host-side analysis sees the policy's own inputs.
+    uint8_t n_samples = buf_filled ? SAMPLE_BUFFER_SIZE : buf_head;
+    uint8_t newest = (uint8_t)((buf_head + SAMPLE_BUFFER_SIZE - 1) % SAMPLE_BUFFER_SIZE);
+    float motor_pos = n_samples ? (float)motor_step_buf[newest] * RAD_PER_STEP
+                                : read_motor_pos_rad();
+    float phi = n_samples ? pen_rad_buf[newest] : 0.0f;
     char buf[80];
     char* p = buf;
     ltoa((long)now_us, p, 10); p += strlen(p); *p++ = ',';
-    ltoa((long)(read_motor_pos_rad() * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
-    ltoa((long)(read_pendulum_rad() * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
+    ltoa((long)(motor_pos * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
+    ltoa((long)(phi * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     ltoa((long)(last_action * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     *p++ = (state == RUNNING) ? '1' : '0'; *p++ = ',';
     utoa(freq_hz, p, 10); p += strlen(p); *p++ = ',';
@@ -569,12 +584,10 @@ void setup()
     stepper->setDirectionPin(DIR_PIN);
     stepper->setEnablePin(ENABLE_PIN);  // default low_active=true matches DRV8825
     stepper->setAutoEnable(false);      // we manually enable/disable on state changes
-    int8_t rc_speed = stepper->setSpeedInHz(MOTOR_MAX_SPEED);
-    int8_t rc_accel = stepper->setAcceleration(MOTOR_ACCELERATION);
+    int8_t rc_speed = stepper->setSpeedInUs(MOTOR_MIN_STEP_US);
+    int8_t rc_accel = stepper->setAcceleration(MOTOR_BRAKE_ACCEL_STEPS_S2);
     if (rc_speed != 0 || rc_accel != 0)
     {
-        // Silent rejections will leave the stepper unable to issue any pulses.
-        // Print a diagnostic and halt rather than booting into a dead-motor mode.
         Serial.print(F("[FATAL] FastAccelStepper config rejected: speed_rc="));
         Serial.print(rc_speed);
         Serial.print(F(" accel_rc="));
@@ -582,40 +595,33 @@ void setup()
         digitalWrite(LED_BUILTIN, HIGH);
         while (true) {}
     }
+    // Same forward-planning window as LowLevelServer — shortens command→
+    // motion latency to the value the policy's delay DR was centred on.
+    stepper->setForwardPlanningTimeInMs(8);
     stepper->disableOutputs();
-
-    // Compute IIR alpha from cutoff. Same form as run_policy.py.
-    {
-        float rc = 1.0f / (2.0f * (float)PI * VEL_FILTER_CUTOFF_HZ);
-        vel_alpha = CONTROL_DT_S / (rc + CONTROL_DT_S);
-    }
 
     while (!as5600.detectMagnet())
     {
         delay(500);
     }
 
-    // Encoder zero is captured at engage time, not here — see
-    // reset_pendulum_tracking() / transition_to_running().
-
     // Forward-pass self-test: compute the action for a fixed reference obs
     // and print it. Compare against the PyTorch student's prediction for
-    // the same obs to confirm PROGMEM access + indexing are correct.
-    // Re-derive expected values from the .pt file with the helper in
-    // docs/end_to_end_runbook.md (step 6) — values are policy-specific
-    // and change every distill.
+    // the same obs to confirm PROGMEM access + indexing are correct
+    // (values are policy-specific and change every distill).
     {
-        float test_obs[POLICY_OBS_DIM];
         float test_act;
-        // Hanging-down, still: [motor=0, sin(±π)=0, cos(±π)=-1, mvel=0, pvel=0]
-        test_obs[0] = 0.0f; test_obs[1] = 0.0f; test_obs[2] = -1.0f;
-        test_obs[3] = 0.0f; test_obs[4] = 0.0f;
-        policy_forward(test_obs, &test_act);
+        // Hanging-down, still, all 4 frames identical:
+        // [motor=0, sin(-π)≈0, cos(-π)=-1, mvel=0, pvel=0, prev_a=0]
+        for (uint8_t k = 0; k < OBS_FRAMES; k++)
+            fill_frame(frames[k], 0.0f, wrap_pi(-(float)PI), 0.0f, 0.0f, 0.0f);
+        policy_forward(&frames[0][0], &test_act);
         Serial.print(F("[boot] policy(hanging) = "));
         Serial.println(test_act, 6);
-        // Upright, still: [motor=0, sin(0)=0, cos(0)=1, mvel=0, pvel=0]
-        test_obs[2] = 1.0f;
-        policy_forward(test_obs, &test_act);
+        // Upright, still:
+        for (uint8_t k = 0; k < OBS_FRAMES; k++)
+            fill_frame(frames[k], 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+        policy_forward(&frames[0][0], &test_act);
         Serial.print(F("[boot] policy(upright) = "));
         Serial.println(test_act, 6);
     }
@@ -634,9 +640,10 @@ void setup()
 
 void loop()
 {
-    // FastAccelStepper drives stepping from a Timer1 ISR — the main loop no
-    // longer needs to call stepper.run() at all. The loop just paces control
-    // ticks at the configured rate.
+    // FastAccelStepper drives stepping from a Timer1 ISR; between control
+    // ticks the loop services the 500 Hz measurement sampler.
+    update_sample_buffer();
+
     unsigned long now_us = micros();
     unsigned long elapsed_us = now_us - prev_time_us;
     if (elapsed_us < CONTROL_PERIOD_US)
@@ -657,18 +664,22 @@ void loop()
 
     if (state == RUNNING)
     {
-        control_tick(elapsed_us * 1e-6f);
+        control_tick();
     }
 
-    // Telemetry every ~1 s (just print one line per second to avoid serial
-    // overhead at 35 Hz). Each tick we already paid for one micros() call.
-    static unsigned long last_print_us = 0;
-    if (now_us - last_print_us >= 1000000UL)
+    // Telemetry: PER TICK while enabled ('P'), so a host capture of the
+    // stream can compute the same honest balance metrics as tethered
+    // deploys (see analyze_onboard.py). ~40 bytes/tick at 35 Hz is
+    // negligible at 500 kbaud. Rate/overrun counters still reset each
+    // second so freq_hz stays meaningful.
+    static unsigned long last_freq_us = 0;
+    static unsigned int freq_hz = 0;
+    if (now_us - last_freq_us >= 1000000UL)
     {
-        unsigned int hz = (unsigned int)((unsigned long)loop_count_for_freq * 1000000UL
-                                         / (now_us - last_print_us));
-        print_telemetry(now_us, hz);
+        freq_hz = (unsigned int)((unsigned long)loop_count_for_freq * 1000000UL
+                                 / (now_us - last_freq_us));
         loop_count_for_freq = 0;
-        last_print_us = now_us;
+        last_freq_us = now_us;
     }
+    print_telemetry(now_us, freq_hz);
 }
