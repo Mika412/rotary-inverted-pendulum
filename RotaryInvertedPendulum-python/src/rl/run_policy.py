@@ -139,6 +139,11 @@ def main(argv: list[str] | None = None) -> int:
         else int(saved_cfg.get("obs_history_len") or 1)
     )
     obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
+    # Actuator-side action smoothing — inherited from the checkpoint's
+    # training config, never a deploy-time choice (a policy trained with
+    # the boxcar expects its 1.5-tick delay; one trained without would
+    # get an unmodelled lag). Mirrors ACTION_SMOOTH_WINDOW in RLControl.ino.
+    action_smooth_window = int(saved_cfg.get("action_smooth_window") or 1)
 
     # The log is written with np.savez — require a .npz path so a slip like
     # `--log runs/<run>/last.zip` can't shadow (or, with a .npz-suffixed
@@ -276,6 +281,11 @@ def main(argv: list[str] | None = None) -> int:
         phi_travel = 0.0       # gross pendulum travel (rad) — spins rack this up
         phi_last = None
         v_cmd = 0.0            # velocity-mode commanded-velocity integrator
+        from collections import deque as _deque
+        a_smooth_buf = _deque([0.0] * action_smooth_window,
+                              maxlen=action_smooth_window)
+        if action_smooth_window > 1:
+            print(f"Action smoothing: boxcar over last {action_smooth_window} actions")
 
         # Trajectory log buffers (sim convention throughout for ease of analysis)
         log_t_us = np.zeros(max_steps, dtype=np.int64)
@@ -314,6 +324,12 @@ def main(argv: list[str] | None = None) -> int:
                        else np.concatenate(obs_history))
                 action, _ = model.predict(obs, deterministic=not args.stochastic)
                 a = float(np.clip(action.flatten()[0], -1.0, 1.0))
+                # Actuator sees the boxcar average; obs/logs keep the raw action.
+                if action_smooth_window > 1:
+                    a_smooth_buf.append(a)
+                    a_cmd = sum(a_smooth_buf) / action_smooth_window
+                else:
+                    a_cmd = a
 
                 if args.action_mode in ("accel", "velocity"):
                     # Accel-mode: action maps directly to commanded angular accel.
@@ -331,13 +347,13 @@ def main(argv: list[str] | None = None) -> int:
                         # correction below heals integrator drift while
                         # attenuating that noise ~10×. Mirrors real_env.py
                         # and the sim's velocity mode.
-                        v_des = a * args.max_velocity_rad_s
+                        v_des = a_cmd * args.max_velocity_rad_s
                         cmd_value = float(np.clip(
                             (v_des - v_cmd) * args.control_freq,
                             -args.max_accel_rad_s2, args.max_accel_rad_s2,
                         ))
                     else:
-                        cmd_value = a * args.max_accel_rad_s2
+                        cmd_value = a_cmd * args.max_accel_rad_s2
                     if motor_pos >= MOTOR_SAFE_LIMIT_RAD and cmd_value > 0.0:
                         cmd_value = 0.0
                     elif motor_pos <= -MOTOR_SAFE_LIMIT_RAD and cmd_value < 0.0:
@@ -353,7 +369,7 @@ def main(argv: list[str] | None = None) -> int:
                     # clamp to the safety rail (the firmware clamps again), send
                     # via moveTo. cmd_value is the commanded target (rad).
                     motor_target = float(np.clip(
-                        motor_target + a * args.max_action_delta_rad,
+                        motor_target + a_cmd * args.max_action_delta_rad,
                         -MOTOR_SAFE_LIMIT_RAD, MOTOR_SAFE_LIMIT_RAD,
                     ))
                     cmd_value = motor_target

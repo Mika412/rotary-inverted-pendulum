@@ -124,6 +124,16 @@ const float MAX_ACCEL_RAD_S2 = 150.0f;
 // (per tick). Matches run_policy.py / real_env.py.
 const float V_CMD_LAMBDA = 0.1f;
 
+// Actuator-side action smoothing: the velocity law tracks the moving
+// average of the last N policy outputs (1 = off). A boxcar of length 4
+// has exact nulls at rate/2 and rate/4 — where learned PWM dither lives —
+// so high-frequency action flips never reach the motor and cannot excite
+// the base resonance. MUST match the policy's training config
+// (action_smooth_window in config.json): the policy is trained expecting
+// this filter's 1.5-tick delay. The raw action still feeds the
+// observation's prev_action channel and telemetry.
+const uint8_t ACTION_SMOOTH_WINDOW = 1;
+
 // Observation stacking — must match training config.json (obs_history_len).
 const uint8_t OBS_FRAMES = 4;
 const uint8_t FRAME_DIM = 6;
@@ -174,6 +184,10 @@ static float frames[OBS_FRAMES][FRAME_DIM];
 
 // Commanded-velocity integrator (rad/s) — the P-law feedback state.
 static float v_cmd = 0.0f;
+
+// Action-smoothing ring (boxcar of the last ACTION_SMOOTH_WINDOW actions).
+static float a_smooth_ring[ACTION_SMOOTH_WINDOW];
+static uint8_t a_smooth_idx = 0;
 
 // Telemetry / diagnostics
 unsigned int loop_overruns = 0;
@@ -400,6 +414,8 @@ static void prime_initial_state()
     }
     v_cmd = 0.0f;
     last_action = 0.0f;
+    for (uint8_t k = 0; k < ACTION_SMOOTH_WINDOW; k++) a_smooth_ring[k] = 0.0f;
+    a_smooth_idx = 0;
     reset_sample_buffer();
 }
 
@@ -456,11 +472,24 @@ static void control_tick()
     else if (action < -1.0f) action = -1.0f;
     last_action = action;
 
+    // 4b. Actuator-side smoothing: the velocity law below tracks the boxcar
+    // average of the last ACTION_SMOOTH_WINDOW actions (no-op at window 1).
+    // last_action (raw) is what the observation and telemetry carry.
+    float action_cmd = action;
+    if (ACTION_SMOOTH_WINDOW > 1)
+    {
+        a_smooth_ring[a_smooth_idx] = action;
+        a_smooth_idx = (uint8_t)((a_smooth_idx + 1) % ACTION_SMOOTH_WINDOW);
+        float acc = 0.0f;
+        for (uint8_t k = 0; k < ACTION_SMOOTH_WINDOW; k++) acc += a_smooth_ring[k];
+        action_cmd = acc / (float)ACTION_SMOOTH_WINDOW;
+    }
+
     // 5. Velocity-mode P-law on the commanded integrator (host layer of the
     // tethered stack, verbatim): accel = clip((v_des - v_cmd) * f), zeroed
     // at the rail when pushing outward; v_cmd integrates the applied accel
     // and takes a slow correction from the measured velocity.
-    float v_des = action * MAX_VELOCITY_RAD_S;
+    float v_des = action_cmd * MAX_VELOCITY_RAD_S;
     float accel_cmd = (v_des - v_cmd) * CONTROL_FREQUENCY_HZ;
     if (accel_cmd >  MAX_ACCEL_RAD_S2) accel_cmd =  MAX_ACCEL_RAD_S2;
     if (accel_cmd < -MAX_ACCEL_RAD_S2) accel_cmd = -MAX_ACCEL_RAD_S2;

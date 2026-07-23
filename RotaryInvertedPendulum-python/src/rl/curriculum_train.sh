@@ -75,8 +75,15 @@
 #                                          # staleness) instead of perfect MuJoCo
 #                                          # state. Recorded in config.json.
 #     REWARD_ACTION_RATE_WEIGHT=           # if set, re-enables the (a_t − a_{t-1})² penalty
-#                                          # to suppress motor chatter at balance. Try 0.02.
-#                                          # Unset (default) leaves the env's 0.0 (disabled).
+#                                          # to suppress motor chatter at balance. Measured
+#                                          # ineffective against the learned PWM dither at
+#                                          # every weight tried (0.03/0.3/1.0) — use
+#                                          # ACTION_SMOOTH_WINDOW instead.
+#     ACTION_SMOOTH_WINDOW=                # if set, the actuator receives the moving average
+#                                          # of the last N policy outputs (firmware boxcar,
+#                                          # mirrored in sim). 4 nulls the PWM dither at
+#                                          # rate/2 and rate/4 exactly (1.5-tick delay).
+#                                          # Must match ACTION_SMOOTH_WINDOW in RLControl.ino.
 #     OBS_HISTORY_LEN=                     # frames stacked into the observation;
 #                                          # unset → env default 1 (single frame).
 #                                          # 4 gives the policy obs+action history
@@ -117,6 +124,7 @@ REWARD_STILLNESS_BONUS_WEIGHT="${REWARD_STILLNESS_BONUS_WEIGHT:-5}"
 USE_SDE="${USE_SDE:-1}"
 OBS_HISTORY_LEN="${OBS_HISTORY_LEN:-4}"
 DROP_VEL_OBS="${DROP_VEL_OBS:-}"
+ACTION_SMOOTH_WINDOW="${ACTION_SMOOTH_WINDOW:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
 # Expanded via ${arr[@]+"${arr[@]}"} below — plain "${arr[@]}" on an empty
@@ -150,6 +158,9 @@ fi
 if [ -n "$FIRMWARE_OBS_MODEL" ]; then
     COMMON_ARGS+=(--firmware-obs-model)
 fi
+if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
+    COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
+fi
 
 run_stage1="${PREFIX}_stage1"
 run_stage2="${PREFIX}_stage2"
@@ -171,6 +182,9 @@ echo "  stage 2 delay: [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks + lag tau 
 echo "  stage 3 delay: [${DR_DELAY_MIN_S3}, ${DR_DELAY_MAX_S3}] ticks + lag tau [$(awk -v t="$DR_LAG_TAU_MIN_S3" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S3" 'BEGIN{ printf "%.0f", t*1000 }')] ms"
 if [ -n "$REWARD_ACTION_RATE_WEIGHT" ]; then
     echo "  reward_action_rate_weight: $REWARD_ACTION_RATE_WEIGHT (re-enabled, default 0.0)"
+fi
+if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
+    echo "  action_smooth_window: $ACTION_SMOOTH_WINDOW (firmware boxcar on the action)"
 fi
 echo
 

@@ -486,6 +486,14 @@ class RotaryInvertedPendulumEnv(gym.Env):
         motor_max_accel_rad_s2: float | None = None,  # None => use max_accel_rad_s2
         action_delay_steps: int = 0,
         action_lag_tau_s: float = 0.0,
+        # Firmware-side action smoothing: the actuator receives the moving
+        # average of the last N policy outputs (N=1 disables). A boxcar of
+        # length 4 has exact nulls at rate/2 and rate/4 — precisely where
+        # the learned PWM dither lives — while passing ≤3 Hz control content
+        # almost untouched (gain 0.96) at a fixed 1.5-tick delay. Must match
+        # ACTION_SMOOTH_WINDOW in RLControl.ino; the raw action still feeds
+        # the reward and the observation's prev_action channel.
+        action_smooth_window: int = 1,
         motor_tau_s: float = 0.0,  # position-mode fixed motor-bandwidth lag (non-DR)
         terminate_on_hard_stop: bool = True,
         hard_stop_penalty: float = 5.0,
@@ -588,6 +596,14 @@ class RotaryInvertedPendulumEnv(gym.Env):
         )
         self._fixed_action_delay_steps = int(action_delay_steps)
         self._fixed_action_lag_tau_s = float(action_lag_tau_s)
+        if int(action_smooth_window) < 1:
+            raise ValueError(
+                f"action_smooth_window must be >= 1, got {action_smooth_window}"
+            )
+        self.action_smooth_window = int(action_smooth_window)
+        self._action_smooth_buf: deque = deque(
+            [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
+        )
         self._fixed_motor_tau_s = float(motor_tau_s)
         self.terminate_on_hard_stop = terminate_on_hard_stop
         self.hard_stop_penalty = float(hard_stop_penalty)
@@ -749,6 +765,9 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self._lagged_accel_cmd = 0.0
         self._accel_cmd_queue = deque([0.0] * self._action_delay_steps,
                                       maxlen=max(1, self._action_delay_steps + 1))
+        self._action_smooth_buf = deque(
+            [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
+        )
 
         # Pendulum hangs down -> joint position pi (since theta=0 is upright,
         # and the joint is wired so theta = joint_pos = 0 means pendulum-down).
@@ -894,6 +913,18 @@ class RotaryInvertedPendulumEnv(gym.Env):
     def step(self, action):
         action = float(np.clip(np.asarray(action).flatten()[0], -1.0, 1.0))
 
+        # --- Firmware action smoothing: boxcar over the last N outputs. ---
+        # Runs FIRST because on the device it sits directly after
+        # policy_forward, upstream of the velocity law and of everything the
+        # transport lag/queue below model. `action` (raw) still feeds the
+        # reward and prev_action observation channel; only the actuator
+        # chain sees `smoothed_action`.
+        if self.action_smooth_window > 1:
+            self._action_smooth_buf.append(action)
+            smoothed_action = sum(self._action_smooth_buf) / self.action_smooth_window
+        else:
+            smoothed_action = action
+
         # --- Continuous action lag: first-order LP filter on the action. ---
         # Models the laptop ↔ Arduino ↔ stepper-ISR pipeline as a low-pass.
         # The rational discretisation `alpha = dt / (tau + dt)` makes the
@@ -904,11 +935,13 @@ class RotaryInvertedPendulumEnv(gym.Env):
         if self._action_lag_tau_s > 0.0:
             dt_ctrl = 1.0 / self.control_freq_hz
             alpha = dt_ctrl / (self._action_lag_tau_s + dt_ctrl)
-            self._lagged_action = (1.0 - alpha) * self._lagged_action + alpha * action
+            self._lagged_action = (
+                (1.0 - alpha) * self._lagged_action + alpha * smoothed_action
+            )
             lagged_action = self._lagged_action
         else:
-            self._lagged_action = action
-            lagged_action = action
+            self._lagged_action = smoothed_action
+            lagged_action = smoothed_action
 
         # --- Action delay queue (integer steps, off by default post-accel-mode). ---
         # Kept for back-compat / large-delay regimes; new training uses
@@ -944,9 +977,10 @@ class RotaryInvertedPendulumEnv(gym.Env):
                 # saturating P-law and sends it via CMD_SET_ACCEL. The P-law
                 # runs host-side with no delay, so the transport lag belongs
                 # on the RESULTING accel command, not on the setpoint —
-                # `action` here is the un-lagged policy output, and the lag
-                # filter is applied to accel_cmd below.
-                v_des = action * self.max_velocity_rad_s
+                # `smoothed_action` is un-lagged (the smoothing boxcar sits
+                # upstream of transport), and the lag filter is applied to
+                # accel_cmd below.
+                v_des = smoothed_action * self.max_velocity_rad_s
                 # P-law feedback is the host's own commanded-velocity
                 # integrator, NOT the measured velocity. Feeding the
                 # firmware-measured (quantised, windowed) velocity back at
@@ -1079,6 +1113,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
             "motor_max_accel_rad_s2": self._motor_max_accel_rad_s2,
             "action_delay_steps": self._action_delay_steps,
             "action_lag_tau_s": self._action_lag_tau_s,
+            "smoothed_action": smoothed_action,
             "motor_tau_s": self._motor_tau_s,
             "obs_staleness_s": self._obs_staleness_s if self.firmware_obs_model else 0.0,
             "motor_vel_meas": self._meas_motor_vel if self.firmware_obs_model else None,

@@ -105,3 +105,41 @@ day). Curriculum stage 3 now trains delay = 1 tick + tau ∈ [0, 15] ms.
   discrete sampling.
 - Curriculum stage 2/3 delay ranges should be tightened to bracket the
   actual ~14 ms, not the historical 30–50 ms.
+
+## Actuator-side action smoothing (`ACTION_SMOOTH_WINDOW`)
+
+Deliberate, fixed shaping of the action path — not DR. Motivation: SAC
+teachers converge to a PWM strategy at balance (alternate |a| ≈ 0.7 at
+rate/2, letting the accel clamp + commanded-velocity integrator average
+it into small smooth motion). In sim this is optimal; on the rig the
+resulting full-scale accel reversals at rate/2 excite the compliant
+base and knock the pendulum over — the failure that capped standalone
+control at 35 Hz. Reward-side (Δa)² penalties measured ineffective at
+every weight tried (0.03 / 0.3 / 1.0 — the last collapses the gate
+without calming), and the dither persists under perfect observations,
+confirming it is a learned strategy rather than noise-chasing.
+
+Fix: the actuator tracks the **boxcar average of the last N policy
+outputs** (N = `ACTION_SMOOTH_WINDOW`, 1 = off). N=4 has exact frequency
+nulls at rate/2 and rate/4 — precisely where the PWM lives — passes
+≤ 3 Hz control content at ~0.96 gain, and costs a fixed 1.5-tick group
+delay. The nulls scale with the control rate, so one window value works
+at any rate. High-frequency action flips physically cannot reach the
+motor, so calm deployment no longer depends on the policy's habits.
+
+Placement (upstream of everything transport DR models — the filter runs
+right after `policy_forward` on the device):
+
+- `RLControl.ino`: `ACTION_SMOOTH_WINDOW` constant, ring buffer in
+  `control_tick()`. Raw action still feeds the obs `prev_action`
+  channel and telemetry.
+- `pendulum_env.py`: `action_smooth_window` ctor arg; raw action still
+  feeds reward and obs. `info["smoothed_action"]` exposes what the
+  motor saw.
+- `real_env.py` / `run_policy.py`: same filter before the host P-law;
+  value inherited from the checkpoint's `config.json`, never a
+  deploy-time choice (train and deploy must agree — the policy learns
+  around the filter's delay).
+- `train_sac.py --action-smooth-window` / curriculum env var
+  `ACTION_SMOOTH_WINDOW`; recorded in `config.json` and threaded
+  through distill/DAgger/eval envs automatically.

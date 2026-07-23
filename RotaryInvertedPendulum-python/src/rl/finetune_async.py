@@ -242,6 +242,8 @@ def main(argv: list[str] | None = None) -> int:
     # Always inherited from the checkpoint — obs construction is not a
     # fine-tune-time choice.
     obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
+    # Same: a policy trained with the actuator boxcar expects its delay.
+    action_smooth_window = int(saved_cfg.get("action_smooth_window") or 1)
 
     expected = {
         "action_mode": args.action_mode,
@@ -252,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
         "reward_upright_alive_weight": reward_upright_alive_weight,
         "obs_history_len": obs_history_len,
         "obs_include_velocities": obs_include_velocities,
+        "action_smooth_window": action_smooth_window,
     }
     if args.action_mode in ("accel", "velocity"):
         expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
@@ -287,6 +290,7 @@ def main(argv: list[str] | None = None) -> int:
         reward_upright_alive_weight=reward_upright_alive_weight,
         obs_history_len=obs_history_len,
         obs_include_velocities=obs_include_velocities,
+        action_smooth_window=action_smooth_window,
     )
     if args.reward_action_rate_weight is not None:
         env_kwargs["reward_action_rate_weight"] = args.reward_action_rate_weight

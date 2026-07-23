@@ -123,6 +123,7 @@ def _teacher_sim_rollouts(
         obs_history_len=int(cfg.get("obs_history_len") or 1),
         obs_include_velocities=bool(cfg.get("obs_include_velocities", True)),
         firmware_obs_model=bool(cfg.get("firmware_obs_model", False)),
+        action_smooth_window=int(cfg.get("action_smooth_window") or 1),
         dr_action_delay_steps_range=(1, 1),
         dr_action_lag_tau_range_s=(0.0, 0.015),
     )

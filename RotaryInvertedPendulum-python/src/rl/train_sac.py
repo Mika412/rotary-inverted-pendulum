@@ -68,6 +68,7 @@ def _resolved_config(args: argparse.Namespace) -> dict:
         "obs_history_len": int(args.obs_history_len),
         "obs_include_velocities": not args.drop_velocity_obs,
         "firmware_obs_model": bool(args.firmware_obs_model),
+        "action_smooth_window": int(args.action_smooth_window),
     }
 
 
@@ -97,6 +98,7 @@ def make_env(
     firmware_obs_model: bool = False,
     action_delay_steps: int = 0,
     action_lag_tau_s: float = 0.0,
+    action_smooth_window: int = 1,
 ):
     def _thunk():
         env_kwargs = dict(
@@ -106,6 +108,7 @@ def make_env(
             firmware_obs_model=firmware_obs_model,
             action_delay_steps=action_delay_steps,
             action_lag_tau_s=action_lag_tau_s,
+            action_smooth_window=action_smooth_window,
             reward_alive_offset=reward_alive_offset,
             reward_upright_alive_weight=reward_upright_alive_weight,
             domain_randomization=domain_randomization,
@@ -183,6 +186,7 @@ def train(args: argparse.Namespace) -> Path:
         obs_history_len=args.obs_history_len,
         obs_include_velocities=not args.drop_velocity_obs,
         firmware_obs_model=args.firmware_obs_model,
+        action_smooth_window=args.action_smooth_window,
     )])
     # Eval env is always deterministic — no DR (no obs noise, no random
     # lag) AND no theta-bias (so best_model is selected on the bias-free
@@ -226,6 +230,7 @@ def train(args: argparse.Namespace) -> Path:
         # should score the policy against the same measurement pipeline it
         # was trained for (quantisation + nominal staleness; no noise here).
         firmware_obs_model=args.firmware_obs_model,
+        action_smooth_window=args.action_smooth_window,
     )])
 
     # γ sets the effective horizon in *steps*, so a fixed 0.99 silently
@@ -318,6 +323,7 @@ def evaluate(args: argparse.Namespace) -> None:
         obs_history_len=args.obs_history_len,
         obs_include_velocities=not args.drop_velocity_obs,
         firmware_obs_model=args.firmware_obs_model,
+        action_smooth_window=args.action_smooth_window,
         max_accel_rad_s2=args.max_accel_rad_s2,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
@@ -483,6 +489,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "P-law feedback, mirroring the real host. Sim-only "
                         "realism knob (obs shape unchanged); recorded in "
                         "config.json so resumes/evals stay consistent.")
+    p.add_argument("--action-smooth-window", type=int, default=1,
+                   help="firmware-side action smoothing: the actuator "
+                        "receives the moving average of the last N policy "
+                        "outputs (1 = off). N=4 nulls the learned PWM "
+                        "dither at rate/2 and rate/4 exactly, at a fixed "
+                        "1.5-tick delay. Must match ACTION_SMOOTH_WINDOW "
+                        "in RLControl.ino; recorded in config.json.")
     p.add_argument("--upright-reset-frac", type=float, default=0.25,
                    help="fraction of TRAINING episodes that reset near "
                         "upright (phi = pi ± 0.3 rad, gentle spin) instead "

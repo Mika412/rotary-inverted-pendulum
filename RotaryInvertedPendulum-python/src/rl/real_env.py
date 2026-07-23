@@ -132,6 +132,10 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         reward_upright_alive_weight: float | None = None,
         obs_history_len: int = 1,  # frames per observation — must match sim training
         obs_include_velocities: bool = True,  # False: positions-only frames — must match sim training
+        # Actuator receives the moving average of the last N actions —
+        # mirror of pendulum_env's action_smooth_window and of
+        # ACTION_SMOOTH_WINDOW in RLControl.ino. Must match sim training.
+        action_smooth_window: int = 1,
         params_path: str | Path | None = None,
     ):
         super().__init__()
@@ -147,6 +151,14 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         self.max_accel_rad_s2 = max_accel_rad_s2
         self.max_velocity_rad_s = max_velocity_rad_s
         self.max_action_delta_rad = max_action_delta_rad
+        if int(action_smooth_window) < 1:
+            raise ValueError(
+                f"action_smooth_window must be >= 1, got {action_smooth_window}"
+            )
+        self.action_smooth_window = int(action_smooth_window)
+        self._action_smooth_buf: deque = deque(
+            [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
+        )
         self.episode_length_s = episode_length_s
         self.reset_settle_s = reset_settle_s  # rest-detection timeout
         if int(obs_history_len) < 1:
@@ -438,6 +450,9 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         self._motor_vel = 0.0
         self._pen_vel = 0.0
         self._v_cmd = 0.0  # velocity-mode commanded-velocity integrator
+        self._action_smooth_buf = deque(
+            [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
+        )
         self._prev_action = 0.0
         self._step_count = 0
         self._next_tick = time.monotonic()
@@ -464,6 +479,14 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
             raise RuntimeError("env.apply_action() called before reset() or motor disengaged")
 
         a = float(np.clip(np.asarray(action).flatten()[0], -1.0, 1.0))
+        # Actuator-side smoothing: the motor chases the boxcar average of
+        # the last N actions; the RAW action still goes to the reward and
+        # replay buffer (return value below), mirroring pendulum_env.
+        if self.action_smooth_window > 1:
+            self._action_smooth_buf.append(a)
+            a_cmd = sum(self._action_smooth_buf) / self.action_smooth_window
+        else:
+            a_cmd = a
         if self.action_mode in ("accel", "velocity"):
             if self.action_mode == "velocity":
                 # Saturating P-law tracking the velocity setpoint. Feedback
@@ -477,13 +500,13 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
                 # a slow complementary correction from the measurement
                 # (after send, below) heals drift from rail clamps or
                 # skipped steps while attenuating quantisation noise ~10×.
-                v_des = a * self.max_velocity_rad_s
+                v_des = a_cmd * self.max_velocity_rad_s
                 accel_cmd = float(np.clip(
                     (v_des - self._v_cmd) * self.control_freq_hz,
                     -self.max_accel_rad_s2, self.max_accel_rad_s2,
                 ))
             else:
-                accel_cmd = a * self.max_accel_rad_s2
+                accel_cmd = a_cmd * self.max_accel_rad_s2
             if self._motor_pos_prev >= MOTOR_SAFE_LIMIT_RAD and accel_cmd > 0.0:
                 accel_cmd = 0.0
             elif self._motor_pos_prev <= -MOTOR_SAFE_LIMIT_RAD and accel_cmd < 0.0:
@@ -498,7 +521,7 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
                 self._v_cmd += 0.1 * (self._motor_vel - self._v_cmd)
         else:
             self._motor_target = float(np.clip(
-                self._motor_target + a * self.max_action_delta_rad,
+                self._motor_target + a_cmd * self.max_action_delta_rad,
                 -MOTOR_SAFE_LIMIT_RAD,
                 MOTOR_SAFE_LIMIT_RAD,
             ))
