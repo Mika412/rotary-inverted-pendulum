@@ -65,6 +65,10 @@ def _resolved_config(args: argparse.Namespace) -> dict:
             float(args.reward_motor_vel_weight)
             if args.reward_motor_vel_weight is not None else 0.005
         ),
+        "reward_motor_pos_weight": (
+            float(args.reward_motor_pos_weight)
+            if args.reward_motor_pos_weight is not None else 0.5
+        ),
         "obs_history_len": int(args.obs_history_len),
         "obs_include_velocities": not args.drop_velocity_obs,
         "firmware_obs_model": bool(args.firmware_obs_model),
@@ -87,6 +91,7 @@ def make_env(
     max_velocity_rad_s: float | None = None,
     reward_action_rate_weight: float | None = None,
     reward_motor_vel_weight: float | None = None,
+    reward_motor_pos_weight: float | None = None,
     reward_motor_jerk_weight: float | None = None,
     reward_stillness_bonus_weight: float | None = None,
     reward_alive_offset: float | None = None,
@@ -128,6 +133,8 @@ def make_env(
         # caller explicitly set a value, preserving env canonical defaults.
         if reward_motor_vel_weight is not None:
             env_kwargs["reward_motor_vel_weight"] = reward_motor_vel_weight
+        if reward_motor_pos_weight is not None:
+            env_kwargs["reward_motor_pos_weight"] = reward_motor_pos_weight
         if max_velocity_rad_s is not None:
             env_kwargs["max_velocity_rad_s"] = max_velocity_rad_s
         if max_action_delta_rad is not None:
@@ -176,6 +183,7 @@ def train(args: argparse.Namespace) -> Path:
         max_action_delta_rad=args.max_action_delta_rad,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_vel_weight=args.reward_motor_vel_weight,
+        reward_motor_pos_weight=args.reward_motor_pos_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
         reward_stillness_bonus_weight=args.reward_stillness_bonus_weight,
         reward_alive_offset=args.reward_alive_offset,
@@ -218,6 +226,7 @@ def train(args: argparse.Namespace) -> Path:
         max_action_delta_rad=args.max_action_delta_rad,
         reward_action_rate_weight=args.reward_action_rate_weight,
         reward_motor_vel_weight=args.reward_motor_vel_weight,
+        reward_motor_pos_weight=args.reward_motor_pos_weight,
         reward_motor_jerk_weight=args.reward_motor_jerk_weight,
         reward_stillness_bonus_weight=args.reward_stillness_bonus_weight,
         reward_alive_offset=args.reward_alive_offset,
@@ -264,6 +273,7 @@ def train(args: argparse.Namespace) -> Path:
             gradient_steps=1,
             ent_coef="auto",
             use_sde=args.use_sde,
+            policy_kwargs=(dict(net_arch=args.net_arch) if args.net_arch else None),
             verbose=1,
             tensorboard_log=str(run_dir / "tb"),
             seed=args.seed,
@@ -332,6 +342,8 @@ def evaluate(args: argparse.Namespace) -> None:
     )
     if args.reward_motor_vel_weight is not None:
         env_kwargs["reward_motor_vel_weight"] = args.reward_motor_vel_weight
+    if args.reward_motor_pos_weight is not None:
+        env_kwargs["reward_motor_pos_weight"] = args.reward_motor_pos_weight
     if args.max_velocity_rad_s is not None:
         env_kwargs["max_velocity_rad_s"] = args.max_velocity_rad_s
     if args.max_action_delta_rad is not None:
@@ -443,6 +455,17 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "a threshold proportional to sqrt(2gL). Capping "
                         "below the rig's natural Kapitza window directly "
                         "disrupts resonance-pumping policies.")
+    p.add_argument("--reward-motor-pos-weight", type=float, default=None,
+                   help="k_motor_pos: quadratic centering penalty on motor "
+                        "angle (env default 0.5). Raise to keep the arm near "
+                        "center — kills slow drift/wander. Recorded in config.json.")
+    p.add_argument("--net-arch", type=lambda s: [int(x) for x in s.split(",")],
+                   default=None,
+                   help="actor/critic hidden sizes, e.g. '128,128' (SB3 default "
+                        "256,256). Smaller nets train faster on this low-dim "
+                        "problem; the teacher is distilled to h16 regardless. "
+                        "Only used for fresh stage-1 runs; resumes inherit the "
+                        "checkpoint's architecture.")
     p.add_argument("--reward-motor-vel-weight", type=float, default=None,
                    help="penalty on motor_vel² in the reward. Default None "
                         "→ env default (0.005). Bumping to e.g. 0.05 makes "

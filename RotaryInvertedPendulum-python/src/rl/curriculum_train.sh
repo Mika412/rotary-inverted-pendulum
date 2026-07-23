@@ -125,6 +125,9 @@ USE_SDE="${USE_SDE:-1}"
 OBS_HISTORY_LEN="${OBS_HISTORY_LEN:-4}"
 DROP_VEL_OBS="${DROP_VEL_OBS:-}"
 ACTION_SMOOTH_WINDOW="${ACTION_SMOOTH_WINDOW:-}"
+NET_ARCH="${NET_ARCH:-}"
+REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
+REWARD_MOTOR_VEL_WEIGHT="${REWARD_MOTOR_VEL_WEIGHT:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
 # Expanded via ${arr[@]+"${arr[@]}"} below — plain "${arr[@]}" on an empty
@@ -161,6 +164,15 @@ fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
 fi
+if [ -n "$NET_ARCH" ]; then
+    COMMON_ARGS+=(--net-arch "$NET_ARCH")
+fi
+if [ -n "$REWARD_MOTOR_POS_WEIGHT" ]; then
+    COMMON_ARGS+=(--reward-motor-pos-weight "$REWARD_MOTOR_POS_WEIGHT")
+fi
+if [ -n "$REWARD_MOTOR_VEL_WEIGHT" ]; then
+    COMMON_ARGS+=(--reward-motor-vel-weight "$REWARD_MOTOR_VEL_WEIGHT")
+fi
 
 run_stage1="${PREFIX}_stage1"
 run_stage2="${PREFIX}_stage2"
@@ -185,6 +197,15 @@ if [ -n "$REWARD_ACTION_RATE_WEIGHT" ]; then
 fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     echo "  action_smooth_window: $ACTION_SMOOTH_WINDOW (firmware boxcar on the action)"
+fi
+if [ -n "$NET_ARCH" ]; then
+    echo "  net_arch: $NET_ARCH (actor/critic hidden sizes)"
+fi
+if [ -n "$REWARD_MOTOR_POS_WEIGHT" ]; then
+    echo "  reward_motor_pos_weight: $REWARD_MOTOR_POS_WEIGHT (arm centering, default 0.5)"
+fi
+if [ -n "$REWARD_MOTOR_VEL_WEIGHT" ]; then
+    echo "  reward_motor_vel_weight: $REWARD_MOTOR_VEL_WEIGHT (arm-speed damping, default 0.005)"
 fi
 echo
 
