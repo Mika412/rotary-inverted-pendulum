@@ -112,7 +112,7 @@ const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
 // =============================================================================
 // Fixed control rate — MUST match the rate the policy was trained at
 // (vel_v8 line: 35 Hz).
-const float CONTROL_FREQUENCY_HZ = 35.0f;
+const float CONTROL_FREQUENCY_HZ = 50.0f;
 const unsigned long CONTROL_PERIOD_US = (unsigned long)(1000000.0f / CONTROL_FREQUENCY_HZ);
 const float CONTROL_DT_S = 1.0f / CONTROL_FREQUENCY_HZ;
 
@@ -132,7 +132,7 @@ const float V_CMD_LAMBDA = 0.1f;
 // (action_smooth_window in config.json): the policy is trained expecting
 // this filter's 1.5-tick delay. The raw action still feeds the
 // observation's prev_action channel and telemetry.
-const uint8_t ACTION_SMOOTH_WINDOW = 1;
+const uint8_t ACTION_SMOOTH_WINDOW = 4;
 
 // Observation stacking — must match training config.json (obs_history_len).
 const uint8_t OBS_FRAMES = 4;
