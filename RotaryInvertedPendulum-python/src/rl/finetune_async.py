@@ -199,6 +199,13 @@ def main(argv: list[str] | None = None) -> int:
                         "gated upright bonus). Default None → inherit from "
                         "the checkpoint's config.json (0.0 for legacy "
                         "checkpoints). Must match sim training.")
+    p.add_argument("--reward-motor-pos-weight", type=float, default=None,
+                   help="k_motor_pos (arm centering). None -> inherit from the "
+                        "checkpoint's config.json (must match to preserve arm "
+                        "stillness).")
+    p.add_argument("--reward-motor-vel-weight", type=float, default=None,
+                   help="k_motor_vel (arm-speed damping). None -> inherit from "
+                        "the checkpoint's config.json.")
     p.add_argument("--reward-stillness-bonus-weight", type=float, default=None,
                    help="Mirror of train_sac.py's flag — multiplicative "
                         "stillness bonus near upright. Must match the sim "
@@ -244,6 +251,18 @@ def main(argv: list[str] | None = None) -> int:
     obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
     # Same: a policy trained with the actuator boxcar expects its delay.
     action_smooth_window = int(saved_cfg.get("action_smooth_window") or 1)
+    # Arm-motion penalties MUST match training or the fine-tune drifts the
+    # policy out of the arm-still basin back toward the default reward.
+    reward_motor_pos_weight = (
+        float(args.reward_motor_pos_weight)
+        if args.reward_motor_pos_weight is not None
+        else float(saved_cfg.get("reward_motor_pos_weight") or 0.5)
+    )
+    reward_motor_vel_weight = (
+        float(args.reward_motor_vel_weight)
+        if args.reward_motor_vel_weight is not None
+        else float(saved_cfg.get("reward_motor_vel_weight") or 0.005)
+    )
 
     expected = {
         "action_mode": args.action_mode,
@@ -255,6 +274,8 @@ def main(argv: list[str] | None = None) -> int:
         "obs_history_len": obs_history_len,
         "obs_include_velocities": obs_include_velocities,
         "action_smooth_window": action_smooth_window,
+        "reward_motor_pos_weight": reward_motor_pos_weight,
+        "reward_motor_vel_weight": reward_motor_vel_weight,
     }
     if args.action_mode in ("accel", "velocity"):
         expected["max_accel_rad_s2"] = float(args.max_accel_rad_s2)
@@ -291,6 +312,8 @@ def main(argv: list[str] | None = None) -> int:
         obs_history_len=obs_history_len,
         obs_include_velocities=obs_include_velocities,
         action_smooth_window=action_smooth_window,
+        reward_motor_pos_weight=reward_motor_pos_weight,
+        reward_motor_vel_weight=reward_motor_vel_weight,
     )
     if args.reward_action_rate_weight is not None:
         env_kwargs["reward_action_rate_weight"] = args.reward_action_rate_weight
