@@ -96,6 +96,14 @@ at one rate produces garbage at another (measured: an over-budget
 inference that sagged the on-device loop to 25 Hz turned a balancing
 policy into a spinner).
 
+**Faster iteration.** Training is learner-bound (~97% of wall-clock is the
+SAC gradient update, not the sim), so parallel envs / GPU don't help. For
+cheap exploration, `NET_ARCH=128,128 STEPS_PER_STAGE=70000
+./curriculum_train.sh` is ~2.4× faster. Explore-only, though: that
+smaller/shorter teacher fine-tunes to ~0.97 deployed vs the default
+256×256/100k's 0.996 (measurably more drops) — train final champions at
+the defaults.
+
 ## 2. Fine-tune on the real rig — async
 
 The sim policy will not balance on hardware on its first try
