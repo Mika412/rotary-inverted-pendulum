@@ -139,6 +139,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  |action| mean:           {float(np.abs(action).mean()):.3f}")
     print(f"  verdict:                 {verdict}")
 
+    # Calmness during the balanced phase. A real Furuta balances WITH arm
+    # motion, so some is unavoidable; excess arm wander/sway is what shakes
+    # the base. Arm sway is the sub-1s component of the arm angle (the
+    # ~0.6 Hz balancing wiggle); arm std includes slow drift too. Reported
+    # so deployed policies can be compared on calmness, not just balance.
+    if int(balanced.sum()) >= int(round(1.0 / dt)):
+        win = max(1, int(round(1.0 / dt)))
+        arm_drift = np.convolve(motor_pos, np.ones(win) / win, mode="same")
+        arm_sway = motor_pos - arm_drift
+        print(f"  pendulum std (bal):      {np.degrees(theta[balanced].std()):.2f} deg")
+        print(f"  arm std (bal):           {np.degrees(motor_pos[balanced].std()):.1f} deg")
+        print(f"  arm sway <1s (bal):      {np.degrees(arm_sway[balanced].std()):.2f} deg")
+
     if args.log:
         if not args.log.endswith(".npz"):
             raise SystemExit("--log must end in .npz")
