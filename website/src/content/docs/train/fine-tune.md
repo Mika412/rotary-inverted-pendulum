@@ -46,6 +46,14 @@ python finetune_async.py \
 Architecture detail: [the async control
 runtime](/rotary-inverted-pendulum/reference/async-control/).
 
+Add `--mirror-augment` to store each transition's mirror image too. Rig time
+is the scarce resource and these sessions are lopsided — measured 2.5–4×
+more arrivals at upright from one side than the other — so mirroring doubles
+what each episode covers at no rig cost. [Mirror
+symmetry](/rotary-inverted-pendulum/reference/symmetry/) covers what it gives
+up (≤1° of per-rig base-tilt specialisation, less than the sim curriculum
+already randomises over).
+
 ## Listen to the motor
 
 The orchestrator disengages the motor for `--reset-settle-s` (default 15)

@@ -49,3 +49,19 @@ fine-tunes to ~0.97 deployed vs the default 256×256/100k's 0.996
 Stage boundaries and the reasoning behind each randomised parameter are on the
 [domain randomization page](/rotary-inverted-pendulum/reference/domain-randomization/).
 
+## Mirror symmetry (experimental)
+
+The rig is left/right symmetric, but a plain SAC run picks an arbitrary
+preferred swing-up direction and catches worse on the other side. `MIRROR_AUGMENT=1`
+stores every transition alongside its mirror image, which is exact rather than
+synthetic:
+
+```bash
+MIRROR_AUGMENT=1 bash curriculum_train.sh sym_v1
+python analyze_symmetry.py runs/sym_v1_stage3/best_model.zip   # must still self-start
+```
+
+Costs no measurable throughput. Check the result before spending rig time —
+the evidence, the caveats, and why symmetrising a *finished* teacher does not
+work are on the [mirror symmetry
+page](/rotary-inverted-pendulum/reference/symmetry/).
