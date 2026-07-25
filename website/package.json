@@ -10,10 +10,14 @@
     "build": "astro build",
     "preview": "astro preview",
     "test": "npm run test:policy && npm run test:geometry",
-    "test:policy": "node --experimental-strip-types tests/policy_balances.test.mts",
-    "test:geometry": "node --experimental-strip-types tests/scene_geometry.test.mts",
+    "test:policy": "node tests/policy_balances.test.mts",
+    "test:geometry": "node tests/scene_geometry.test.mts",
     "test:smoke": "node tests/demo_smoke.test.mjs",
     "export-assets": "uv run --project ../RotaryInvertedPendulum-python python scripts/export_assets.py"
+  },
+  "engines": {
+    "//": "Node runs the .mts tests directly. Type stripping is on by default from 22.18, so no --experimental-strip-types flag is needed and none is passed — which also keeps these scripts working unchanged on Node 24.",
+    "node": ">=22.18"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.4",
