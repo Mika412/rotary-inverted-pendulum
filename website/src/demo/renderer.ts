@@ -30,6 +30,8 @@ export interface SceneManifest {
       mesh: string;
       parent: string | null;
       position: [number, number, number];
+      /** Shifts the mesh inside its joint group so its bore sits on the pivot. */
+      meshOffset?: [number, number, number];
       rotationAxis?: 'x' | 'y' | 'z';
       joint?: 'motor' | 'pendulum';
       angleOffsetRad?: number;
@@ -143,6 +145,9 @@ export class PendulumRenderer {
         asset.scene.traverse((child) => {
           if ((child as Mesh).isMesh) (child as Mesh).material = material;
         });
+        // Applied to the mesh, not the group: the group's origin IS the pivot,
+        // so the mesh slides within it until its bore coincides with that pivot.
+        if (node.meshOffset) asset.scene.position.set(...node.meshOffset);
         groups.get(name)!.add(asset.scene);
       })
     );

@@ -61,16 +61,21 @@ function pose(motorRad: number, pendulumRad: number) {
   return groups;
 }
 
-const L = scene.armLengthM as number;
+// Pivot radius and height are measured bore centres, not ARM_LENGTH_M — see
+// build_scene in scripts/export_assets.py.
+const L = scene.armPivotXM as number;
+const pivotZ = scene.armPivotZM as number;
 const baseTop = scene.baseTopZ as number;
 
-// The pendulum mesh's rod extends +z from its own origin; this is the tip in
-// local coordinates, taken from the exported mesh bounds.
+// The pendulum mesh's rod extends +z from its bore; meshOffset shifts the mesh
+// inside the joint group, so the tip's group-local position carries it too.
 const rodLength = scene.meshes.pendulum.boundsM[1][2] as number;
+const meshOffset = (scene.nodes.pendulum.meshOffset ?? [0, 0, 0]) as number[];
+const tipLocal = new Vector3(meshOffset[0], meshOffset[1], meshOffset[2] + rodLength);
 
 function tipWorld(motorRad: number, pendulumRad: number): Vector3 {
   const groups = pose(motorRad, pendulumRad);
-  return groups.get('pendulum')!.localToWorld(new Vector3(0, 0, rodLength));
+  return groups.get('pendulum')!.localToWorld(tipLocal.clone());
 }
 
 function pivotWorld(motorRad: number, pendulumRad: number): Vector3 {
@@ -80,20 +85,26 @@ function pivotWorld(motorRad: number, pendulumRad: number): Vector3 {
 
 const near = (a: number, b: number, tol = 1e-6) => Math.abs(a - b) <= tol;
 
-console.log(`arm length ${(L * 1000).toFixed(1)} mm, rod ${(rodLength * 1000).toFixed(1)} mm\n`);
+console.log(
+  `pivot radius ${(L * 1000).toFixed(1)} mm, pivot height ${(pivotZ * 1000).toFixed(1)} mm, ` +
+    `rod ${(rodLength * 1000).toFixed(1)} mm, mesh offset y ${(meshOffset[1] * 1000).toFixed(1)} mm\n`
+);
 
 check('the pivot sits at the arm tip when the motor is centred', () => {
   const p = pivotWorld(0, 0);
   assert.ok(near(p.x, L), `pivot x = ${p.x}, expected ${L}`);
   assert.ok(near(p.y, 0), `pivot y = ${p.y}, expected 0`);
-  assert.ok(near(p.z, baseTop), `pivot z = ${p.z}, expected ${baseTop}`);
+  assert.ok(near(p.z, baseTop + pivotZ), `pivot z = ${p.z}, expected ${baseTop + pivotZ}`);
 });
 
 check('rotating the motor sweeps the pivot around the z axis', () => {
   const p = pivotWorld(Math.PI / 2, 0);
   assert.ok(near(p.x, 0, 1e-9), `pivot x = ${p.x}, expected ~0`);
   assert.ok(near(p.y, L), `pivot y = ${p.y}, expected ${L}`);
-  assert.ok(near(p.z, baseTop), `pivot z = ${p.z} should not change with motor angle`);
+  assert.ok(
+    near(p.z, baseTop + pivotZ),
+    `pivot z = ${p.z} should not change with motor angle`
+  );
   // The pivot must stay on a circle of radius L about the origin.
   assert.ok(near(Math.hypot(p.x, p.y), L), 'pivot left the arm-length circle');
 });
@@ -106,8 +117,8 @@ check('pendulum angle 0 hangs the rod straight DOWN', () => {
     tip.z < baseTop,
     `tip z = ${tip.z} is not below the arm plane at ${baseTop} — the rod points up`
   );
-  assert.ok(near(tip.z, baseTop - rodLength, 1e-6), `tip z = ${tip.z}`);
-  assert.ok(near(tip.x, L), `tip x = ${tip.x} should stay at the pivot's x`);
+  assert.ok(near(tip.z, baseTop + pivotZ - rodLength, 1e-6), `tip z = ${tip.z}`);
+  assert.ok(near(tip.x, L + meshOffset[0]), `tip x = ${tip.x} should stay at the pivot's x`);
 });
 
 check('pendulum angle pi stands the rod UP', () => {
@@ -116,23 +127,23 @@ check('pendulum angle pi stands the rod UP', () => {
     tip.z > baseTop,
     `tip z = ${tip.z} is not above the arm plane — upright is not upright`
   );
-  assert.ok(near(tip.z, baseTop + rodLength, 1e-6), `tip z = ${tip.z}`);
+  assert.ok(near(tip.z, baseTop + pivotZ + rodLength, 1e-6), `tip z = ${tip.z}`);
 });
 
 check('the pendulum swings about the arm-local x axis', () => {
   // At a quarter turn the rod should lie horizontally, displaced in y, with the
   // pivot's x unchanged — that is what "hinge about x" means.
   const tip = tipWorld(0, Math.PI / 2);
-  assert.ok(near(tip.z, baseTop, 1e-6), `tip z = ${tip.z}, expected the arm plane`);
+  assert.ok(near(tip.z, baseTop + pivotZ - meshOffset[1], 1e-6), `tip z = ${tip.z}`);
   assert.ok(near(Math.abs(tip.y), rodLength, 1e-6), `|tip y| = ${Math.abs(tip.y)}`);
-  assert.ok(near(tip.x, L), `tip x = ${tip.x} moved off the pivot`);
+  assert.ok(near(tip.x, L + meshOffset[0]), `tip x = ${tip.x} moved off the pivot`);
 });
 
 check('the swing plane rotates with the arm', () => {
   // With the arm at 90 degrees, the horizontal rod must now be displaced in x,
   // because the hinge axis rotated with its parent.
   const tip = tipWorld(Math.PI / 2, Math.PI / 2);
-  assert.ok(near(tip.z, baseTop, 1e-6), `tip z = ${tip.z}`);
+  assert.ok(near(tip.z, baseTop + pivotZ - meshOffset[1], 1e-6), `tip z = ${tip.z}`);
   assert.ok(
     near(Math.abs(tip.x), rodLength, 1e-6),
     `|tip x| = ${Math.abs(tip.x)}, expected the rod length — the hinge did not follow the arm`
@@ -147,7 +158,7 @@ check('the rod stays a constant distance from its pivot', () => {
     [2.1, -0.6],
   ]) {
     const d = tipWorld(m, p).distanceTo(pivotWorld(m, p));
-    assert.ok(near(d, rodLength, 1e-9), `rod length became ${d} at (${m}, ${p})`);
+    assert.ok(near(d, tipLocal.length(), 1e-9), `pivot-to-tip became ${d} at (${m}, ${p})`);
   }
 });
 

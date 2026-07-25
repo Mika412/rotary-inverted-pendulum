@@ -125,15 +125,43 @@ def export_mjcf(out_dir: Path) -> str:
     return xml
 
 
+# --- Bore centres measured from the committed STLs -------------------------
+# A mesh posed by a joint angle orbits about its own origin, so any mesh whose
+# origin is not its bearing centre visibly detaches. These were measured by
+# slicing each mesh across its rotation axis and reading the centre of the
+# resulting interior ring (scratch script in the 3D-demo notes); they are
+# properties of the committed STLs, so they only change if the parts are
+# re-exported from CAD.
+#
+#   arm:      motor shaft bore at (x≈-0.6, y≈0) mm, r=2.51  → axis is the origin
+#             pendulum bearing bore at (y=0, z=14.0) mm, r=9.5–11.05, spanning
+#             x≈49–60 mm — the z=14 agrees exactly with urdf/model.urdf's
+#             arm_to_pendulum origin (0, 0, 0.014).
+#   pendulum: bore at (y=6.0, z=0.0) mm in its own frame — the mesh origin is
+#             6 mm off the pivot, which is what detached it laterally.
+ARM_PIVOT_Z_M = 0.014
+PENDULUM_BORE_OFFSET_M = (0.0, 0.006, 0.0)
+
+
 def build_scene(mesh_info: dict[str, dict]) -> dict:
     """Visual transform chain for the renderer.
 
-    Derived from the MJCF, not the URDF: urdf/model.urdf places the
-    arm_to_pendulum joint at (0, 0, 0.014) with no x-offset while the pendulum's
-    inertial origin sits at x=0.062. Because the swing axis IS x, that
-    inconsistency has no effect on dynamics and went unnoticed — but it would
-    put the rendered pendulum 62 mm from the arm tip. The MJCF is the model the
-    simulation actually integrates, so it is the authority here.
+    The pivot radius comes from the simulation (ARM_LENGTH_M = 0.065, corroborated
+    by the URDF's pendulum inertial at x=0.062); the pivot *height* and the
+    pendulum's bore offset are measured, because neither model file carries them
+    usefully:
+
+      - urdf/model.urdf has the right pivot height (z=0.014, confirmed by
+        measurement) but its arm_to_pendulum origin has no x-offset at all,
+        while the pendulum's inertial sits at x=0.062. Since the swing axis IS
+        x, the inconsistency has no dynamic effect and went unnoticed.
+      - the meshes carry no joint frames, so the pendulum's bore offset has to
+        be measured or the part hangs 6 mm off its own pivot.
+
+    The arm mesh ends at x=60 mm while the pivot is at 65 mm; that is correct,
+    not a discrepancy — the pendulum's 32 mm hub is cantilevered outboard of the
+    arm's bearing pocket (measured at x≈49–60 mm), which puts its centre, and
+    therefore the pendulum's mass, at ~65 mm.
     """
     import pendulum_env as pe
 
@@ -142,17 +170,19 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
 
     return {
         "_note": (
-            "Visual transforms for the 3D demo. Derived from the MJCF "
-            "(see build_scene in scripts/export_assets.py for why not the URDF)."
+            "Visual transforms for the 3D demo, from bore centres measured in "
+            "the meshes. See build_scene in scripts/export_assets.py."
         ),
         "units": "metres",
-        "armLengthM": pe.ARM_LENGTH_M,
+        "armPivotXM": pe.ARM_LENGTH_M,
+        "armPivotZM": ARM_PIVOT_Z_M,
         "baseTopZ": base_top_z,
         "nodes": {
             # The enclosure is static; the arm plane sits on top of it.
             "base": {"mesh": "base", "parent": None, "position": [0, 0, 0]},
             "lid": {"mesh": "lid", "parent": None, "position": [0, 0, base_top_z]},
-            # Rotates about +z by the motor angle.
+            # Rotates about +z by the motor angle. The motor bore is already at
+            # the mesh origin, so no mesh offset is needed.
             "arm": {
                 "mesh": "arm",
                 "parent": None,
@@ -160,13 +190,15 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
                 "rotationAxis": "z",
                 "joint": "motor",
             },
-            # Sits at the arm tip and rotates about the arm's local +x.
-            # The mesh is authored with the rod pointing +z, while the MJCF's
-            # qpos=0 pose hangs the pendulum along -z, hence the pi offset.
+            # Sits on the arm's bearing bore and rotates about the arm's local
+            # +x. meshOffset moves the mesh so its bore lands on this group's
+            # origin; the mesh is authored with the rod pointing +z while
+            # qpos=0 hangs the pendulum along -z, hence the pi angle offset.
             "pendulum": {
                 "mesh": "pendulum",
                 "parent": "arm",
-                "position": [pe.ARM_LENGTH_M, 0, 0],
+                "position": [pe.ARM_LENGTH_M, 0.0, ARM_PIVOT_Z_M],
+                "meshOffset": [-v for v in PENDULUM_BORE_OFFSET_M],
                 "rotationAxis": "x",
                 "joint": "pendulum",
                 "angleOffsetRad": math.pi,

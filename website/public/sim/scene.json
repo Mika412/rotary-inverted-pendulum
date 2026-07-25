@@ -1,7 +1,8 @@
 {
-  "_note": "Visual transforms for the 3D demo. Derived from the MJCF (see build_scene in scripts/export_assets.py for why not the URDF).",
+  "_note": "Visual transforms for the 3D demo, from bore centres measured in the meshes. See build_scene in scripts/export_assets.py.",
   "units": "metres",
-  "armLengthM": 0.065,
+  "armPivotXM": 0.065,
+  "armPivotZM": 0.014,
   "baseTopZ": 0.07,
   "nodes": {
     "base": {
@@ -38,8 +39,13 @@
       "parent": "arm",
       "position": [
         0.065,
-        0,
-        0
+        0.0,
+        0.014
+      ],
+      "meshOffset": [
+        -0.0,
+        -0.006,
+        -0.0
       ],
       "rotationAxis": "x",
       "joint": "pendulum",

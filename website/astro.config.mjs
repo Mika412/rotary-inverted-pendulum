@@ -4,12 +4,6 @@ import starlight from '@astrojs/starlight';
 
 const REPO = 'rotary-inverted-pendulum';
 
-// The runbook is one canonical file (docs/end_to_end_runbook.md, referenced by
-// CLAUDE.md and by source comments), but the *navigation* is step-shaped: each
-// sidebar entry deep-links to that page's step heading. This gives the guided
-// path the runbook describes without fragmenting the single source of truth.
-const PIPELINE = '/train/pipeline/';
-
 export default defineConfig({
   site: `https://ferrolho.github.io`,
   base: `/${REPO}`,
@@ -59,14 +53,12 @@ export default defineConfig({
         {
           label: 'Train & deploy',
           items: [
+            // Deliberately no per-step hash links here: with trailingSlash
+            // 'always', Starlight appends the slash AFTER the fragment
+            // (`#step/`), which breaks the anchor. The pipeline page's own
+            // table of contents already lists every step.
             { label: 'The pipeline, end to end', slug: 'train/pipeline' },
-            { label: '5 · System identification', link: `${PIPELINE}#0-system-identification--measure-the-rig` },
-            { label: '6 · Train the teacher in sim', link: `${PIPELINE}#1-train-the-teacher-in-sim--curriculum` },
-            { label: '7 · Fine-tune on the rig', link: `${PIPELINE}#2-fine-tune-on-the-real-rig--async` },
-            { label: '8 · Test the teacher', link: `${PIPELINE}#3-test-the-teacher-on-the-rig--tethered` },
-            { label: '9 · Distill the student', link: `${PIPELINE}#4-distill--shrink-the-actor-for-the-deployment-transport` },
-            { label: '10 · Flash & score standalone', link: `${PIPELINE}#6-flash-the-standalone-sketch--remove-the-tether` },
-            { label: 'Sysid procedure', slug: 'train/sysid' },
+            { label: 'System identification', slug: 'train/sysid' },
           ],
         },
         {
