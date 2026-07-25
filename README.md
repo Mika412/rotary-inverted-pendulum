@@ -11,7 +11,7 @@ A DIY rotary inverted pendulum you can print, solder, and train at home — for 
 | [`meshes/`](meshes), [`urdf/`](urdf)                                | 3D-printable STLs and the URDF model (single source of truth for pendulum geometry)              |
 | [`diagrams/`](diagrams)                                             | Wiring diagrams and component photos                                                             |
 | [`RotaryInvertedPendulum-arduino/`](RotaryInvertedPendulum-arduino) | Firmware — low-level server, hand-tuned PID, on-device RL controller                             |
-| [`RotaryInvertedPendulum-python/`](RotaryInvertedPendulum-python)   | Sim env, SAC training, system identification, real-hardware bridge, distillation and int8 export |
+| [`RotaryInvertedPendulum-python/`](RotaryInvertedPendulum-python)   | Sim env, SAC training, system identification, real-hardware bridge, distillation and weight export |
 | [`RotaryInvertedPendulum-julia/`](RotaryInvertedPendulum-julia)     | MPC/LQR exploration and MeshCat visualisation                                                    |
 | [`docs/`](docs)                                                     | Build runbook, BOM, electronics design, RL stack documentation                                   |
 
@@ -19,7 +19,7 @@ A DIY rotary inverted pendulum you can print, solder, and train at home — for 
 
 - **Build one** — [`docs/BOM.md`](docs/BOM.md), [`docs/electronics_design.md`](docs/electronics_design.md), [`docs/end_to_end_runbook.md`](docs/end_to_end_runbook.md)
 - **Train a policy** — [`RotaryInvertedPendulum-python/README.md`](RotaryInvertedPendulum-python/README.md) walks through the simulation and training pipeline
-- **Understand the RL stack** — [`docs/rl_transitions.md`](docs/rl_transitions.md), [`docs/domain_randomization.md`](docs/domain_randomization.md), [`docs/transport_delay.md`](docs/transport_delay.md), [`docs/quantisation.md`](docs/quantisation.md), [`docs/sysid_runbook.md`](docs/sysid_runbook.md)
+- **Understand the RL stack** — [`docs/rl_transitions.md`](docs/rl_transitions.md), [`docs/domain_randomization.md`](docs/domain_randomization.md), [`docs/transport_delay.md`](docs/transport_delay.md), [`docs/sysid_runbook.md`](docs/sysid_runbook.md)
 
 ## Prefer to buy rather than build?
 

@@ -74,6 +74,13 @@ Full protocol: [`sysid_runbook.md`](sysid_runbook.md). Re-run any time
 the rig changes mechanically (new bearings, rebuilt arm, changed
 microstepping, swapped motor).
 
+Before flashing anything, make sure each sketch's `MICROSTEPS` constant
+matches the driver wiring — **16 on the recommended TMC2209** (MS1=MS2
+HIGH), 8 on a DRV8825. A mismatch halves or doubles the arm's real speed
+and range while the firmware believes otherwise. Driver choice, Vref
+tuning (the TMC2209 sets **RMS**, not peak) and the wiring differences
+are in [`electronics_design.md`](electronics_design.md).
+
 ## 1. Train the teacher in sim — curriculum
 
 The repo's canonical recipe trains a SAC actor through three DR stages

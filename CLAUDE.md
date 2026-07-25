@@ -71,7 +71,7 @@ Additional directories:
 The system uses:
 - **Arduino Nano**: Microcontroller for sensor reading and motor control
 - **AS5600 Magnetic Encoder**: Measures pendulum angle (I2C communication)
-- **Stepper Motor (NEMA17)**: Rotates the base arm (via driver like DRV8825/A4988/TMC2209)
+- **Stepper Motor (NEMA17)**: Rotates the base arm (via a TMC2209 — recommended, silent; DRV8825/A4988 also supported)
 - **AccelStepper Library**: Controls stepper motor with acceleration profiles
 
 Communication between Arduino and computer is via serial at 2,000,000 baud.
@@ -171,8 +171,10 @@ Libraries required (install via Arduino IDE Library Manager):
 ### Key Arduino Concepts
 
 **Stepper Motor Configuration:**
-- Microstepping: 8 (default) → 1600 steps/revolution
-- Enable pin inverted (DRV8825 uses active-low enable)
+- Microstepping: set by the single `MICROSTEPS` constant in each sketch —
+  **16 → 3200 steps/revolution** on the TMC2209 (MS1=MS2=HIGH), 8 → 1600 on
+  a DRV8825. Steps/rev, the speed cap and all rad↔step math derive from it.
+- Enable pin inverted (both TMC2209 and DRV8825 use active-low enable)
 - Max speed: 200,000 steps/sec
 - Acceleration: 100,000 steps/sec²
 
@@ -219,7 +221,7 @@ Example:
 On macOS, the Arduino typically appears as `/dev/cu.usbserial-110` or similar. Update the port string in Julia/Python code if different.
 
 ### Current Limiting
-Set stepper driver current limit to 0.9A (90% of motor's 1A rating) using the onboard potentiometer. Vref formulas vary by driver - see README.md.
+Set the driver current limit with the onboard trim pot. **The TMC2209's Vref sets RMS current, the DRV8825's sets peak** — carrying a DRV8825 number over to a TMC2209 over-drives the motor (a factory-default 1.2–1.3 V ≈ 0.9 A RMS cooked the motor within 5 minutes). TMC2209: **≈0.9 V (0.64 A RMS)**; DRV8825: 0.45 V (0.9 A peak). Verify by temperature — warm, never too hot to touch. Full procedure and the wiring gotchas (remove the DRV8825's RESET–SLEEP bridge; coil pin order differs) in [`docs/electronics_design.md`](docs/electronics_design.md).
 
 ## Control Theory Notes
 

@@ -83,7 +83,10 @@ const int ENABLE_PIN = 5;
 // =============================================================================
 // HARDWARE CONSTANTS
 // =============================================================================
-const long STEPS_PER_REVOLUTION = 200L * 8L;  // 200 full × 8 microsteps
+// Microstepping: the ONLY place to change it. 16 = TMC2209 MS1=MS2=HIGH;
+// set 8 for DRV8825-style 1/8. Everything below derives from it.
+const int MICROSTEPS = 16;
+const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
 const float STEPS_PER_RAD = STEPS_PER_REVOLUTION / (2.0f * (float)PI);
 const float RAD_PER_STEP = (2.0f * (float)PI) / (float)STEPS_PER_REVOLUTION;
 
@@ -100,12 +103,13 @@ const long I2C_CLOCK_HZ = 400000;
 // Boot-time speed cap ≈ 5 rad/s: same as LowLevelServer's MOTOR_MIN_STEP_US.
 // The velocity-mode P-law keeps the commanded speed inside ±MAX_VELOCITY_RAD_S
 // (3.5); this cap is the physical backstop above it.
-const uint32_t MOTOR_MIN_STEP_US = 785;  // ≈ 5 rad/s
+const uint32_t MOTOR_MIN_STEP_US =  // ≈ 5 rad/s, derived so it tracks MICROSTEPS
+    (uint32_t)(1.0e6f * 2.0f * (float)PI / (5.0f * (float)STEPS_PER_REVOLUTION));
 
 // Brake authority when past the rail — 150 rad/s², matching
 // pendulum_env.py MAX_ACCEL_RAD_S2. See rail handling in control_tick().
 const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
-    (int32_t)(150.0f * (1600.0f / (2.0f * PI)));
+    (int32_t)(150.0f * STEPS_PER_RAD);
 
 // =============================================================================
 // CONTROL PARAMETERS

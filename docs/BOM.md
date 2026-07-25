@@ -3,7 +3,7 @@
 Components needed to build one rotary inverted pendulum. Last updated 2026-05-25.
 
 **Cost estimate**  
-One complete rig comes in at **under £20** in parts (~£14 electronics + ~£5 mechanical) — over 230× cheaper than the £4,500 Quanser QUBE.
+One complete rig comes in at **around £20** in parts (~£15 electronics + ~£5 mechanical; ~£18 total if you use the budget bearing) — over 200× cheaper than the £4,500 Quanser QUBE.
 
 **Design rationale**  
 For *why* each electronics component was chosen (power supply
@@ -28,7 +28,7 @@ column below and pick the matching variant before adding to cart.
 | ---------------------- | ----------------------------------------------- | --------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Microcontroller        | Arduino Nano (ATmega328P, 16 MHz, CH340, USB-C) | £1.60     | [AliExpress](https://www.aliexpress.com/item/1005006053215107.html) | Any clone works; original 32 KB flash / 2 KB SRAM constraints assumed in firmware.                                                                                     |
 | Stepper motor          | NEMA17 17HS4023, 1 A rated, 22 mm body          | £4.48     | [AliExpress](https://www.aliexpress.com/item/1005006111249881.html) | Short-body variant.                                                                                                                                                    |
-| Stepper driver         | DRV8825 (or A4988 / TMC2209)                    | £1.43     | [AliExpress](https://www.aliexpress.com/item/10000278156894.html)   | Set Vref to 0.45 V (≈ 0.9 A current limit, 90 % of motor rating).                                                                                                     |
+| Stepper driver         | **TMC2209** recommended (V2.0, with heat sink)  | £2.75     | AliExpress (TENSTAR ROBOT — £10.99 for 4)                           | Silent (StealthChop2) and measurably calmer balancing than the DRV8825. Set Vref ≈ 0.9 V (0.64 A **RMS**, not peak). **Not a like-for-like pin swap** — see [electronics_design.md](electronics_design.md#stepper-driver--tmc2209-recommended). Cheaper alternative: [DRV8825 £1.43](https://www.aliexpress.com/item/10000278156894.html) (Vref 0.45 V ≈ 0.9 A peak), louder and needs `MICROSTEPS = 8`. |
 | Magnetic encoder       | AS5600 12-bit on I²C (with diametric magnet)    | £1.04     | [AliExpress](https://www.aliexpress.com/item/1005006349632569.html) | Reads pendulum angle. RobTillaart Arduino library. Module ships with a small diametrically-magnetised disc that sits on the pendulum shaft end facing the AS5600 face. |
 | Power adapter          | 12 V, 2 A barrel (5.5 × 2.1 mm, UK plug)        | £2.59     | [AliExpress](https://www.aliexpress.com/item/1005006467110035.html) | Powers the 12 V rail; Arduino 5 V comes from the Nano's regulator.                                                                                                     |
 | DC barrel jack         | 5.5 × 2.1 mm panel-mount socket                 | £0.12     | [AliExpress](https://www.aliexpress.com/item/1005003324016159.html) | Board-side power input.                                                                                                                                                |

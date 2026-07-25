@@ -40,34 +40,118 @@ above is the canonical layout; component-level photos are in
   without benefit; substituting a smaller one (e.g. NEMA14) risks
   losing steps under sudden swing-up commands.
 
-## Stepper driver — DRV8825
+## Stepper driver — TMC2209 (recommended)
+
+The **TMC2209** is the recommended driver for this rig. Its StealthChop2
+chopper plus internal 256-microstep interpolation makes the motor
+**effectively silent**, and it removes torque ripple that the balancing
+policy previously had to fight. Measured on the standalone RL controller
+with an *unchanged* policy, swapping DRV8825 → TMC2209 improved every
+metric at once (5-minute captures at 50 Hz):
+
+| metric                | DRV8825 | TMC2209           |
+| --------------------- | ------- | ----------------- |
+| balanced fraction     | 0.996   | 1.000             |
+| longest unbroken hold | 165 s   | 299 s (whole run) |
+| drops                 | 3       | 0                 |
+| pendulum angle σ      | 3.01°   | 2.53°             |
+| arm angle σ           | 10.5°   | 7.1°              |
+| mean \|action\|       | 0.413   | 0.325             |
+
+Quieter *and* calmer: the halved arm motion is the same quantity that
+extensive reward-shaping experiments failed to improve in software.
+
+### Wiring — not a like-for-like pin swap
+
+Both carriers are 8 pins per side and line up positionally, but the
+middle functions differ:
+
+| position | DRV8825   | TMC2209                                    |
+| -------- | --------- | ------------------------------------------ |
+| 1        | EN        | EN — also active-low, so firmware is unchanged |
+| 2–3      | M0, M1    | MS1, MS2 — different microstep encoding    |
+| 4        | M2        | UART_TX                                    |
+| 5        | RESET     | UART_RX (PDN_UART)                         |
+| 6        | SLEEP     | CLK                                        |
+| 7–8      | STEP, DIR | STEP, DIR                                  |
+
+- **Remove the RESET–SLEEP solder bridge.** The DRV8825 needs it; on a
+  TMC2209 those positions are UART_RX and CLK, so the bridge becomes an
+  invalid CLK↔PDN_UART link (PDN_UART's internal pull-up then holds CLK
+  statically high). Symptom: the motor never fully releases when
+  disabled — notchy, skipping back-drive, which wears the printed
+  D-shaft slot over time. Fix: remove the bridge and add nothing. CLK
+  floating selects the internal 12 MHz oscillator; PDN_UART floating
+  enables standstill current reduction.
+- **Coil pin order differs** (DRV8825 `B2 B1 A1 A2` vs TMC2209
+  `2A 1A 1B 2B`). Identify each coil with a multimeter — the wire pair
+  with low resistance between them is one coil — then wire one coil to
+  1A/1B and the other to 2A/2B. On this rig's harness a 180° connector
+  flip happens to produce a valid mapping.
+- **Microstepping**: MS1 = MS2 = HIGH selects **1/16** on a TMC2209 (the
+  same levels give 1/8 on a DRV8825). Set `MICROSTEPS` in the sketches to
+  match — it is a single constant in `RLControl.ino`,
+  `LowLevelServer.ino` and `TestMotor.ino`, and steps/rev, the speed cap
+  and every rad↔step conversion derive from it. Smoothness does not
+  depend on this choice: the TMC2209 interpolates every input step to 256
+  microsteps internally regardless.
+
+### Vref / current tuning — the TMC2209 sets RMS, not peak
+
+This is the one that bites. A DRV8825's Vref sets a **peak** current; a
+TMC2209's sets **RMS**. Carrying over a DRV8825-style number therefore
+over-drives the motor: a factory-default pot at 1.2–1.3 V is ≈0.9 A RMS
+(≈1.3 A peak) into a 1 A motor, which gets the motor **burning hot within
+five minutes** — enough to risk demagnetising the rotor and softening the
+printed motor mount.
+
+Probe the pot wiper / Vref pad against GND with the board powered and the
+motor idle:
+
+| Vref      | ≈ I_RMS    | ≈ I_peak   | notes                                                       |
+| --------- | ---------- | ---------- | ----------------------------------------------------------- |
+| 0.7 V     | 0.50 A     | 0.70 A     | conservative, runs cool                                     |
+| **0.9 V** | **0.64 A** | **0.90 A** | **recommended — matches the DRV8825 setup's effective RMS** |
+| 1.1 V     | 0.78 A     | 1.10 A     | at/above the motor rating; expect heat                      |
+
+This rig runs **0.908 V**: only slightly warm after 7+ minutes of
+continuous balancing, with balance unaffected (mean |action| 0.325 leaves
+ample torque headroom). Because the exact Vref→current relation depends on
+the carrier's sense resistors, **trust the thermometer over the formula** —
+after a few minutes the motor should be warm enough to notice but
+comfortable to keep a hand on. Too hot → lower Vref. Sluggish, or the arm
+drifts off-centre / loses its commanded position (lost steps) → raise it.
+Wiring UART and calling `rms_current()` removes the guesswork entirely if
+you want an exact figure.
+
+## Stepper driver — DRV8825 (original, still supported)
+
+The rig was originally built and tuned around the DRV8825, and every
+sketch still supports it — set `MICROSTEPS = 8` and restore the
+RESET–SLEEP bridge.
 
 - **Vref set to 0.45 V → ~0.9 A current limit** per phase (90 % of
-  the motor's 1 A rating). Standard 10 % margin keeps the driver and
-  motor below thermal limits indefinitely.
+  the motor's 1 A rating; this driver's Vref is a *peak* limit).
+  Standard 10 % margin keeps the driver and motor below thermal limits
+  indefinitely.
 - 8.2–45 V supply range; 12 V chosen as the lowest sensible voltage —
   see "Power supply" below.
-- **A4988** is a drop-in alternative but tops out at lower current and
-  is audibly louder.
-- **TMC2209** would be quieter via internal interpolation but adds UART
-  configuration complexity for negligible benefit on this rig: the 8×
-  microstepping output from AccelStepper is already smooth at the
-  speeds we run.
+- **A4988** is another drop-in alternative but tops out at lower current
+  and is audibly louder.
 - **Set Vref before installing the motor.** With the driver powered
   and the motor disconnected, probe Vref against GND while turning
   the trim pot.
 
-### Vref for alternative drivers
+### Vref across drivers
 
-If you swap to A4988 or TMC2209, the Vref-trim procedure is the same
-but the relation between Vref and the resulting phase-current limit
-differs:
+The Vref-trim procedure is the same for all three, but the relation
+between Vref and the resulting phase current differs:
 
-| Driver  | Imax → Vref                                                                                                           | Vref @ 0.9 A target                                   |
-| ------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| DRV8825 | `Vref = Imax / 2` (Rcs = 0.1 Ω, standard on Pololu and most clones)                                                   | **0.45 V** (we run 0.45 V — close enough)            |
-| A4988   | `Vref = Imax × 8 × Rcs`. Pololu carriers use Rcs = 0.05 Ω; some clones use 0.1 Ω — check yours                        | **0.36 V** (Pololu) / **0.72 V** (Rcs = 0.1 Ω clones) |
-| TMC2209 | RMS-current calc is non-trivial — use the [TMC220X Vref calculator](https://printpractical.github.io/VrefCalculator/) | per calculator                                        |
+| Driver  | Imax → Vref                                                                                                    | Vref @ 0.9 A target                                   |
+| ------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| DRV8825 | `Vref = Imax / 2` (Rcs = 0.1 Ω, standard on Pololu and most clones); **peak** current                          | **0.45 V** (we ran 0.45 V — close enough)             |
+| A4988   | `Vref = Imax × 8 × Rcs`. Pololu carriers use Rcs = 0.05 Ω; some clones use 0.1 Ω — check yours                 | **0.36 V** (Pololu) / **0.72 V** (Rcs = 0.1 Ω clones) |
+| TMC2209 | **RMS** current, carrier-dependent — see the table above, or the [TMC220X Vref calculator](https://printpractical.github.io/VrefCalculator/) | **≈0.9 V** (0.64 A RMS ≈ 0.9 A peak)                  |
 
 ## Power supply — 12 V, 2 A
 

@@ -22,15 +22,21 @@ const long BAUD_RATE = 2000000;
 #define STEP_PIN 9
 #define ENABLE_PIN 5
 
+// Microstepping: the ONLY place to change it. 16 = TMC2209 MS1=MS2=HIGH;
+// set 8 for DRV8825-style 1/8. Everything below derives from STEPS_PER_REVOLUTION.
+const int MICROSTEPS = 16;
+const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
+
 // Accel-mode envelope. See pendulum_env.py for the corresponding sim
 // constants. The velocity cap below corresponds to MAX_VELOCITY_RAD_S
-// = 5 rad/s: 5 × (1600 steps/rev / 2π) ≈ 1273 steps/s ⇒ ~785 µs/step.
+// = 5 rad/s: 5 × (STEPS_PER_REVOLUTION / 2π) steps/s (≈2546 at 3200) ⇒ MOTOR_MIN_STEP_US below.
 // NB: this boot-time speed cap applies to BOTH command paths — the accel
 // mode it was sized for AND position-mode moveTo() tracking. Position-mode
 // commanded slew is max_action_delta × control rate (3.5 rad/s at defaults),
 // comfortably inside; raise those knobs past ~5 rad/s and this cap becomes
 // the binding limit here while sim and RLControl.ino (~196 rad/s) model none.
-const uint32_t MOTOR_MIN_STEP_US = 785;  // ≈ 5 rad/s
+const uint32_t MOTOR_MIN_STEP_US =  // ≈ 5 rad/s, derived so it tracks MICROSTEPS
+    (uint32_t)(1.0e6f * 2.0f * (float)PI / (5.0f * (float)STEPS_PER_REVOLUTION));
 
 // Ramp acceleration for position-mode moveTo() (CMD_SET_TARGET); matches
 // RLControl.ino. Must be re-asserted on every CMD_SET_TARGET: CMD_ENGAGE_MOTOR's
@@ -45,12 +51,12 @@ const int32_t MOTOR_ACCEL_STEPS_S2 = 50000;
 // would just let moveByAcceleration(0, true) coast the motor past the
 // rail at peak velocity.
 const int32_t MOTOR_SAFE_LIMIT_STEPS = (int32_t)((125.0f * PI / 180.0f) *
-                                                  (1600.0f / (2.0f * PI)));
+                                                  ((float)STEPS_PER_REVOLUTION / (2.0f * PI)));
 // Brake authority when past the rail. 150 rad/s² matches the
 // pendulum_env.py MAX_ACCEL_RAD_S2 — strong enough to bleed off the
 // 5 rad/s vel cap within ~33 ms.
 const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
-    (int32_t)(150.0f * (1600.0f / (2.0f * PI)));
+    (int32_t)(150.0f * ((float)STEPS_PER_REVOLUTION / (2.0f * PI)));
 
 // Encoder samples are kept in a ring buffer updated at 500 Hz; GET_STATE
 // returns velocity computed as (newest - oldest)/Δt over a window of 5
@@ -223,7 +229,7 @@ void computeVelocities(float* motor_vel_rad_s, float* pen_vel_rad_s)
     }
 
     int32_t motor_step_delta = motor_step_buf[newest] - motor_step_buf[oldest];
-    *motor_vel_rad_s = ((float)motor_step_delta * ((2.0f * PI) / 1600.0f)) / dt_s;
+    *motor_vel_rad_s = ((float)motor_step_delta * ((2.0f * PI) / (float)STEPS_PER_REVOLUTION)) / dt_s;
 
     float pen_delta = pen_rad_buf[newest] - pen_rad_buf[oldest];
     *pen_vel_rad_s = pen_delta / dt_s;
@@ -260,10 +266,10 @@ void handleCommand()
 
             if (!motor_engaged) break;
 
-            // Convert rad/s² to steps/s² (1600 microsteps per revolution).
+            // Convert rad/s² to steps/s² (STEPS_PER_REVOLUTION microsteps per revolution).
             // moveByAcceleration takes int32_t.
             int32_t accel_steps_s2 =
-                (int32_t)(accel_rad_s2 * (1600.0f / (2.0f * PI)));
+                (int32_t)(accel_rad_s2 * ((float)STEPS_PER_REVOLUTION / (2.0f * PI)));
 
             // Position-limit safety: past the rail, ignore the host's
             // command and actively brake instead. Just zeroing accel here

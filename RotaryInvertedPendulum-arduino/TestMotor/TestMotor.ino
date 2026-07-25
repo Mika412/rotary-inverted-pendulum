@@ -7,7 +7,8 @@ const int STEP_PIN = 9; // Step (Timer1 OC1A — rig wired here so FastAccelStep
 // Create an instance of the AccelStepper class
 AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN, 0, 0, false);
 
-const long STEPS_PER_REVOLUTION = 200 * 8; // 200 steps per revolution * 8 microsteps
+const int MICROSTEPS = 16;  // 16 = TMC2209 (MS1=MS2=HIGH); 8 = DRV8825-style
+const long STEPS_PER_REVOLUTION = 200 * MICROSTEPS;
 
 void setup()
 {
@@ -17,7 +18,7 @@ void setup()
     Serial.begin(115200); // Start the serial communication
 
     // AccelStepper on Arduino Nano is limited to ~4000 steps/sec with run()
-    // At 1600 steps/rev (8x microstepping), 2000 steps/sec = 75 RPM
+    // At 3200 steps/rev (16x microstepping), 2000 steps/sec = 37.5 RPM
     stepper.setMaxSpeed(2000);
     stepper.setAcceleration(4000);  // Reaches max speed in 0.5 sec
 
