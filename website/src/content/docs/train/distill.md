@@ -4,17 +4,33 @@ description: Behaviour cloning then DAgger aimed at the deployment transport —
 ---
 
 Two sub-steps: behaviour cloning, then DAgger **aimed at the transport
-the network will deploy into**. Both cheap (~1 min + ~20 min, no rig).
+the network will deploy into**. Both cheap (~1 min + ~2 min, no rig), and
+always run together, so one wrapper does the pair and then scores the student
+in sim:
 
 ```bash
-# 4a. Behaviour cloning: real-rig buffer + sim-augmented teacher rollouts
+cd RotaryInvertedPendulum-python/src/rl
+./distill_student.sh <run>_async
+```
+
+It passes `--buffer` automatically when the run has one (a rig fine-tune) and
+falls back to teacher rollouts alone for a sim-only teacher. `HIDDEN`,
+`TRANSPORT`, `ROUNDS`, `BC_EPOCHS` and `SEED` override the defaults; `FORCE=1`
+redoes the behaviour-cloning stage instead of reusing it. It deliberately does
+**not** write `policy_weights.h` — overwriting the header that holds your best
+policy should be a decision, so it prints the export and flash commands
+instead.
+
+The underlying steps, if you want them separately (e.g. to re-run DAgger
+against an existing BC dataset):
+
+```bash
 python distill.py \
     --teacher runs/<run>_async/best_model.zip \
     --buffer  runs/<run>_async/replay_buffer.pkl \
     --out-dir runs/<run>_async/distill_h16_aug \
     --hidden 16
 
-# 4b. DAgger at the DEVICE transport (the step that makes it deploy)
 python dagger_distill.py \
     --teacher runs/<run>_async/best_model.zip \
     --bc-dir  runs/<run>_async/distill_h16_aug \
