@@ -51,6 +51,7 @@ import numpy as np
 from stable_baselines3 import SAC
 from stable_baselines3.common.utils import configure_logger
 
+import symmetry
 from async_control import (
     AsyncControlLoop,
     EpisodeStats,
@@ -66,26 +67,39 @@ HERE = Path(__file__).resolve().parent
 RUNS_ROOT = HERE / "runs"
 
 
-def _add_to_buffer(model: SAC, transitions, lock: threading.Lock) -> int:
+def _add_to_buffer(model: SAC, transitions, lock: threading.Lock,
+                   obs_sign: np.ndarray | None = None) -> int:
     """Drain a list of `Transition`s into model.replay_buffer under lock.
 
-    Returns the number of transitions added. Updates model.num_timesteps
-    so SAC's `learning_starts` and TB step counters advance correctly.
+    With `obs_sign`, each transition's mirror image (Ms, -a, r, Ms') goes in
+    too — see `symmetry.py`. Rig time is the scarce resource here, and the
+    mirror of a real transition is a real transition (the plant and the
+    reward are mirror-symmetric), so this doubles the buffer's coverage for
+    free. Worth knowing what it gives up: the rig is only *approximately*
+    symmetric (base tilt shifts true upright by up to ~1°), and mirroring
+    asks the policy to handle both tilt azimuths rather than specialising to
+    this rig's — which is what the sim's base-tilt DR already demands on
+    every episode, over the full azimuth circle.
+
+    Returns the number of transitions added (2x with mirroring). Updates
+    model.num_timesteps so SAC's `learning_starts` and TB step counters
+    advance correctly.
     """
     if not transitions:
         return 0
     n = 0
     with lock:
         for t in transitions:
-            model.replay_buffer.add(
+            n += symmetry.add_transition_with_mirror(
+                model.replay_buffer,
                 obs=np.expand_dims(t.obs, axis=0),
                 next_obs=np.expand_dims(t.next_obs, axis=0),
                 action=np.expand_dims(t.action, axis=0),
                 reward=np.array([t.reward], dtype=np.float32),
                 done=np.array([t.terminated or t.truncated], dtype=np.bool_),
                 infos=[t.info],
+                obs_sign=obs_sign,
             )
-            n += 1
         model.num_timesteps += n
     return n
 
@@ -220,6 +234,14 @@ def main(argv: list[str] | None = None) -> int:
                         "matches the sim DR_CONTROL_DT_JITTER_FRAC constant — "
                         "sim and fine-tune should agree on the dt distribution. "
                         "Set 0.0 to disable for strict reproducible timing.")
+    p.add_argument("--mirror-augment", action="store_true",
+                   help="store the mirror image (Ms, -a, r, Ms') of every real "
+                        "transition alongside it, doubling what each episode "
+                        "of rig time covers. Exact rather than synthetic: the "
+                        "plant and the reward are mirror-symmetric. Fixes the "
+                        "3-4x left/right coverage imbalance real fine-tune "
+                        "sessions show. See "
+                        "website/src/content/docs/reference/symmetry.md.")
     p.add_argument("--ignore-config-mismatch", action="store_true",
                    help="downgrade the config.json validation abort to a warning")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
@@ -309,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
     # policy's config forward, overridden by the knobs used here.
     config = dict(find_run_config(args.policy) or {})
     config.update(expected)
+    config["mirror_augment"] = bool(args.mirror_augment)  # provenance only
     save_run_config(run_dir, config)
 
     env_kwargs = dict(
@@ -333,6 +356,20 @@ def main(argv: list[str] | None = None) -> int:
     env_kwargs["reward_stillness_bonus_weight"] = reward_stillness_bonus_weight
     env = RealRotaryInvertedPendulumEnv(**env_kwargs)
     print(f"Control: {args.control_freq} Hz, action_mode={args.action_mode}")
+
+    # Mirror map for the augmentation, derived from the env's ACTUAL
+    # observation space rather than from the flags, so a K/layout mismatch
+    # raises here instead of silently mirroring the wrong channels (which
+    # would flip cos θ, leave sin θ alone, and feed SAC states that are not
+    # on the manifold at all).
+    obs_sign = None
+    if args.mirror_augment:
+        obs_sign = symmetry.obs_signs_for_dim(
+            int(env.observation_space.shape[0]),
+            obs_history_len=obs_history_len,
+        )
+        print(f"Mirror augmentation ON — every rig transition is stored with "
+              f"its mirror (K={obs_history_len}, obs_dim={len(obs_sign)})")
 
     print(f"Loading policy from {args.policy}")
     model = SAC.load(args.policy, env=env, device=args.device)
@@ -463,7 +500,8 @@ def main(argv: list[str] | None = None) -> int:
             try:
                 while ctrl_thread.is_alive():
                     drained = queue.drain()
-                    added = _add_to_buffer(model, drained, replay_buffer_lock)
+                    added = _add_to_buffer(model, drained, replay_buffer_lock,
+                                           obs_sign=obs_sign)
 
                     can_train = (
                         model.num_timesteps > args.learning_starts
@@ -486,7 +524,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 # Drain any straggler transitions after episode end.
                 drained = queue.drain()
-                _add_to_buffer(model, drained, replay_buffer_lock)
+                _add_to_buffer(model, drained, replay_buffer_lock,
+                               obs_sign=obs_sign)
             finally:
                 ctrl_thread.join(timeout=2.0)
 

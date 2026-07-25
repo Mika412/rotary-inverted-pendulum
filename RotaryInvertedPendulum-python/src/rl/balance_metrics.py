@@ -21,6 +21,14 @@ is never "is the arm still" but "how much motion does this policy need".
 Arm motion is split into a slow drift (>1 s, wandering off centre) and the
 sub-second sway (the ~0.6 Hz balancing wiggle), because they have different
 causes and different fixes.
+
+**Direction split**: the plant is mirror-symmetric (see `symmetry.py`), so
+every metric here has a left and a right version that should agree. They
+often don't — a policy that broke the symmetry during training swings up one
+way and catches worse on the other side, which shows up as `direction_bias`
+and a gap between `catch_rate_ccw` / `catch_rate_cw`. Scored per arrival at
+upright rather than per sample, because that is the event the asymmetry acts
+on. See `website/src/content/docs/reference/symmetry.md`.
 """
 
 from __future__ import annotations
@@ -32,6 +40,12 @@ import numpy as np
 
 BAL_THETA_RAD = math.radians(15.0)
 BAL_PEN_VEL_RAD_S = 4.0
+
+# An "arrival" at upright: the pendulum entering this band around vertical.
+# Wide enough that a failed catch still counts as an attempt (so the catch
+# rate has an honest denominator), narrow enough to exclude the pendulum
+# merely passing through the upper half on the way round.
+ARRIVAL_THETA_RAD = math.radians(60.0)
 
 
 def wrap_pi(x):
@@ -61,10 +75,53 @@ class BalanceMetrics:
     arm_sway_deg: float | None = None
     arm_speed_rms: float | None = None
     motor_cmd_travel: float | None = None
+    # Signed counterpart of `arm_off_centre_deg`, which takes |.| and so
+    # cannot see a consistent lean. A policy balancing on a symmetric rig
+    # should average ~0 here; a persistent offset is either a broken
+    # symmetry in the policy or a real asymmetry in the rig (base tilt
+    # shifts true upright by an amount that varies with arm angle, so the
+    # arm settles where gravity's swing-plane component vanishes).
+    arm_off_centre_signed_deg: float | None = None
+    # Direction split (see the module docstring). Counted per arrival at
+    # upright; CCW/CW is the sign of the pendulum's angular velocity on
+    # arrival. None when the trajectory contains no arrivals at all.
+    arrivals_ccw: int = 0
+    arrivals_cw: int = 0
+    catches_ccw: int = 0
+    catches_cw: int = 0
 
     @property
     def has_calmness(self) -> bool:
         return self.pendulum_std_deg is not None
+
+    @property
+    def arrivals(self) -> int:
+        return self.arrivals_ccw + self.arrivals_cw
+
+    @property
+    def catch_rate_ccw(self) -> float | None:
+        return self.catches_ccw / self.arrivals_ccw if self.arrivals_ccw else None
+
+    @property
+    def catch_rate_cw(self) -> float | None:
+        return self.catches_cw / self.arrivals_cw if self.arrivals_cw else None
+
+    @property
+    def direction_bias(self) -> float | None:
+        """|CCW - CW| / total arrivals, in [0, 1]. 0 = both sides equally used.
+
+        A fair coin over n arrivals sits near sqrt(2/(pi*n)), so read this
+        against `arrivals`: 0.3 over 10 arrivals is noise, 0.3 over 200 is a
+        policy with a side.
+        """
+        n = self.arrivals
+        return abs(self.arrivals_ccw - self.arrivals_cw) / n if n else None
+
+    @property
+    def catch_rate_gap(self) -> float | None:
+        """|catch_rate_ccw - catch_rate_cw|, or None if one side never happened."""
+        a, b = self.catch_rate_ccw, self.catch_rate_cw
+        return abs(a - b) if a is not None and b is not None else None
 
     def report_lines(self) -> list[str]:
         """Metric lines in the canonical order/wording used by both scripts."""
@@ -84,10 +141,69 @@ class BalanceMetrics:
                 f"  arm sway <1s (bal):      {self.arm_sway_deg:.2f} deg",
                 f"  arm speed RMS (bal):     {self.arm_speed_rms:.2f} rad/s",
             ]
+            if self.arm_off_centre_signed_deg is not None:
+                lines.append(
+                    f"  arm lean signed (bal):   "
+                    f"{self.arm_off_centre_signed_deg:+.1f} deg")
             if self.motor_cmd_travel is not None:
                 lines.append(
                     f"  motor-cmd travel:        {self.motor_cmd_travel:.1f} /s")
+        lines += self.direction_report_lines()
         return lines
+
+    def direction_report_lines(self) -> list[str]:
+        """The left/right split. Empty when the pendulum never reached upright."""
+        if not self.arrivals:
+            return ["  arrivals at upright:     0 (no direction split)"]
+        rate = lambda r: "  n/a" if r is None else f"{100 * r:3.0f}%"
+        lines = [
+            f"  arrivals CCW / CW:       {self.arrivals_ccw} / {self.arrivals_cw}"
+            f"   (bias {self.direction_bias:.2f})",
+            f"  catch rate CCW / CW:     {rate(self.catch_rate_ccw)} / "
+            f"{rate(self.catch_rate_cw)}",
+        ]
+        if self.catch_rate_gap is not None and self.catch_rate_gap >= 0.25:
+            lines.append(
+                f"  *** catch rate differs by {100 * self.catch_rate_gap:.0f} "
+                f"points between directions — broken mirror symmetry ***")
+        return lines
+
+
+def _direction_stats(theta, pen_vel, balanced, one_s: int) -> dict:
+    """Split arrivals at upright by the direction the pendulum came from.
+
+    An arrival is a contiguous run of samples inside `ARRIVAL_THETA_RAD`; its
+    direction is the sign of `pen_vel` on entry. It counts as caught if a
+    balanced streak of at least `one_s` samples starts inside it, reusing the
+    same balance gate as the rest of the module so the two agree by
+    construction. A trajectory that starts already near upright has no entry
+    sample to read a direction from, so that leading run is skipped.
+    """
+    near = np.abs(theta) <= ARRIVAL_THETA_RAD
+    # Balanced streak length ending at each sample, then "does a >= one_s
+    # streak exist anywhere in [i, j)" via a running maximum per run.
+    streak = np.zeros(len(balanced), dtype=int)
+    run = 0
+    for i, b in enumerate(balanced):
+        run = run + 1 if b else 0
+        streak[i] = run
+    out = {"arrivals_ccw": 0, "arrivals_cw": 0, "catches_ccw": 0, "catches_cw": 0}
+    i = 1  # start at 1: sample 0 has no entry transition to read
+    n = len(theta)
+    while i < n:
+        if not (near[i] and not near[i - 1]):
+            i += 1
+            continue
+        j = i
+        while j < n and near[j]:
+            j += 1
+        ccw = pen_vel[i] > 0.0
+        caught = bool(streak[i:j].max() >= one_s) if j > i else False
+        out["arrivals_ccw" if ccw else "arrivals_cw"] += 1
+        if caught:
+            out["catches_ccw" if ccw else "catches_cw"] += 1
+        i = j
+    return out
 
 
 def score(*, phi, motor_pos, action, t_s=None, hz=None, motor_cmd=None
@@ -144,6 +260,7 @@ def score(*, phi, motor_pos, action, t_s=None, hz=None, motor_cmd=None
         action_abs_mean=float(np.abs(action).mean()),
         verdict=verdict,
         balanced_mask=balanced,
+        **_direction_stats(theta, pen_vel, balanced, one_s),
     )
 
     if int(balanced.sum()) >= one_s:
@@ -153,6 +270,7 @@ def score(*, phi, motor_pos, action, t_s=None, hz=None, motor_cmd=None
         m.pendulum_std_deg = math.degrees(theta[balanced].std())
         m.arm_std_deg = math.degrees(motor_pos[balanced].std())
         m.arm_off_centre_deg = math.degrees(np.abs(motor_pos[balanced]).mean())
+        m.arm_off_centre_signed_deg = math.degrees(motor_pos[balanced].mean())
         m.arm_sway_deg = math.degrees(sway[balanced].std())
         m.arm_speed_rms = float(np.sqrt((arm_vel[balanced] ** 2).mean()))
         if motor_cmd is not None:

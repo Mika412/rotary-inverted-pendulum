@@ -75,6 +75,7 @@ export default defineConfig({
             { label: 'Transport delay', slug: 'reference/transport-delay' },
             { label: 'Async control runtime', slug: 'reference/async-control' },
             { label: 'Choosing the control rate', slug: 'reference/control-rate' },
+            { label: 'Mirror symmetry', slug: 'reference/symmetry' },
           ],
         },
         {

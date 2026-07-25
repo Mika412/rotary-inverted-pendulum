@@ -83,8 +83,10 @@ and destroys policies that work fine on hardware.
 | `analyze_onboard.py` | Capture and score a *standalone* deployment |
 | `analyze_run.py`, `analyze_deploy.py` | Score tethered runs |
 | `sim_vs_real.py` | Replay a real log through the simulation to find model error |
-| `eval_randomized.py`, `eval_dr_sensitivity.py` | Robustness across randomised parameters |
+| `eval_randomized.py`, `eval_dr_sensitivity.py` | Robustness across randomised parameters (`--mirror-pairs` for the symmetry test) |
 | `fft_deploy.py` | Frequency analysis of a deployment, for diagnosing vibration |
+| `analyze_symmetry.py` | Mirror asymmetry of any policy — `.zip`, `student.pt` or `policy_weights.h` ([why](/rotary-inverted-pendulum/reference/symmetry/)) |
+| `symmetry.py`, `test_symmetry.py` | The mirror map, mirror-augmented replay, and the tests that keep the symmetry exact |
 
 ## Judging a run honestly
 

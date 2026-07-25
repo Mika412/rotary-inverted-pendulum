@@ -26,9 +26,11 @@ from stable_baselines3.common.callbacks import (
     CheckpointCallback,
     EvalCallback,
 )
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.vec_env import DummyVecEnv
 
+import symmetry
 from pendulum_env import (
     MAX_ACTION_DELTA_RAD,
     MAX_VELOCITY_RAD_S,
@@ -73,6 +75,10 @@ def _resolved_config(args: argparse.Namespace) -> dict:
         "obs_include_velocities": not args.drop_velocity_obs,
         "firmware_obs_model": bool(args.firmware_obs_model),
         "action_smooth_window": int(args.action_smooth_window),
+        # Provenance only (see run_config.PROVENANCE_ONLY_KEYS): mirror
+        # augmentation changes what the buffer holds, not the obs/action
+        # layout or the objective, so it is legal to switch between stages.
+        "mirror_augment": bool(args.mirror_augment),
     }
 
 
@@ -272,6 +278,24 @@ def train(args: argparse.Namespace) -> Path:
     print(f"gamma = {gamma:.4f} "
           f"({'explicit' if args.gamma is not None else f'auto-derived for {args.control_freq:g} Hz'})")
 
+    # Mirror data augmentation (the DUP method): every transition is stored
+    # alongside its mirror image, so the policy sees both halves of the state
+    # space instead of whichever half it happens to prefer. Exact, not
+    # approximate — see symmetry.py. Each add() takes two slots, so the
+    # buffer is doubled to hold the same span of experience as a baseline run.
+    buffer_size = 400_000 if args.mirror_augment else 200_000
+    replay_buffer_class = None
+    replay_buffer_kwargs = None
+    if args.mirror_augment:
+        obs_sign = symmetry.obs_signs(
+            obs_history_len=args.obs_history_len,
+            obs_include_velocities=not args.drop_velocity_obs,
+        )
+        replay_buffer_class = symmetry.MirrorReplayBuffer
+        replay_buffer_kwargs = {"obs_sign": obs_sign}
+        print(f"mirror augmentation ON — buffer_size {buffer_size} "
+              f"(2 slots per env step)")
+
     if args.resume:
         print(f"Resuming from {args.resume}")
         model = SAC.load(args.resume, env=train_env, device=args.device)
@@ -279,12 +303,32 @@ def train(args: argparse.Namespace) -> Path:
             print(f"  overriding checkpoint gamma {model.gamma:.4f} → {gamma:.4f} "
                   "(constant-horizon policy; pass --gamma to pin a value)")
             model.gamma = gamma
+        # SAC.load rebuilds an EMPTY buffer of the checkpoint's buffer class
+        # (the buffer itself is never saved), so swapping the class here loses
+        # nothing and lets --mirror-augment be turned on or off per stage.
+        want_mirror = bool(args.mirror_augment)
+        has_mirror = isinstance(model.replay_buffer, symmetry.MirrorReplayBuffer)
+        if want_mirror != has_mirror:
+            model.replay_buffer_class = replay_buffer_class or ReplayBuffer
+            model.replay_buffer_kwargs = dict(replay_buffer_kwargs or {})
+            model.buffer_size = buffer_size
+            model.replay_buffer = model.replay_buffer_class(
+                buffer_size,
+                model.observation_space,
+                model.action_space,
+                device=model.device,
+                n_envs=model.n_envs,
+                optimize_memory_usage=model.optimize_memory_usage,
+                **model.replay_buffer_kwargs,
+            )
+            print(f"  replay buffer rebuilt: mirror augmentation "
+                  f"{'ON' if want_mirror else 'OFF'}")
     else:
         model = SAC(
             "MlpPolicy",
             train_env,
             learning_rate=3e-4,
-            buffer_size=200_000,
+            buffer_size=buffer_size,
             batch_size=256,
             tau=0.005,
             gamma=gamma,
@@ -292,6 +336,8 @@ def train(args: argparse.Namespace) -> Path:
             gradient_steps=1,
             ent_coef="auto",
             use_sde=args.use_sde,
+            replay_buffer_class=replay_buffer_class,
+            replay_buffer_kwargs=replay_buffer_kwargs,
             policy_kwargs=(dict(net_arch=args.net_arch) if args.net_arch else None),
             verbose=1,
             tensorboard_log=str(run_dir / "tb"),
@@ -505,6 +551,16 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "horizon (~2.9 s, the canonical 35 Hz setting) "
                         "stays constant across control rates instead of "
                         "silently shrinking at higher Hz.")
+    p.add_argument("--mirror-augment", action="store_true",
+                   help="store the mirror image (Ms, -a, r, Ms') of every "
+                        "transition alongside it — the plant, the reward and "
+                        "the reset distribution are all mirror-symmetric, so "
+                        "the mirrored transition is genuine, not synthetic. "
+                        "Stops SAC from picking an arbitrary preferred "
+                        "swing-up direction; doubles buffer_size to keep the "
+                        "same experience span. Legal to switch on per "
+                        "curriculum stage. See "
+                        "website/src/content/docs/reference/symmetry.md.")
     p.add_argument("--use-sde", action="store_true",
                    help="use generalized State-Dependent Exploration "
                         "(gSDE, Raffin 2022) instead of per-step Gaussian "

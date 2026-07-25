@@ -20,6 +20,15 @@ from pathlib import Path
 
 CONFIG_NAME = "config.json"
 
+# Keys recorded for provenance but NOT enforced by check_config: they do not
+# change the observation/action layout or the objective, so a checkpoint
+# trained one way can legitimately be resumed or deployed the other way.
+# `mirror_augment` is the case in point — turning mirror data augmentation on
+# for a later curriculum stage is a normal thing to want, and aborting on it
+# would just teach people to pass --ignore-config-mismatch, which would then
+# hide the mismatches that DO matter.
+PROVENANCE_ONLY_KEYS = frozenset({"mirror_augment"})
+
 # How many directory levels above the policy file to search for config.json.
 # Covers run_dir/last.zip (1), run_dir/checkpoints/sac_x.zip (2), and
 # run_dir/distill_h16_aug/student.pt (2).
@@ -59,6 +68,8 @@ def check_config(policy_path: str | Path, expected: dict, *,
         return
     mismatches = []
     for key, cli_val in expected.items():
+        if key in PROVENANCE_ONLY_KEYS:
+            continue
         if key not in saved or saved[key] is None or cli_val is None:
             continue
         saved_val = saved[key]

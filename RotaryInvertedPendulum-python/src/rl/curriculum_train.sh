@@ -98,6 +98,16 @@
 #                                          # instead of per-step Gaussian noise).
 #                                          # Only affects stage 1 — resumed stages
 #                                          # keep the checkpoint's setting.
+#     MIRROR_AUGMENT=                      # if set (any value), every transition is
+#                                          # stored with its mirror image (Ms, -a, r, Ms').
+#                                          # The plant, reward and reset distribution are
+#                                          # all mirror-symmetric, so this is exact —
+#                                          # it stops SAC picking an arbitrary preferred
+#                                          # swing-up direction. Applies to all three
+#                                          # stages. Check the result with
+#                                          # `analyze_symmetry.py runs/<prefix>_stage3/best_model.zip`
+#                                          # — the engage-state self-start must still pass.
+#                                          # See website/src/content/docs/reference/symmetry.md.
 
 set -euo pipefail
 
@@ -124,6 +134,7 @@ REWARD_STILLNESS_BONUS_WEIGHT="${REWARD_STILLNESS_BONUS_WEIGHT:-5}"
 USE_SDE="${USE_SDE:-1}"
 OBS_HISTORY_LEN="${OBS_HISTORY_LEN:-4}"
 DROP_VEL_OBS="${DROP_VEL_OBS:-}"
+MIRROR_AUGMENT="${MIRROR_AUGMENT:-}"
 ACTION_SMOOTH_WINDOW="${ACTION_SMOOTH_WINDOW:-4}"
 NET_ARCH="${NET_ARCH:-}"
 REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
@@ -162,6 +173,9 @@ fi
 if [ -n "$FIRMWARE_OBS_MODEL" ]; then
     COMMON_ARGS+=(--firmware-obs-model)
 fi
+if [ -n "$MIRROR_AUGMENT" ]; then
+    COMMON_ARGS+=(--mirror-augment)
+fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
 fi
@@ -189,6 +203,9 @@ if [ -n "$USE_SDE" ]; then
 fi
 if [ -n "$FIRMWARE_OBS_MODEL" ]; then
     echo "  firmware measurement model: ON"
+fi
+if [ -n "$MIRROR_AUGMENT" ]; then
+    echo "  mirror augmentation: ON (every transition stored with its mirror)"
 fi
 if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     echo "  reward_stillness_bonus_weight: $REWARD_STILLNESS_BONUS_WEIGHT"
