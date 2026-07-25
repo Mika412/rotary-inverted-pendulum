@@ -334,8 +334,9 @@ def stage_train(
             val_pred = model(val_obs)
             val_loss = F.mse_loss(val_pred, val_tgt).item()
         last_val = val_loss
-        print(f"[train] epoch {epoch:3d}/{epochs}  "
-              f"train_mse={train_loss:.6f}  val_mse={val_loss:.6f}")
+        if epoch % 100 == 0 or epoch in (1, epochs):
+            print(f"[train] epoch {epoch:3d}/{epochs}  "
+                  f"train_mse={train_loss:.6f}  val_mse={val_loss:.6f}")
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
