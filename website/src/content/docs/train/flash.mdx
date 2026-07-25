@@ -1,0 +1,71 @@
+---
+title: 6 · Flash and score standalone
+description: Exporting PROGMEM weights, flashing the standalone sketch, and scoring the untethered deployment with the honest metrics.
+---
+
+import constants from '../../../generated/constants.json';
+
+export const c = constants.control;
+export const m = constants.motor;
+
+The sketch carries its own copy of the operating point, and it must agree
+with the policy's `config.json` — the header only carries weights, not the
+loop shape. Defaults already match the canonical recipe, so this is a
+one-time check per rig (`RLControl.ino`).
+
+The "flashed" column below is read out of `RLControl.ino` and
+`policy_weights.h` when this page is built, so it is what your checkout
+actually contains rather than what the docs once claimed:
+
+| sketch constant          | must equal                        | flashed |
+| ------------------------ | --------------------------------- | ------- |
+| `CONTROL_FREQUENCY_HZ`   | `control_freq_hz`                 | {c.frequencyHz} |
+| `ACTION_SMOOTH_WINDOW`   | `action_smooth_window`            | {c.actionSmoothWindow} |
+| `OBS_FRAMES`             | `obs_history_len`                 | {c.obsFrames} |
+| `MAX_VELOCITY_RAD_S`     | `max_velocity_rad_s`              | {c.maxVelocityRadS} |
+| `MICROSTEPS`             | your driver wiring (not training) | {m.microsteps} |
+
+```bash
+# Export PROGMEM weights into the Arduino sketch directory
+python export_weights.py \
+    --student runs/<run>_async/distill_h16_dagger_dev/student.pt \
+    --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h \
+    --source-name <run>/distill_h16_dagger_dev
+
+# Flash
+cd ../../..
+arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
+    --fqbn arduino:avr:nano:cpu=atmega328 \
+    RotaryInvertedPendulum-arduino/RLControl
+```
+
+Keep the pendulum hanging straight down through the 1 s settle delay
+after boot (LED solid HIGH) — that pose becomes the encoder zero for
+the engagement. The sketch then swings up and balances autonomously.
+
+## Score it with the honest metrics
+
+The same gate as every other deployment. Opening the port resets the Nano, so
+hang the pendulum still before launching:
+
+```bash
+cd RotaryInvertedPendulum-python/src/rl
+python analyze_onboard.py --port /dev/cu.usbserial-1130 --duration-s 60 \
+    --log recordings/onboard_<run>.npz
+```
+
+Read the header line first: it must say **~{c.frequencyHz.toFixed(1)} Hz**, matching
+`CONTROL_FREQUENCY_HZ` above. An off-rate capture (the script warns loudly)
+means inference exceeded the tick budget and the numbers evaluate a broken
+deployment, not the policy.
+
+2026-07-22 reference: balanced fraction **0.892**, 5 s streaks, verdict
+BALANCED. The current champion scores **0.996** over five minutes.
+
+Boot also prints `[boot] policy(hanging/upright) = …` on serial (500 kbaud) —
+compare against the PyTorch student on the same reference frames if you
+suspect an export/PROGMEM bug.
+
+## Next
+
+Something not working? [Troubleshooting →](/rotary-inverted-pendulum/train/troubleshooting/)

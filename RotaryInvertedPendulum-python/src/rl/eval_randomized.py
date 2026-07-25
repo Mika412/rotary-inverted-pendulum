@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--episode-length-s", type=float, default=8.0)
     p.add_argument("--control-freq", type=float, default=50.0,
                    help="canonical operating rate for this rig — see "
-                        "docs/control_rate_selection.md.")
+                        "website/src/content/docs/reference/control-rate.md.")
     p.add_argument("--upright-threshold-deg", type=float, default=15.0,
                    help="theta within ±this is counted as 'upright'")
     p.add_argument("--hold-window-s", type=float, default=1.0,

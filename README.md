@@ -15,14 +15,13 @@ A DIY rotary inverted pendulum you can print, solder, and train at home — for 
 | [`RotaryInvertedPendulum-arduino/`](RotaryInvertedPendulum-arduino) | Firmware — low-level server, hand-tuned PID, on-device RL controller                             |
 | [`RotaryInvertedPendulum-python/`](RotaryInvertedPendulum-python)   | Sim env, SAC training, system identification, real-hardware bridge, distillation and weight export |
 | [`RotaryInvertedPendulum-julia/`](RotaryInvertedPendulum-julia)     | MPC/LQR exploration and MeshCat visualisation                                                    |
-| [`docs/`](docs)                                                     | Build runbook, BOM, electronics design, RL stack documentation                                   |
-| [`website/`](website)                                               | The documentation site — Astro Starlight, plus the in-browser MuJoCo demo of the deployed policy  |
+| [`website/`](website)                                               | All documentation (`src/content/docs/`) plus the site itself — Astro Starlight and the in-browser MuJoCo demo |
 
 ## Where to start
 
-- **Build one** — [`docs/BOM.md`](docs/BOM.md), [`docs/electronics_design.md`](docs/electronics_design.md), [`docs/end_to_end_runbook.md`](docs/end_to_end_runbook.md)
-- **Train a policy** — [`RotaryInvertedPendulum-python/README.md`](RotaryInvertedPendulum-python/README.md) walks through the simulation and training pipeline
-- **Understand the RL stack** — [`docs/rl_transitions.md`](docs/rl_transitions.md), [`docs/domain_randomization.md`](docs/domain_randomization.md), [`docs/transport_delay.md`](docs/transport_delay.md), [`docs/sysid_runbook.md`](docs/sysid_runbook.md)
+- **Build one** — [bill of materials](https://ferrolho.github.io/rotary-inverted-pendulum/build/bom/) → [print](https://ferrolho.github.io/rotary-inverted-pendulum/build/printing/) → [wire](https://ferrolho.github.io/rotary-inverted-pendulum/build/electronics/) → [first power-on](https://ferrolho.github.io/rotary-inverted-pendulum/build/first-power-on/)
+- **Train a policy** — the [end-to-end pipeline](https://ferrolho.github.io/rotary-inverted-pendulum/train/pipeline/), step 0 through step 6
+- **Understand the RL stack** — [the transition contract](https://ferrolho.github.io/rotary-inverted-pendulum/reference/transitions/), [domain randomization](https://ferrolho.github.io/rotary-inverted-pendulum/reference/domain-randomization/), [transport delay](https://ferrolho.github.io/rotary-inverted-pendulum/reference/transport-delay/)
 
 ## Prefer to buy rather than build?
 

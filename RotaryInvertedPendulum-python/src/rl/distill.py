@@ -23,7 +23,7 @@ Designed to run end-to-end:
 Each stage caches its output and is skipped if the output exists, unless
 --force is passed. Real-rig acceptance is then via
 `run_policy.py --policy <out-dir>/student.pt` against the actual hardware
-— see docs/end_to_end_runbook.md.
+— see website/src/content/docs/train/pipeline.mdx.
 """
 
 from __future__ import annotations

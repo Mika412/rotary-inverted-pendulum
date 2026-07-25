@@ -1,5 +1,7 @@
-# RL Transitions, in Plain English
-
+---
+title: "The transition contract"
+description: "What a single (s, a, r, s') transition means in this system, in plain English."
+---
 What one `(s, a, r, s')` tuple in this project actually contains, end to
 end. Reference both for sim (`pendulum_env.py`) and real-device
 (`real_env.py`) environments — they're identical by design so a
@@ -29,9 +31,9 @@ control nudge, and the world moves on.
   integrates at 1 kHz under the hood; real env paces wall-clock to
   match. The choice of rate is rig-specific and bounded by motor
   bandwidth and pendulum dynamics — see
-  [`control_rate_selection.md`](control_rate_selection.md). The runtime
+  [`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/). The runtime
   enforcement of whatever rate is chosen is described in
-  [`async_control_architecture.md`](async_control_architecture.md).
+  [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/).
 
 ## Observation `s` — what the policy sees (5 floats)
 
@@ -125,7 +127,7 @@ hard-stop hit, even if it wants to.
 `max_action_delta_rad` is one of two coupled knobs (the other is
 `control_freq_hz`). Their product is the *slew rate* in rad/s, which
 must respect the motor's bandwidth — see
-[`control_rate_selection.md`](control_rate_selection.md) for the
+[`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/) for the
 rationale and recipe.
 
 This action representation has two key benefits:
@@ -275,7 +277,7 @@ A few non-obvious choices, called out:
 | `pendulum_env.py` | The full sim env — MJCF model, DR, action delay, motor lag, reward. The canonical reference. |
 | `real_env.py` | Hardware version. Deliberately mirrors `pendulum_env.py`'s observation, action, and reward exactly. |
 | `run_policy.py` | Deployment-only client. Same observation pipeline as `real_env.py`, no learning. |
-| `async_control.py`, `finetune_async.py` | Runtime that *produces* transitions during fine-tuning at strict rate. Internals out of scope here — see [`async_control_architecture.md`](async_control_architecture.md). |
+| `async_control.py`, `finetune_async.py` | Runtime that *produces* transitions during fine-tuning at strict rate. Internals out of scope here — see [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/). |
 | `finetune_real.py` | Deprecation shim → forwards to `finetune_async.main`. |
 
 Read `pendulum_env.py::step` and `pendulum_env.py::_obs` together for
@@ -284,11 +286,11 @@ the canonical sim transition; read `real_env.py::step` and
 
 ## See also
 
-- [`async_control_architecture.md`](async_control_architecture.md) — how
+- [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/) — how
   the rig's control loop is held to a strict rate during fine-tuning,
   decoupled from SAC's gradient updates.
-- [`control_rate_selection.md`](control_rate_selection.md) — how to
+- [`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/) — how to
   pick `control_freq_hz` and `max_action_delta_rad` from sysid
   measurements (motor bandwidth + pendulum natural frequency).
-- [`sysid_runbook.md`](sysid_runbook.md) — the measurement procedure
+- [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/) — the measurement procedure
   that produces the inputs both of those docs depend on.

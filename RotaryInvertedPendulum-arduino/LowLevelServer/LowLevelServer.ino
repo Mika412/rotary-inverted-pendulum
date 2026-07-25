@@ -63,7 +63,7 @@ const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
 // samples = 4 inter-sample gaps = 8 ms. Window halved from 10 → 5 on
 // 2026-05-20 to cut ~9 ms of observation lag — the largest tunable
 // component of the rig's policy-loop lag. Tradeoff: ~√2× noisier
-// per-sample velocity estimate. See docs/transport_delay.md.
+// per-sample velocity estimate. See website/src/content/docs/reference/transport-delay.md.
 const uint16_t SAMPLE_PERIOD_US = 2000;
 const uint8_t  BUFFER_SIZE      = 16;
 const uint8_t  VEL_WINDOW       = 5;

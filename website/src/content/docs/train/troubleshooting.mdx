@@ -1,0 +1,56 @@
+---
+title: Troubleshooting
+description: The failure modes this rig actually produces, in the order worth checking them.
+---
+
+import constants from '../../../generated/constants.json';
+
+export const hz = constants.control.frequencyHz;
+
+## Policy balances tethered but spins on the Nano
+
+Check, in order:
+
+1. **`analyze_onboard`'s rate line.** If the loop isn't ~{hz} Hz, the network is
+   too big for the tick (H=16 is the budget). A sagging loop turns a balancing
+   policy into a spinner, and the numbers then evaluate a broken deployment
+   rather than the policy.
+2. **Whether the flashed network is an imitation student or a direct-RL actor.**
+   Actors are transport-brittle and fail standalone even when excellent
+   tethered (measured twice, 2026-07-22).
+3. **The encoder zero.** It is captured at engage time — reset the Arduino with
+   the pendulum hanging still.
+
+## Boot self-test prints `[FATAL] FastAccelStepper config rejected`
+
+The requested `MOTOR_MAX_SPEED` exceeds FastAccelStepper's AVR cap of
+50 kSteps/s for a single stepper. Check the constant in `RLControl.ino`.
+
+## Pendulum swings but never reaches upright
+
+Motor authority is too low. Verify `MOTOR_ACCELERATION` matches between
+`LowLevelServer.ino` (used during fine-tuning) and `RLControl.ino` (used at
+deployment). They must agree, otherwise the policy is trained against one set
+of dynamics and deployed against another.
+
+## Buzzing or grinding under load
+
+Step skipping. Drop `MOTOR_ACCELERATION` from 50 k → 30 k and re-flash. Also
+confirm the driver's current limit: the TMC2209's Vref sets **RMS** current
+while the DRV8825's sets **peak**, and carrying a DRV8825 number across
+over-drives the motor. See the [electronics
+page](/rotary-inverted-pendulum/build/electronics/).
+
+## The arm's speed or range is half or double what you expect
+
+`MICROSTEPS` does not match the driver wiring — 16 on a TMC2209 with MS1 and
+MS2 high, 8 on a DRV8825. Steps per revolution, the speed cap and all
+radian↔step conversions derive from that one constant, so the firmware
+believes a wrong number and every calibration downstream inherits it.
+
+## A rate, action mode or smoothing-window mismatch
+
+`run_config.check_config` aborts rather than letting a mismatched policy
+deploy. If it fires, the fix is to make the sketch constants and the policy's
+`config.json` agree — see the table in
+[step 6](/rotary-inverted-pendulum/train/flash/) — not to bypass the check.

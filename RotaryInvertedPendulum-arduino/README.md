@@ -115,7 +115,7 @@ julia --project=./RotaryInvertedPendulum-julia ./RotaryInvertedPendulum-arduino/
 
 This collects data for the specified duration, generates plots, and saves CSV to `PIDControl/experiments/`.
 
-See `PIDControl/TUNING_HISTORY.md` for tuning notes and `PIDControl/PIDControl.ino` header for architecture details.
+See the [PID tuning history](https://ferrolho.github.io/rotary-inverted-pendulum/reference/pid-tuning-history/) for tuning notes and the `PIDControl/PIDControl.ino` header for architecture details.
 
 ## Hardware-in-the-Loop Testing
 

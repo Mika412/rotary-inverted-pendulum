@@ -419,12 +419,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="upper bound on first-order action-lag time constant "
                         "(seconds). Continuous analogue of --dr-delay-max. "
                         "Set this to override env defaults. See "
-                        "docs/transport_delay.md.")
+                        "website/src/content/docs/reference/transport-delay.md.")
     p.add_argument("--control-freq", type=float, default=50.0,
                    help="sim control rate (Hz). Must match the rate used in "
                         "fine-tuning and deployment. 50 Hz is the empirically-best "
                         "operating point for this rig — see "
-                        "docs/control_rate_selection.md for the principled selection.")
+                        "website/src/content/docs/reference/control-rate.md for the principled selection.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
                    default="accel",
                    help="action semantics. 'accel' (default): action → angular "

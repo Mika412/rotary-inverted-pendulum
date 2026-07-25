@@ -335,7 +335,7 @@ def validate_free_swing(fit: dict, derived: dict) -> list[Warning_]:
 
 
 # ---------------------------------------------------------------------------
-# Control-rate suggestion (from docs/control_rate_selection.md)
+# Control-rate suggestion (from website/src/content/docs/reference/control-rate.md)
 # ---------------------------------------------------------------------------
 
 def suggest_control_rate(pendulum_period_s: float, motor_rise_time_s: float) -> dict:
@@ -343,7 +343,7 @@ def suggest_control_rate(pendulum_period_s: float, motor_rise_time_s: float) -> 
 
     Window: [5 * f_n, 3 * BW_motor] where f_n = 1/period_s and the motor's
     effective bandwidth is approximated as BW_motor ≈ 1/rise_time_95 — the
-    rule of thumb in `docs/control_rate_selection.md` (the rig's measured 64
+    rule of thumb in `website/src/content/docs/reference/control-rate.md` (the rig's measured 64
     ms rise corresponds to ~16 Hz effective bandwidth, empirically validated
     against the 35 Hz operating point). Recommended rate biases toward the
     lower edge; max_action_delta_rad chosen so slew ≤ BW_motor × 0.2.

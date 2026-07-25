@@ -1,10 +1,12 @@
-# Async Control Architecture
-
+---
+title: "Async control runtime"
+description: "The threaded runtime that holds the configured control rate during fine-tuning."
+---
 How `finetune_async.py` keeps the rig's control loop at strict 100 Hz
 (or any configured rate) while SAC's gradient updates run in parallel.
 This is a runtime-systems doc — it has no opinions about RL semantics
-(see [`rl_transitions.md`](rl_transitions.md) for those) or how to
-*choose* a control rate (see [`control_rate_selection.md`](control_rate_selection.md)
+(see [`rl_transitions.md`](/rotary-inverted-pendulum/reference/transitions/) for those) or how to
+*choose* a control rate (see [`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/)
 for that). It only explains how we *enforce* whatever rate was chosen.
 
 ## The bug this exists to prevent

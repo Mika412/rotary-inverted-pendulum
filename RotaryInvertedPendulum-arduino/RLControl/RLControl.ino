@@ -337,7 +337,7 @@ static void read_measured_state(float* motor_pos, float* phi,
 // comfortably inside the 28.6 ms tick. H=32 (~23 ms) does NOT fit at
 // 35 Hz (measured 2026-07-22: the loop sagged to 25 Hz and the policy
 // broke) — H=16 is the production width, and the imitation pipeline
-// works best at that size anyway (see docs/end_to_end_runbook.md).
+// works best at that size anyway (see website/src/content/docs/train/pipeline.mdx).
 // Stepping runs from the Timer1 ISR so inference never stalls the motor —
 // but the 500 Hz measurement sampler DOES run in the main loop, so the
 // hidden-layer row loops call update_sample_buffer() between rows

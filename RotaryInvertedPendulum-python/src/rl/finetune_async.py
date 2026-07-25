@@ -19,7 +19,7 @@ This orchestrator owns two threads:
 Three locks: `LowLevelClient._lock` (per-serial-transaction),
 `replay_buffer_lock` (held during buffer.add and model.train),
 `PolicySnapshot._lock` (around predict and refresh_from). See
-docs/rl_transitions.md for the full architectural rationale.
+website/src/content/docs/reference/transitions.md for the full architectural rationale.
 
 Usage:
     python finetune_async.py \\
@@ -122,7 +122,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="strict control rate in Hz; this orchestrator holds "
                         "this rate even at high --gradient-steps. 50 Hz is "
                         "the canonical operating point for this rig — see "
-                        "docs/control_rate_selection.md.")
+                        "website/src/content/docs/reference/control-rate.md.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
                    default="velocity",
                    help="how the action drives the motor. Must match the mode the "

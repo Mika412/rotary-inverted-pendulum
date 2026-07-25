@@ -1,5 +1,7 @@
-# Domain Randomization (sim training)
-
+---
+title: "Domain randomization"
+description: "What is randomized during training, by how much, and why."
+---
 Sim-to-real for this rig is a closed-loop instability problem on a
 position-controlled stepper. Anything we miss in the sim model the
 policy will silently overfit to. Domain randomization (DR) is the
@@ -11,9 +13,9 @@ whatever the real hardware looks like on a given day.
 This doc summarises **what is randomized, by how much, and why**, plus
 how DR fits into the curriculum schedule and where the knobs live in
 code. For the end-to-end pipeline this feeds into see
-[`end_to_end_runbook.md`](end_to_end_runbook.md). For the transition-level contract see
-[`rl_transitions.md`](rl_transitions.md). For the sysid measurements
-that set the bracketed values see [`sysid_runbook.md`](sysid_runbook.md).
+[`end_to_end_runbook.md`](/rotary-inverted-pendulum/train/pipeline/). For the transition-level contract see
+[`rl_transitions.md`](/rotary-inverted-pendulum/reference/transitions/). For the sysid measurements
+that set the bracketed values see [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/).
 
 ## How to enable it
 
@@ -28,7 +30,7 @@ Or, equivalently, run the full curriculum:
 ```
 
 The flag flips a single boolean on the env
-([`pendulum_env.py:248`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L248)).
+([`pendulum_env.py:248`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L248)).
 When off, the env runs deterministically against the nominal
 sysid params — useful for debugging but **never** for the policy that
 will be deployed.
@@ -37,14 +39,14 @@ The **eval env always stays deterministic** (DR off), so best-model
 selection during training tracks performance on the nominal-physics
 reference scenario instead of being washed out by sample-to-sample
 randomisation noise. See
-[`train_sac.py:86`](../RotaryInvertedPendulum-python/src/rl/train_sac.py#L86).
+[`train_sac.py:86`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/train_sac.py#L86).
 
 ## What is randomized
 
 All ranges are defined as module constants in
-[`pendulum_env.py:61-97`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97).
+[`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97).
 Most are sampled **once per episode** in
-[`_sample_dr_params`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L384);
+[`_sample_dr_params`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L384);
 the dt-jitter and observation noise are sampled **per step**.
 
 ### Physical parameters (per episode)
@@ -57,10 +59,10 @@ the dt-jitter and observation noise are sampled **per step**.
 | Motor joint stiction (`frictionloss`)       | [0.0, 0.005] N·m     | `DR_MOTOR_FRICTIONLOSS_RANGE_N_M = (0.0, 0.005)` | Steppers have detent torque that the position actuator doesn't capture; lower bound includes 0 for backward compat with Phase 2 policies trained without stiction.                                                                                                  |
 
 Nominal values come from
-[`sysid_params.json`](../RotaryInvertedPendulum-python/src/rl/sysid_params.json),
+[`sysid_params.json`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/sysid_params.json),
 written by the Phase 0 sysid pipeline. **Pendulum inertia about its own
 COM** (`PENDULUM_I_COM_SWING_KG_M2` at
-[`pendulum_env.py:71`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L71))
+[`pendulum_env.py:71`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L71))
 is hard-coded from Onshape CAD rather than back-computed from sysid
 `I_axis − m·d²` — it's a geometric property of the part, not a quantity
 that varies with rebuilds, so it isn't randomised. MuJoCo applies
@@ -74,10 +76,10 @@ effective pivot inertia at nominal, matching the measured `I_axis`.
 | Parameter                                  | Range                            | Source constant                    | Why this width                                                                                                                                                                                                                                                                                                                                           |
 | ------------------------------------------ | -------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Motor accel envelope                       | [110, 190] rad/s²                | `DR_MOTOR_ACCEL_RANGE_RAD_S2`      | Brackets `MAX_ACCEL_RAD_S2 = 150` so the policy trains both above and below its command cap — models load-dependent stepper torque headroom. |
-| Transport delay: integer-tick queue        | curriculum-staged (see below)    | `--dr-delay-min/max`               | Teacher-forced fits over the 2026-07-21 deploy logs put the TOTAL command→motion delay at ~30–45 ms at 35 Hz — more than one control tick. In velocity mode the queue delays the accel command the host sends (the P-law itself is host-side and instant). See [`transport_delay.md`](transport_delay.md). |
+| Transport delay: integer-tick queue        | curriculum-staged (see below)    | `--dr-delay-min/max`               | Teacher-forced fits over the 2026-07-21 deploy logs put the TOTAL command→motion delay at ~30–45 ms at 35 Hz — more than one control tick. In velocity mode the queue delays the accel command the host sends (the P-law itself is host-side and instant). See [`transport_delay.md`](/rotary-inverted-pendulum/reference/transport-delay/). |
 | Transport delay: first-order lag τ         | curriculum-staged (see below)    | `--dr-action-lag-tau-min/max`      | Fractional-tick remainder on top of the integer queue; composes with it (filter, then queue). |
 | Motor first-order target lag τ             | [0.010, 0.030] s                 | `DR_MOTOR_TAU_RANGE_S`             | Position-delta mode only — models the stepper's ramp-to-target bandwidth. Not sampled in accel/velocity modes. |
-| Control-step dt jitter                     | n_substeps × (1 ± 0.05) per step | `DR_CONTROL_DT_JITTER_FRAC = 0.05` | Empirically the single most important DR. Without it, SAC at strict timing finds the **active-correction attractor** (motor saws ±0.5 rad even when balanced); with it, SAC finds the **calm minimal-action attractor** that dominates real-world performance. See [`control_rate_selection.md`](control_rate_selection.md) "calm vs active attractors". |
+| Control-step dt jitter                     | n_substeps × (1 ± 0.05) per step | `DR_CONTROL_DT_JITTER_FRAC = 0.05` | Empirically the single most important DR. Without it, SAC at strict timing finds the **active-correction attractor** (motor saws ±0.5 rad even when balanced); with it, SAC finds the **calm minimal-action attractor** that dominates real-world performance. See [`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/) "calm vs active attractors". |
 | Obs staleness (firmware model only)        | [0.002, 0.010] s                 | `DR_OBS_STALENESS_RANGE_S`         | Age of the state snapshot when the host acts on it: encoder sample age (0–2 ms at the firmware's 500 Hz sampling) + GET_STATE serial round-trip. Only sampled when `firmware_obs_model` is on. |
 | Base tilt (gravity rotation)               | angle [0, 1°], direction [0, 2π) | `DR_BASE_TILT_MAX_RAD`             | The rig sits on an imperfectly level table. Tilt shifts TRUE upright by an amount that varies with arm position (a sinusoidal, position-dependent bias the constant θ-bias DR cannot express). Modelled by rotating the gravity vector per episode. |
 
@@ -111,7 +113,7 @@ inherited by `eval_randomized.py`.
 ## Curriculum staging
 
 Training in three stages
-([`curriculum_train.sh`](../RotaryInvertedPendulum-python/src/rl/curriculum_train.sh))
+([`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/curriculum_train.sh))
 is more reliable than one shot at full DR width. Each stage `--resume`s
 from the last so capabilities accumulate.
 
@@ -139,7 +141,7 @@ the policy to learn recovery from arbitrary starts:
   the reset clear of the ±125° clamp while covering most of the working
   range. Without this, the policy never practises returning from the
   limit and gets stuck there at deploy time
-  ([`pendulum_env.py:362-374`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L362-L374)).
+  ([`pendulum_env.py:362-374`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L362-L374)).
 - **Pendulum start**: hanging-down ± 0.05 rad (small noise around the
   natural rest angle).
 
@@ -150,10 +152,10 @@ training-state coverage, not modelling-error robustness.
 
 | Knob                                | Default                              | Where it's set / read                                                                                                                                                           |
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Module constants (`DR_*`)           | as above                             | [`pendulum_env.py:61-97`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97)                                                                                      |
-| Per-instance overrides (curriculum) | None → fall back to module constants | `RotaryInvertedPendulumEnv.__init__` ([`pendulum_env.py:255-284`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L255-L284))                                           |
-| CLI overrides                       | unset → module defaults              | `train_sac.py` flags `--dr-tau-min/max`, `--dr-delay-min/max`, `--dr-dt-jitter-frac` ([`train_sac.py:198-226`](../RotaryInvertedPendulum-python/src/rl/train_sac.py#L198-L226)) |
-| Curriculum stage values             | hard-coded ms targets                | [`curriculum_train.sh`](../RotaryInvertedPendulum-python/src/rl/curriculum_train.sh)                                                                                            |
+| Module constants (`DR_*`)           | as above                             | [`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97)                                                                                      |
+| Per-instance overrides (curriculum) | None → fall back to module constants | `RotaryInvertedPendulumEnv.__init__` ([`pendulum_env.py:255-284`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L255-L284))                                           |
+| CLI overrides                       | unset → module defaults              | `train_sac.py` flags `--dr-tau-min/max`, `--dr-delay-min/max`, `--dr-dt-jitter-frac` ([`train_sac.py:198-226`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/train_sac.py#L198-L226)) |
+| Curriculum stage values             | hard-coded ms targets                | [`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/curriculum_train.sh)                                                                                            |
 
 ## Editing the ranges
 
@@ -162,7 +164,7 @@ When real hardware tells you something the sim missed:
 1. **Re-run sysid first.** If the nominal parameters drifted (new
    bearings, motor swap, etc.), update those before widening DR — DR
    doesn't replace good identification, it just brackets its residuals.
-   See [`sysid_runbook.md`](sysid_runbook.md).
+   See [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/).
 2. **Widen the matching DR range** in `pendulum_env.py`. Keep ranges
    conservative — they should bracket measured reality with margin, not
    include physically implausible regimes (those just slow training and
@@ -175,12 +177,12 @@ When real hardware tells you something the sim missed:
 
 ## Related
 
-- [`control_rate_selection.md`](control_rate_selection.md) — why dt
+- [`control_rate_selection.md`](/rotary-inverted-pendulum/reference/control-rate/) — why dt
   jitter is the load-bearing DR knob on this rig.
-- [`rl_transitions.md`](rl_transitions.md) — the `(s, a, r, s')`
+- [`rl_transitions.md`](/rotary-inverted-pendulum/reference/transitions/) — the `(s, a, r, s')`
   contract DR perturbs.
-- [`sysid_runbook.md`](sysid_runbook.md) — measurement procedure for
+- [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/) — measurement procedure for
   the nominal values DR brackets.
-- [`async_control_architecture.md`](async_control_architecture.md) —
+- [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/) —
   how the deployment runtime preserves the timing assumptions DR
   trained against.

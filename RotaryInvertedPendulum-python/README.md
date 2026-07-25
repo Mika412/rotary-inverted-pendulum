@@ -2,7 +2,7 @@
 
 Python tooling for the rotary inverted pendulum: gamepad control,
 system identification, and the RL pipeline (env, SAC trainer, deployment
-client). See [`../docs/end_to_end_runbook.md`](../docs/end_to_end_runbook.md)
+client). See [pipeline](https://ferrolho.github.io/rotary-inverted-pendulum/train/pipeline/)
 for the end-to-end RL pipeline.
 
 ## Environment setup
@@ -46,7 +46,7 @@ deployment must agree, or the policy silently misbehaves;
 `run_config.check_config` aborts on a mismatch rather than letting you
 deploy a rate-mismatched policy.
 
-[`../docs/control_rate_selection.md`](../docs/control_rate_selection.md)
+[control rate](https://ferrolho.github.io/rotary-inverted-pendulum/reference/control-rate/)
 concludes 35 Hz and explains the rate-window method. Its measurements stand,
 but its answer is superseded: 50 Hz previously lost because the policy's
 alternating-sign action dither excited the compliant base, and actuator-side
@@ -57,7 +57,7 @@ action smoothing removed that failure mode. Read it for the method, take
 
 For the full sysid → sim training → real-rig fine-tune → distill → flash
 walkthrough with exact commands at each step, see
-[`../docs/end_to_end_runbook.md`](../docs/end_to_end_runbook.md). Each step
+[pipeline](https://ferrolho.github.io/rotary-inverted-pendulum/train/pipeline/). Each step
 is idempotent, so you can also dip into individual phases without re-running
 the whole pipeline.
 
@@ -73,7 +73,7 @@ python src/gamepad_control.py
 
 ### System identification
 
-Phase 0 of the RL plan. See [`../docs/sysid_runbook.md`](../docs/sysid_runbook.md)
+Phase 0 of the RL plan. See [sysid](https://ferrolho.github.io/rotary-inverted-pendulum/train/sysid/)
 for the full protocol. Quick start (with `LowLevelServer.ino` flashed):
 
 ```bash

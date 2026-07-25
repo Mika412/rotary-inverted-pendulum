@@ -1,6 +1,8 @@
-# Electronics Design Notes
-
-Why each component on the [BOM](BOM.md) was chosen, and what to know
+---
+title: "Wire the electronics"
+description: "Driver choice, current limiting, wiring gotchas and the schematic for the stepper, encoder and Nano."
+---
+Why each component on the [BOM](/rotary-inverted-pendulum/build/bom/) was chosen, and what to know
 when re-sourcing or substituting it. The BOM is the procurement
 reference; this doc is the *why* behind it.
 
@@ -10,12 +12,12 @@ reference; this doc is the *why* behind it.
 
 All components live on a single 40 × 60 mm protoboard. The diagram
 above is the canonical layout; component-level photos are in
-[`../diagrams/`](../diagrams/).
+[`../diagrams/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/diagrams).
 
 ## Microcontroller — Arduino Nano (ATmega328P, 16 MHz)
 
 - 32 KB flash / 2 KB SRAM is enough for the [LowLevelServer binary
-  protocol](../RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino)
+  protocol](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino)
   plus AS5600 I/O plus AccelStepper at 1 kHz internal step rate. The
   on-device PID variant fits too, with margin.
 - Heavy lifting (RL inference, MPC, sysid) runs on the host PC. The
@@ -193,7 +195,7 @@ current is unused. What actually matters more than headline amps:
 ## Magnetic encoder — AS5600
 
 - **12-bit absolute angle** → 2π / 4096 rad ≈ 0.088° resolution.
-  Quantisation is modelled in [`pendulum_env.py`](../RotaryInvertedPendulum-python/src/rl/pendulum_env.py)
+  Quantisation is modelled in [`pendulum_env.py`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py)
   (`PENDULUM_LSB_RAD`) so the policy sees the same step size sim
   and real.
 - **Contactless / magnetic** → zero friction on the pendulum joint,
@@ -260,8 +262,8 @@ Two-stage decoupling on the 12 V rail at the driver's VMOT pin:
 
 ## Related
 
-- [`BOM.md`](BOM.md) — procurement reference (suppliers, prices, qty).
-- [`3d_printing.md`](3d_printing.md) — printing settings and the
+- [`BOM.md`](/rotary-inverted-pendulum/build/bom/) — procurement reference (suppliers, prices, qty).
+- [`3d_printing.md`](/rotary-inverted-pendulum/build/printing/) — printing settings and the
   coin-pause technique for the pendulum link.
-- [`sysid_runbook.md`](sysid_runbook.md) — measurement protocol that
+- [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/) — measurement protocol that
   validates the electronics chain works end-to-end.

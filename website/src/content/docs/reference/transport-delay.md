@@ -1,5 +1,7 @@
-# Transport delay: how it shrank, and how we measure it
-
+---
+title: "Transport delay"
+description: "Measured action-delay history and the decision log behind the hardware and firmware changes."
+---
 This rig used to have ~50 ms of laptop-to-motor transport delay. It's
 now ~14 ms. The path there was three fixes, each attacking a different
 layer of the pipeline. None of the three was about "delay" *per se*;

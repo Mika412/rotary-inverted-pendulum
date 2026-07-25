@@ -26,11 +26,9 @@ export default defineConfig({
         },
       ],
       editLink: {
-        baseUrl: `https://github.com/ferrolho/${REPO}/edit/main/`,
+        baseUrl: `https://github.com/ferrolho/${REPO}/edit/main/website/`,
       },
       customCss: ['./src/styles/custom.css'],
-      // Pages are synced from docs/ at build time; point the edit link and
-      // "last updated" at the canonical files rather than the generated copies.
       lastUpdated: true,
       sidebar: [
         {
@@ -41,24 +39,32 @@ export default defineConfig({
           ],
         },
         {
+          // Unnumbered on purpose: the numbered sequence below belongs to the
+          // runbook, whose step numbers other docs and source comments cite.
+          // Two competing "step 0"s in one sidebar just confuses people.
           label: 'Build the rig',
           items: [
-            { label: '0 · Bill of materials', slug: 'build/bom' },
-            { label: '1 · Print the parts', slug: 'build/printing' },
-            { label: '2 · Assemble', slug: 'build/assembly' },
-            { label: '3 · Wire the electronics', slug: 'build/electronics' },
-            { label: '4 · First power-on', slug: 'build/first-power-on' },
+            { label: 'Bill of materials', slug: 'build/bom' },
+            { label: 'Print the parts', slug: 'build/printing' },
+            { label: 'Assemble', slug: 'build/assembly' },
+            { label: 'Wire the electronics', slug: 'build/electronics' },
+            { label: 'First power-on', slug: 'build/first-power-on' },
           ],
         },
         {
+          // Step numbers match the runbook's own, which source comments and
+          // other docs refer to ("back to step 2", "step 4b").
           label: 'Train & deploy',
           items: [
-            // Deliberately no per-step hash links here: with trailingSlash
-            // 'always', Starlight appends the slash AFTER the fragment
-            // (`#step/`), which breaks the anchor. The pipeline page's own
-            // table of contents already lists every step.
             { label: 'The pipeline, end to end', slug: 'train/pipeline' },
-            { label: 'System identification', slug: 'train/sysid' },
+            { label: '0 · System identification', slug: 'train/sysid' },
+            { label: '1 · Train the teacher in sim', slug: 'train/sim-training' },
+            { label: '2 · Fine-tune on the rig', slug: 'train/fine-tune' },
+            { label: '3 · Test the teacher', slug: 'train/test-teacher' },
+            { label: '4 · Distill the student', slug: 'train/distill' },
+            { label: '5 · Test the student', slug: 'train/test-student' },
+            { label: '6 · Flash and score', slug: 'train/flash' },
+            { label: 'Troubleshooting', slug: 'train/troubleshooting' },
           ],
         },
         {

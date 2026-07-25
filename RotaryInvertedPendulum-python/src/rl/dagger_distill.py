@@ -19,7 +19,7 @@ Rollouts and the gate run under the transport of the TARGET DEPLOYMENT:
 Aiming the DAgger at the wrong transport costs real performance (0.881 vs
 0.892 on-device from the same teacher — and the direct-RL alternative
 without imitation smoothing failed outright at 0.24; see
-docs/end_to_end_runbook.md).
+website/src/content/docs/train/pipeline.mdx).
 
 Usage (after distill.py has produced the BC student + dataset):
 

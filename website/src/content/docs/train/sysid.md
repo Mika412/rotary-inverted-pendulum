@@ -1,5 +1,23 @@
-# System Identification Runbook
+---
+title: "0 · System identification"
+description: "Measuring the friction parameters that pin the simulation to your rig."
+---
 
+Pinning the dynamics parameters once. Outputs `sysid_params.json`,
+which `pendulum_env.py` reads to build the sim. Re-run any time the rig
+changes mechanically (new bearings, rebuilt arm, changed microstepping,
+swapped motor).
+
+:::caution[Check `MICROSTEPS` before flashing anything]
+Each sketch's `MICROSTEPS` constant must match the driver wiring —
+**16 on the recommended TMC2209** (MS1=MS2 HIGH), 8 on a DRV8825. A mismatch
+halves or doubles the arm's real speed and range while the firmware believes
+otherwise, and every calibration downstream inherits the error. Driver choice,
+Vref tuning (the TMC2209 sets **RMS**, not peak) and the wiring differences are
+on the [electronics page](/rotary-inverted-pendulum/build/electronics/).
+:::
+
+## The full protocol
 End-to-end protocol for measuring the physical parameters of your
 pendulum and writing a `sysid_params.json` that the RL pipeline consumes.
 
@@ -142,3 +160,7 @@ envelope fit.
   the fitter compound. The `freeswing_compare.png` plot is the
   ground-truth: if real and sim envelopes overlap closely, the fit is
   correct regardless of the absolute values.
+
+## Next
+
+[1 · Train the teacher in sim →](/rotary-inverted-pendulum/train/sim-training/)

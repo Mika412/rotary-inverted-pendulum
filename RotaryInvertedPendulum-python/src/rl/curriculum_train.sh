@@ -16,7 +16,7 @@
 # closed loop pays every tick; and the pre-2026-07-21 replay analysis
 # additionally suffered a one-step alignment bug in sim_vs_real.py.
 # Stage 3 = 1 tick + [0, 15 ms] brackets the measurement at both rates
-# (28.6–43.6 ms at 35 Hz, 20–35 ms at 50 Hz). See docs/transport_delay.md.
+# (28.6–43.6 ms at 35 Hz, 20–35 ms at 50 Hz). See website/src/content/docs/reference/transport-delay.md.
 #
 # Stage-3 concentration rationale (unchanged): wider DR spreads training
 # mass over scenarios the rig never produces and the policy turns
@@ -33,7 +33,7 @@
 # Control rate: 50 Hz validated 2026-05-20 with sustained-balance deploy
 # (0.968 avg upright). The earlier "35 Hz sweet spot" finding was a
 # position-mode artifact (planning thrash at high rates); accel mode
-# composes commands smoothly. See docs/control_rate_selection.md.
+# composes commands smoothly. See website/src/content/docs/reference/control-rate.md.
 #
 # Usage:
 #     ./curriculum_train.sh <run-name-prefix>

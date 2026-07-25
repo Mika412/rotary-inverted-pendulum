@@ -160,7 +160,7 @@ DR_MOTOR_ACCEL_RANGE_RAD_S2 = (110.0, 190.0)
 # delay. Position-mode era this was ~50 ms (1–3 steps at 35 Hz); post-
 # accel-mode it's ~14 ms (~½ step) and better modelled by the action-lag
 # range below. Kept at (0, 0) so it's a no-op unless a curriculum
-# explicitly turns it on. See docs/transport_delay.md.
+# explicitly turns it on. See website/src/content/docs/reference/transport-delay.md.
 DR_ACTION_DELAY_STEPS_RANGE = (0, 0)
 # First-order action-lag time constant (continuous analogue of the
 # integer-step queue). Models the laptop ↔ Arduino ↔ stepper-ISR pipeline
@@ -168,7 +168,7 @@ DR_ACTION_DELAY_STEPS_RANGE = (0, 0)
 # (2026-05-16, run_policy log) showed the motor follows a half-and-half
 # mix of current and previous command — corresponds to tau ≈ control
 # period (28.6 ms at 35 Hz). Default range brackets that case with margin
-# on each side. See docs/transport_delay.md.
+# on each side. See website/src/content/docs/reference/transport-delay.md.
 DR_ACTION_LAG_TAU_RANGE_S = (0.0, 0.030)
 # Position-mode motor-bandwidth model: first-order lag on the commanded
 # position TARGET (distinct from the action-lag above, which lags the
@@ -219,7 +219,7 @@ DR_CONTROL_DT_JITTER_FRAC = 0.05        # ±5% jitter on physics steps per contr
                                          # this jitter pushed SAC into the
                                          # noisier "active correction"
                                          # attractor. See
-                                         # docs/control_rate_selection.md
+                                         # website/src/content/docs/reference/control-rate.md
                                          # "calm vs active attractors".
 
 # Motor-joint static + Coulomb friction (stiction). Real steppers have a
@@ -386,7 +386,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self,
         *,
         params_path: str | Path | None = None,
-        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see website/src/content/docs/reference/control-rate.md
         action_mode: str = "accel",  # "accel" (current) or "position_delta" (original)
         max_accel_rad_s2: float = MAX_ACCEL_RAD_S2,  # accel-mode: action × this = commanded angular accel
         max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # accel-mode: velocity saturation cap
@@ -443,7 +443,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # the calm minimal-action attractor, so SAC converged on whichever
         # the optimizer landed on first. Bumping to 0.20 makes "use big
         # actions" cost ~0.20/step, vs 0.0005/step in calm — meaningful
-        # preference for calm now. See docs/control_rate_selection.md.
+        # preference for calm now. See website/src/content/docs/reference/control-rate.md.
         reward_pen_vel_weight: float = 0.001,    # at pen_vel ±30 rad/s: ~0.9 (was 0.005 — too punishing for swing-up)
         # Stillness bonus near upright. ADDS a non-negative bonus to the
         # canonical quadratic cost — bonus is shaped as
@@ -935,7 +935,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # The rational discretisation `alpha = dt / (tau + dt)` makes the
         # filter behave like a "fractional-step delay": tau=0 ⇒ alpha=1 ⇒
         # no lag; tau=dt ⇒ alpha=0.5 ⇒ half current + half previous (the
-        # behaviour measured on the real rig — see docs/transport_delay.md).
+        # behaviour measured on the real rig — see website/src/content/docs/reference/transport-delay.md).
         # Replaces the legacy integer-step delay queue for continuous DR.
         if self._action_lag_tau_s > 0.0:
             dt_ctrl = 1.0 / self.control_freq_hz
@@ -961,7 +961,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # --- Determine n_substeps for this tick (DR adds dt jitter). ---
         # Implements ~5% control-rate jitter as DR. Empirically protects
         # SAC from finding the "active correction" attractor that strict
-        # timing alone allows. See docs/control_rate_selection.md.
+        # timing alone allows. See website/src/content/docs/reference/control-rate.md.
         if self.domain_randomization and self._dr_control_dt_jitter_frac > 0.0:
             jitter = float(self.np_random.uniform(
                 -self._dr_control_dt_jitter_frac, self._dr_control_dt_jitter_frac

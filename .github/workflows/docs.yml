@@ -5,17 +5,14 @@ on:
     branches: [main]
     paths:
       - 'website/**'
-      - 'docs/**'
       - 'meshes/**'
       - 'urdf/**'
       - 'RotaryInvertedPendulum-arduino/RLControl/**'
-      - 'RotaryInvertedPendulum-arduino/PIDControl/TUNING_HISTORY.md'
       - 'RotaryInvertedPendulum-python/src/rl/pendulum_env.py'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'website/**'
-      - 'docs/**'
       - 'RotaryInvertedPendulum-arduino/RLControl/**'
       - '.github/workflows/docs.yml'
   # Allow a manual redeploy without an intervening commit.

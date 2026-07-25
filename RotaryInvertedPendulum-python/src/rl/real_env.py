@@ -91,7 +91,7 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         *,
         port: str = "/dev/cu.usbserial-110",
         baud: int = 2_000_000,
-        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see website/src/content/docs/reference/control-rate.md
         action_mode: str = "accel",  # "accel", "velocity", or "position_delta" — must match sim training
         max_accel_rad_s2: float = 100.0,
         max_velocity_rad_s: float = 3.5,  # velocity-mode action scale; matches sim MAX_VELOCITY_RAD_S

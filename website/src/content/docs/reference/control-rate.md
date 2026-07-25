@@ -1,5 +1,7 @@
-# Choosing the Control Rate (and `max_action_delta_rad`)
-
+---
+title: "Choosing the control rate"
+description: "How the control rate and action limits are picked from sysid measurements — and why 50 Hz superseded 35 Hz."
+---
 > **Canonical rate is now 50 Hz, not the 35 Hz this doc concludes.** The
 > measurements below stand as recorded — 35 Hz genuinely beat 50 Hz at the
 > time. What changed is the plant, not the analysis: 50 Hz previously lost
@@ -17,8 +19,8 @@ choice falls out of the sysid measurements.
 
 This doc covers the *how* (numerical recipe) and the *why* (physical
 constraints). For *what one transition looks like* once these are
-fixed, see [`rl_transitions.md`](rl_transitions.md). For *how* the chosen
-rate is enforced at runtime, see [`async_control_architecture.md`](async_control_architecture.md).
+fixed, see [`rl_transitions.md`](/rotary-inverted-pendulum/reference/transitions/). For *how* the chosen
+rate is enforced at runtime, see [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/).
 
 ## Knob taxonomy: auto-derived vs user-set
 
@@ -67,7 +69,7 @@ Two physical numbers, both produced by Phase 0 sysid:
 
 Both live in `sysid_params.json` after the runbook protocol. Re-derive
 them whenever the rig changes (new bearings, motor swap, etc.). See
-[`sysid_runbook.md`](sysid_runbook.md) for the measurement procedure.
+[`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/) for the measurement procedure.
 
 > **Accel-mode caveat (2026-07-20).** `BW_motor = 16 Hz` comes from the
 > *position-mode* step response — the 64 ms rise was almost entirely the
@@ -165,7 +167,7 @@ active correction to actually beat passive stabilization in reward.
 
 ## Recipe for picking rate + delta on a new rig
 
-1. Run sysid (see [`sysid_runbook.md`](sysid_runbook.md)). Note `BW_motor`
+1. Run sysid (see [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/)). Note `BW_motor`
    and `f_n`.
 2. Compute the rate window: `[5 × f_n, 3 × BW_motor]`. If empty, you
    need a faster motor before this rig is controllable.
@@ -184,7 +186,7 @@ active correction to actually beat passive stabilization in reward.
    across **sim training**, **fine-tuning**, **and deployment**. The
    policy learns the rate it was trained at; mismatched deployment
    was the bug we built `async_control.py` to prevent — see
-   [`async_control_architecture.md`](async_control_architecture.md).
+   [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/).
 
 ## Sequence summary
 

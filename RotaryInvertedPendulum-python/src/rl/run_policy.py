@@ -93,7 +93,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--control-freq", type=float, default=50.0,
                    help="control loop frequency in Hz. MUST match the rate "
                         "the policy was trained at — see "
-                        "docs/control_rate_selection.md. Default 50 Hz "
+                        "website/src/content/docs/reference/control-rate.md. Default 50 Hz "
                         "matches this rig's canonical design rate.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
                    default="velocity",

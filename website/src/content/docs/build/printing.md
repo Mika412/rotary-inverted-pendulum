@@ -1,8 +1,10 @@
-# 3D Printing Notes
-
+---
+title: "Print the parts"
+description: "Print settings and orientation for the base, lid, arm and pendulum, including the coin-insert pause."
+---
 Practical notes for printing the mechanical parts. STL files live in
-[`../meshes/`](../meshes); the OnShape source is linked from
-[`BOM.md`](BOM.md).
+[`../meshes/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/meshes); the OnShape source is linked from
+[`BOM.md`](/rotary-inverted-pendulum/build/bom/).
 
 ## Settings
 
@@ -17,7 +19,7 @@ into the slot, then resume. The next layers seal it in.
 
 If you skip the pause, the link prints with an empty void where the coin
 should be: its mass and inertia then disagree with what
-[`urdf/model.urdf`](../urdf/model.urdf) says, and the policy will not
+[`urdf/model.urdf`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/urdf/model.urdf) says, and the policy will not
 transfer from sim.
 
 ## Soldering note

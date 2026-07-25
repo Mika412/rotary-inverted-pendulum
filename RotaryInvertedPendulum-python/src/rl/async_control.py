@@ -19,7 +19,7 @@ Two threads, three small primitives:
                      blocks on the learner.
 
 The orchestrator (finetune_async.py) owns the threads, the SAC model,
-and the replay buffer. See docs/rl_transitions.md for the full
+and the replay buffer. See website/src/content/docs/reference/transitions.md for the full
 architectural rationale.
 """
 
@@ -211,7 +211,7 @@ class AsyncControlLoop:
         queue: TransitionQueue,
         stop_flag: threading.Event,
         *,
-        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see website/src/content/docs/reference/control-rate.md
         timing_violation_threshold_s: float = 0.005,
         timing_violation_strikes: int = 3,
         deterministic_actions: bool = False,
@@ -226,7 +226,7 @@ class AsyncControlLoop:
         self._timing_threshold = float(timing_violation_threshold_s)
         self._max_strikes = int(timing_violation_strikes)
         self.deterministic = bool(deterministic_actions)
-        # Control-rate jitter as DR (see docs/control_rate_selection.md).
+        # Control-rate jitter as DR (see website/src/content/docs/reference/control-rate.md).
         # Each tick interval is multiplied by uniform(1-frac, 1+frac).
         # Mimics the legacy variable-rate fine-tune which empirically
         # produced the calm "minimal action" attractor on this rig.

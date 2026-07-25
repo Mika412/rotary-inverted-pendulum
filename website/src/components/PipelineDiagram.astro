@@ -1,0 +1,272 @@
+---
+/**
+ * The end-to-end pipeline, as a diagram.
+ *
+ * Hand-authored SVG rather than a diagram-as-code renderer: it costs no
+ * dependency and no client JavaScript, stays crisp at any zoom, and lets the
+ * two things that actually matter be shown structurally — the acceptance gate
+ * after step 3, and the fact that steps 4–6 exist only to remove the tether.
+ *
+ * Colours come from Starlight's theme tokens, so it follows light/dark.
+ */
+
+interface Step {
+  n: string;
+  title: string;
+  sub: string;
+  href: string;
+}
+
+const tethered: Step[] = [
+  { n: '0', title: 'sysid', sub: 'measure the rig', href: 'train/sysid' },
+  { n: '1', title: 'train in sim', sub: 'curriculum, ~25 min', href: 'train/sim-training' },
+  { n: '2', title: 'fine-tune', sub: 'on the real rig', href: 'train/fine-tune' },
+  { n: '3', title: 'test teacher', sub: 'tethered', href: 'train/test-teacher' },
+];
+
+const standalone: Step[] = [
+  { n: '4', title: 'distill', sub: 'shrink the student', href: 'train/distill' },
+  { n: '5', title: 'test student', sub: 'tethered, optional', href: 'train/test-student' },
+  { n: '6', title: 'flash + score', sub: 'standalone on the Nano', href: 'train/flash' },
+];
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const url = (slug: string) => `${base}/${slug}/`;
+
+// Geometry. One place to change spacing; everything else is derived.
+const W = 176;
+const H = 74;
+const GAP = 30;
+const X0 = 10;
+const ROW1 = 44;
+const ROW2 = 210;
+const x = (i: number) => X0 + i * (W + GAP);
+const VIEW_W = X0 * 2 + 4 * W + 3 * GAP;
+const VIEW_H = 300;
+---
+
+<figure class="pipeline">
+  <svg
+    viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+    role="img"
+    aria-labelledby="pipeline-title pipeline-desc"
+    preserveAspectRatio="xMidYMid meet"
+  >
+    <title id="pipeline-title">The end-to-end pipeline, in seven steps</title>
+    <desc id="pipeline-desc">
+      Steps 0 to 3 run in order: system identification, training in simulation,
+      fine-tuning on the real rig, then testing the teacher while tethered to a
+      laptop. If the teacher scores a balanced fraction of at least 0.85, steps 4
+      to 6 follow — distilling a smaller student, optionally testing it tethered,
+      then flashing and scoring it running standalone on the Nano. Stopping after
+      step 3 leaves a working controller that needs the laptop attached.
+    </desc>
+
+    <defs>
+      <marker
+        id="pipeline-arrow"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="6"
+        markerHeight="6"
+        orient="auto-start-reverse"
+      >
+        <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead" />
+      </marker>
+    </defs>
+
+    {/* Steps 4–6 only exist to remove the tether: group and label them. */}
+    <g class="group">
+      <rect
+        x={X0 - 6}
+        y={ROW2 - 30}
+        width={3 * W + 2 * GAP + 12}
+        height={H + 46}
+        rx="12"
+      />
+      <text x={X0 + 4} y={ROW2 - 12} class="group-label">
+        only to remove the tether
+      </text>
+    </g>
+
+    {/* Row 1: the tethered pipeline. */}
+    {
+      tethered.map((step, i) => (
+        <a href={url(step.href)} class="node">
+          <rect x={x(i)} y={ROW1} width={W} height={H} rx="10" />
+          <text x={x(i) + 14} y={ROW1 + 28} class="num">
+            {step.n}
+          </text>
+          <text x={x(i) + 38} y={ROW1 + 28} class="title">
+            {step.title}
+          </text>
+          <text x={x(i) + 14} y={ROW1 + 52} class="sub">
+            {step.sub}
+          </text>
+        </a>
+      ))
+    }
+    {
+      tethered.slice(0, -1).map((_, i) => (
+        <line
+          x1={x(i) + W}
+          y1={ROW1 + H / 2}
+          x2={x(i + 1) - 6}
+          y2={ROW1 + H / 2}
+          class="link"
+          marker-end="url(#pipeline-arrow)"
+        />
+      ))
+    }
+
+    {/* Row 2: the tether-removal pipeline. */}
+    {
+      standalone.map((step, i) => (
+        <a href={url(step.href)} class="node node--optional">
+          <rect x={x(i)} y={ROW2} width={W} height={H} rx="10" />
+          <text x={x(i) + 14} y={ROW2 + 28} class="num">
+            {step.n}
+          </text>
+          <text x={x(i) + 38} y={ROW2 + 28} class="title">
+            {step.title}
+          </text>
+          <text x={x(i) + 14} y={ROW2 + 52} class="sub">
+            {step.sub}
+          </text>
+        </a>
+      ))
+    }
+    {
+      standalone.slice(0, -1).map((_, i) => (
+        <line
+          x1={x(i) + W}
+          y1={ROW2 + H / 2}
+          x2={x(i + 1) - 6}
+          y2={ROW2 + H / 2}
+          class="link"
+          marker-end="url(#pipeline-arrow)"
+        />
+      ))
+    }
+
+    {/* The acceptance gate: step 3 wraps down to step 4 only if it scores. */}
+    <path
+      d={`M ${x(3) + W / 2} ${ROW1 + H}
+          V ${ROW1 + H + 42}
+          H ${x(0) + W / 2}
+          V ${ROW2 - 36}`}
+      class="link link--gate"
+      marker-end="url(#pipeline-arrow)"
+    />
+    <text x={x(3) + W / 2 - 10} y={ROW1 + H + 32} class="gate-label" text-anchor="end">
+      balanced ≥ 0.85
+    </text>
+  </svg>
+
+  <figcaption>
+    Each step is idempotent and can be re-run on its own. Stopping after step 3
+    leaves a rig that balances with the laptop attached.
+  </figcaption>
+</figure>
+
+<style>
+  .pipeline {
+    margin: 1.75rem 0;
+  }
+
+  /* Wide content must scroll inside its own box rather than the page body. */
+  .pipeline svg {
+    display: block;
+    width: 100%;
+    min-width: 34rem;
+    height: auto;
+  }
+
+  @media (max-width: 40rem) {
+    .pipeline {
+      overflow-x: auto;
+    }
+  }
+
+  .node rect {
+    fill: var(--sl-color-gray-6);
+    stroke: var(--sl-color-gray-5);
+    stroke-width: 1.5;
+    transition:
+      stroke 0.15s ease,
+      fill 0.15s ease;
+  }
+
+  .node:hover rect,
+  .node:focus-visible rect {
+    stroke: var(--sl-color-accent);
+    fill: var(--sl-color-accent-low);
+  }
+
+  .node:focus-visible {
+    outline: none;
+  }
+
+  .node--optional rect {
+    stroke-dasharray: 5 4;
+  }
+
+  .num {
+    fill: var(--sl-color-accent);
+    font-size: 1rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .title {
+    fill: var(--sl-color-white);
+    font-size: 0.95rem;
+    font-weight: 600;
+  }
+
+  .sub {
+    fill: var(--sl-color-gray-3);
+    font-size: 0.78rem;
+  }
+
+  .link {
+    stroke: var(--sl-color-gray-4);
+    stroke-width: 1.75;
+    fill: none;
+  }
+
+  .link--gate {
+    stroke-dasharray: 6 4;
+  }
+
+  .arrowhead {
+    fill: var(--sl-color-gray-4);
+  }
+
+  .gate-label {
+    fill: var(--sl-color-gray-3);
+    font-size: 0.78rem;
+    font-style: italic;
+  }
+
+  .group rect {
+    fill: none;
+    stroke: var(--sl-color-gray-5);
+    stroke-width: 1;
+    stroke-dasharray: 3 5;
+  }
+
+  .group-label {
+    fill: var(--sl-color-gray-3);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  .pipeline figcaption {
+    margin-top: 0.6rem;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>

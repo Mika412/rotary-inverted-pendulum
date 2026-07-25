@@ -5,14 +5,19 @@
  * always regenerates from source. Deliberately dependency-free (no Python, no
  * network) so CI needs nothing but Node.
  *
+ * Note what is NOT here: the documentation pages themselves. They live in
+ * src/content/docs/ and are the source of truth — there is no sync step from
+ * elsewhere in the repo. Only machine-readable facts are generated: the
+ * firmware constants the docs render, the policy weights the demo runs, and
+ * the Draco decoder.
+ *
  * The heavy, rarely-changing assets — meshes, MJCF, replay capture — are NOT
- * built here; they are committed. See scripts/export_assets.py.
+ * built here either; they are committed. See scripts/export_assets.py.
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { syncDocs } from './sync_docs.mjs';
 import { writeConstants } from './extract_constants.mjs';
 import { writeWeights } from './export_weights.mjs';
 
@@ -80,7 +85,7 @@ async function checkCommittedAssets() {
 }
 
 await checkCommittedAssets();
-await syncDocs();
+
 await writeConstants();
 await writeWeights();
 await copyDracoDecoder();

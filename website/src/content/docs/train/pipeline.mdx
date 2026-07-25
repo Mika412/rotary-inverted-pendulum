@@ -1,0 +1,85 @@
+---
+title: The pipeline, end to end
+description: How to take a freshly-built rig from no policy at all to balancing standalone on the Nano, with no laptop attached.
+sidebar:
+  order: 0
+---
+
+import PipelineDiagram from '../../../components/PipelineDiagram.astro';
+
+How to take a freshly-built rig from "no policy at all" to "balances
+standalone on the Nano, no laptop tether". Each step lists the command, the
+expected wall-clock cost, and what the next step depends on.
+
+<PipelineDiagram />
+
+If you only need the upright/balance behaviour and are happy keeping the
+laptop attached: stop after step 3. Steps 4–6 only exist to remove the
+tether.
+
+For *how a single transition works*, see [the transition
+contract](/rotary-inverted-pendulum/reference/transitions/). For the decision
+log behind the hardware/firmware shape of the pipeline, see [transport
+delay](/rotary-inverted-pendulum/reference/transport-delay/).
+
+## The canonical operating point
+
+**50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action
+smoothing.** Every default across the Python stack and the sketches is set to
+this, so a bare run of these steps reproduces the current champion.
+
+Do not change one of them in isolation. Training, fine-tuning and deployment
+must agree, and `run_config.check_config` aborts on a mismatch rather than
+letting you deploy a rate-mismatched policy.
+
+## Action mode — velocity is the production mode
+
+The validated pipeline uses **`velocity`** mode end-to-end: the policy's
+action is a velocity setpoint (±3.5 rad/s), converted to accel commands
+each tick by a P-law tracking the controller's own commanded-velocity
+integrator (never the quantised measured velocity — that injected a
+±17 rad/s² dither, removed 2026-07-21), over the same `CMD_SET_ACCEL`
+firmware transport in every deployment. All defaults — the curriculum,
+`train_sac.py` at 50 Hz, `RLControl.ino` — are set for this mode; run
+the commands as written.
+
+Legacy modes remain selectable for comparisons (`--action-mode accel` /
+`position_delta`, see [the transition
+contract](/rotary-inverted-pendulum/reference/transitions/)) but no
+current tooling defaults to them and RLControl.ino no longer speaks
+position-delta.
+
+## Prerequisites
+
+- macOS / Linux dev box with `arduino-cli`, the `arduino:avr` core, and
+  the `AS5600` (RobTillaart) + `FastAccelStepper` libraries installed.
+- Python env set up per [the Python
+  tooling page](/rotary-inverted-pendulum/reference/python/).
+  The project is `uv`-managed: prefix each command below with `uv run`
+  (e.g. `uv run python train_sac.py …`, `uv run bash curriculum_train.sh …`),
+  or activate the project venv once and drop the prefix. **macOS only:**
+  commands that open the MuJoCo viewer (the `--eval` rollouts) must use
+  `mjpython`, not `python` — e.g. `uv run mjpython train_sac.py --eval …`.
+- Rig wired with **STEP on pin 9**, DIR on pin 2, ENABLE on pin 5, AS5600
+  on I²C (A4/A5). Pin 9 is required by FastAccelStepper on ATmega328
+  (Timer1 OC1A — see the pin notes in `LowLevelServer.ino`) and works for
+  AccelStepper too.
+
+In the commands throughout these pages, replace `/dev/cu.usbserial-1130` with
+whatever port `arduino-cli board list` shows for your Nano.
+
+## Re-running individual steps
+
+Every step is idempotent and can be re-run on its own:
+
+| Want to | Re-run | Resume from |
+|---|---|---|
+| Tweak rewards or DR ranges | step 1 | scratch |
+| Add real-rig data | step 2 | `--resume-buffer` |
+| Re-distill (new teacher or transport) | step 4 | existing teacher |
+| More DAgger rounds | step 4b | existing `--bc-dir` |
+| Re-flash with the same student | step 6 | existing `.h` |
+
+## Next
+
+[0 · System identification →](/rotary-inverted-pendulum/train/sysid/)

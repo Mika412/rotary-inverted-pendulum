@@ -1,5 +1,7 @@
-# PID Tuning History
-
+---
+title: "PID tuning history"
+description: "The hand-tuned PID controller that preceded the learned policy."
+---
 This document tracks the iterative tuning process for the PID balancing controller.
 
 ## Hardware Setup

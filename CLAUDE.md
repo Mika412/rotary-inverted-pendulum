@@ -5,24 +5,38 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Active initiatives
 
 - **Documentation site**: `website/` is an Astro Starlight site published to
-  GitHub Pages, with an in-browser demo of the deployed policy (official MuJoCo
-  WASM + the weights parsed from `RLControl/policy_weights.h`).
-  **Never hard-code firmware constants in prose.** `website/scripts/extract_constants.mjs`
-  reads them from `RLControl.ino`, `policy_weights.h` and `pendulum_env.py`;
-  render them via `ConstantsTable.astro`. This guard exists because the runbook
-  asserted a 35 Hz control rate for weeks after the firmware moved to 50 Hz
-  (reconciled in 352c809).
-  Tests: `npm test` (the flashed policy still balances, 3D transform chain
-  correct) and `npm run test:smoke` (real headless browser against the build).
+  GitHub Pages at <https://ferrolho.github.io/rotary-inverted-pendulum/>, with
+  an in-browser demo of the deployed policy (official MuJoCo WASM + the weights
+  parsed from `RLControl/policy_weights.h`).
 
-- **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `docs/end_to_end_runbook.md` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`.
-  **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing.** Every default across the Python stack and the sketches is set to this, so a bare end-to-end run of the runbook reproduces the current champion — do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). `docs/control_rate_selection.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:
-  - `docs/rl_transitions.md` — the `(s, a, r, s')` transition contract in plain English.
-  - `docs/transport_delay.md` — measured action-delay history and the decision log of hardware/firmware changes (including the position → acceleration action-mode switch).
-  - `docs/domain_randomization.md` — what is randomized, by how much, and why.
-  - `docs/async_control_architecture.md` — the threaded runtime that holds the configured control rate strictly during fine-tuning.
-  - `docs/control_rate_selection.md` — how to pick `control_freq_hz` and `max_action_delta_rad` from sysid measurements.
-  - `docs/sysid_runbook.md` — the measurement procedure for the inputs the two docs above depend on.
+  **All prose documentation lives in `website/src/content/docs/` — there is no
+  `docs/` directory any more.** That tree is the source of truth, not a
+  generated copy: edit those files directly. Pages are plain `.md`; `.mdx` only
+  where a page genuinely needs a component.
+
+  **Never hard-code firmware constants in prose.**
+  `website/scripts/extract_constants.mjs` reads them from `RLControl.ino`,
+  `policy_weights.h` and `pendulum_env.py` into `src/generated/constants.json`;
+  render them via `ConstantsTable.astro` or by importing that JSON in `.mdx`.
+  This guard exists because the runbook asserted a 35 Hz control rate for weeks
+  after the firmware moved to 50 Hz (reconciled in 352c809).
+
+  Only machine-readable facts are generated (`prepare.mjs`: constants, policy
+  weights, Draco decoder). Meshes, the MJCF snapshot, visual transforms and the
+  replay capture are committed; regenerate with `scripts/export_assets.py`.
+
+  Tests: `npm test` (the flashed policy still balances in MuJoCo; the 3D
+  transform chain is correct) and `npm run test:smoke` (real headless browser
+  against the built site).
+
+- **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `website/src/content/docs/train/pipeline.mdx` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`.
+  **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing.** Every default across the Python stack and the sketches is set to this, so a bare end-to-end run of the runbook reproduces the current champion — do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). `website/src/content/docs/reference/control-rate.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:
+  - `website/src/content/docs/reference/transitions.md` — the `(s, a, r, s')` transition contract in plain English.
+  - `website/src/content/docs/reference/transport-delay.md` — measured action-delay history and the decision log of hardware/firmware changes (including the position → acceleration action-mode switch).
+  - `website/src/content/docs/reference/domain-randomization.md` — what is randomized, by how much, and why.
+  - `website/src/content/docs/reference/async-control.md` — the threaded runtime that holds the configured control rate strictly during fine-tuning.
+  - `website/src/content/docs/reference/control-rate.md` — how to pick `control_freq_hz` and `max_action_delta_rad` from sysid measurements.
+  - `website/src/content/docs/train/sysid.md` — the measurement procedure for the inputs the two docs above depend on.
 
 ## Where physical parameters live
 
@@ -123,7 +137,7 @@ Commands are single bytes, some followed by a little-endian 4-byte float:
   differences, and the timestamp is the sample time, not the reply time.
 - `0x03`: Set **angular acceleration** (rad/s²) — was `CMD_SET_TARGET` in
   position mode; the switch to accel is what made on-device deployment
-  viable (see `docs/transport_delay.md`)
+  viable (see `website/src/content/docs/reference/transport-delay.md`)
 - `0x04`: Engage motor
 - `0x05`: Disengage motor
 - `0x06`: Tare pendulum (re-zero to the current AS5600 reading)
@@ -240,7 +254,7 @@ Example:
 On macOS, the Arduino typically appears as `/dev/cu.usbserial-110` or similar. Update the port string in Julia/Python code if different.
 
 ### Current Limiting
-Set the driver current limit with the onboard trim pot. **The TMC2209's Vref sets RMS current, the DRV8825's sets peak** — carrying a DRV8825 number over to a TMC2209 over-drives the motor (a factory-default 1.2–1.3 V ≈ 0.9 A RMS cooked the motor within 5 minutes). TMC2209: **≈0.9 V (0.64 A RMS)**; DRV8825: 0.45 V (0.9 A peak). Verify by temperature — warm, never too hot to touch. Full procedure and the wiring gotchas (remove the DRV8825's RESET–SLEEP bridge; coil pin order differs) in [`docs/electronics_design.md`](docs/electronics_design.md).
+Set the driver current limit with the onboard trim pot. **The TMC2209's Vref sets RMS current, the DRV8825's sets peak** — carrying a DRV8825 number over to a TMC2209 over-drives the motor (a factory-default 1.2–1.3 V ≈ 0.9 A RMS cooked the motor within 5 minutes). TMC2209: **≈0.9 V (0.64 A RMS)**; DRV8825: 0.45 V (0.9 A peak). Verify by temperature — warm, never too hot to touch. Full procedure and the wiring gotchas (remove the DRV8825's RESET–SLEEP bridge; coil pin order differs) in [`website/src/content/docs/build/electronics.md`](website/src/content/docs/build/electronics.md).
 
 ## Control Theory Notes
 
