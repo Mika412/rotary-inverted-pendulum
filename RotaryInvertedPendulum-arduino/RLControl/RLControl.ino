@@ -114,8 +114,11 @@ const int32_t MOTOR_BRAKE_ACCEL_STEPS_S2 =
 // =============================================================================
 // CONTROL PARAMETERS
 // =============================================================================
-// Fixed control rate — MUST match the rate the policy was trained at
-// (vel_v8 line: 35 Hz).
+// Fixed control rate — MUST match the rate the flashed policy was trained at.
+// 50 Hz is the canonical operating point across the whole stack (Python
+// defaults included), so this agrees with a bare end-to-end runbook run. A
+// policy trained at one rate and deployed at another produces a spinner, not
+// a balancer.
 const float CONTROL_FREQUENCY_HZ = 50.0f;
 const unsigned long CONTROL_PERIOD_US = (unsigned long)(1000000.0f / CONTROL_FREQUENCY_HZ);
 const float CONTROL_DT_S = 1.0f / CONTROL_FREQUENCY_HZ;

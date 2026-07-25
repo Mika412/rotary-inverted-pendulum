@@ -1,0 +1,87 @@
+/**
+ * Everything that must happen before Astro builds.
+ *
+ * Runs on `npm run dev` and as the `prebuild` hook, so a plain `npm run build`
+ * always regenerates from source. Deliberately dependency-free (no Python, no
+ * network) so CI needs nothing but Node.
+ *
+ * The heavy, rarely-changing assets — meshes, MJCF, replay capture — are NOT
+ * built here; they are committed. See scripts/export_assets.py.
+ */
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { syncDocs } from './sync_docs.mjs';
+import { writeConstants } from './extract_constants.mjs';
+import { writeWeights } from './export_weights.mjs';
+
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const SITE = path.resolve(HERE, '..');
+
+/**
+ * Self-host the Draco decoder. GLTFLoader defaults to fetching it from a CDN,
+ * which fails on a locked-down static host and adds a third-party dependency
+ * to a page that otherwise has none.
+ */
+async function copyDracoDecoder() {
+  const from = path.join(SITE, 'node_modules/three/examples/jsm/libs/draco/gltf');
+  const to = path.join(SITE, 'public/draco');
+  await fs.mkdir(to, { recursive: true });
+
+  const needed = ['draco_decoder.wasm', 'draco_wasm_wrapper.js'];
+  for (const file of needed) {
+    try {
+      await fs.copyFile(path.join(from, file), path.join(to, file));
+    } catch (err) {
+      throw new Error(
+        `prepare: could not copy ${file} from three's draco decoder (${err.code}). ` +
+          `three may have moved examples/jsm/libs/draco/gltf.`
+      );
+    }
+  }
+  console.log(`prepare: draco decoder self-hosted (${needed.length} files)`);
+}
+
+/** Fail early with a clear message if a committed demo asset is missing. */
+async function checkCommittedAssets() {
+  const required = [
+    'public/sim/model.xml',
+    'public/sim/scene.json',
+    'public/models/base.glb',
+    'public/models/arm.glb',
+    'public/models/pendulum.glb',
+  ];
+  const missing = [];
+  for (const rel of required) {
+    try {
+      await fs.access(path.join(SITE, rel));
+    } catch {
+      missing.push(rel);
+    }
+  }
+  if (missing.length) {
+    throw new Error(
+      `prepare: missing committed demo assets:\n  ${missing.join('\n  ')}\n` +
+        `Regenerate them with:\n  uv run --project ../RotaryInvertedPendulum-python ` +
+        `python scripts/export_assets.py`
+    );
+  }
+
+  // replay.json is optional: without it the demo starts in live mode.
+  try {
+    await fs.access(path.join(SITE, 'public/sim/replay.json'));
+  } catch {
+    console.warn(
+      'prepare: WARNING public/sim/replay.json is absent — the demo will start ' +
+        'in live mode and the "recording" toggle will be disabled.'
+    );
+  }
+}
+
+await checkCommittedAssets();
+await syncDocs();
+await writeConstants();
+await writeWeights();
+await copyDracoDecoder();
+console.log('prepare: done');

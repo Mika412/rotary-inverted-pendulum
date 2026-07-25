@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+"""Regenerate the pinned demo assets for the documentation site.
+
+Run this when the meshes, the URDF, the sysid parameters, or the champion
+capture change:
+
+    cd website && uv run --project ../RotaryInvertedPendulum-python \
+        python scripts/export_assets.py
+
+Outputs (all committed to git — see website/.gitignore for why):
+
+    public/models/*.glb    draco-compressed visual meshes, metres, ~58 KB total
+    public/sim/model.xml    the generated MJCF, exactly as pendulum_env builds it
+    public/sim/scene.json   mesh transforms + provenance for the 3D renderer
+    public/sim/replay.json  a slice of real on-device telemetry
+
+Requires `trimesh` (in the python project) and `npx @gltf-transform/cli`.
+"""
+
+from __future__ import annotations
+
+import json
+import math
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+SITE = Path(__file__).resolve().parent.parent
+REPO = SITE.parent
+RL = REPO / "RotaryInvertedPendulum-python" / "src" / "rl"
+
+sys.path.insert(0, str(RL))
+
+# Meshes are authored in Onshape and exported in millimetres; the physics model
+# and the renderer both work in metres.
+MM_TO_M = 0.001
+
+# Visual meshes to publish. `lid` is included so the rig looks like the real
+# thing; `motor plate.stl` lives inside the enclosure and is never visible.
+MESHES = ["base", "lid", "arm", "pendulum"]
+
+# Decimation is aggressive on purpose: these are 50–120k-triangle printable
+# solids being used as a 60 fps web prop. 8% keeps every visible feature.
+SIMPLIFY_RATIO = "0.08"
+SIMPLIFY_ERROR = "0.002"
+
+
+def log(msg: str) -> None:
+    print(f"export_assets: {msg}", flush=True)
+
+
+def export_meshes(out_dir: Path) -> dict[str, dict]:
+    import trimesh
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    gltf_transform = shutil.which("gltf-transform") or "npx"
+    use_npx = gltf_transform == "npx"
+
+    info: dict[str, dict] = {}
+    tmp_dir = out_dir / "_raw"
+    tmp_dir.mkdir(exist_ok=True)
+
+    for name in MESHES:
+        src = REPO / "meshes" / f"{name}.stl"
+        mesh = trimesh.load(src)
+        mesh.merge_vertices()
+        raw_tris = len(mesh.faces)
+
+        # Convert to metres in the mesh's own authored frame. The renderer
+        # applies the joint transforms; baking scale here keeps scene.json
+        # in SI units and the glb directly usable.
+        mesh.apply_scale(MM_TO_M)
+        bounds = mesh.bounds.tolist()
+
+        raw = tmp_dir / f"{name}.glb"
+        mesh.export(raw)
+
+        final = out_dir / f"{name}.glb"
+        cmd = (["npx", "--yes", "@gltf-transform/cli"] if use_npx else [gltf_transform]) + [
+            "optimize",
+            str(raw),
+            str(final),
+            "--compress",
+            "draco",
+            "--simplify",
+            "true",
+            "--simplify-ratio",
+            SIMPLIFY_RATIO,
+            "--simplify-error",
+            SIMPLIFY_ERROR,
+            "--no-prune-attributes",
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=SITE)
+        if result.returncode != 0 or not final.exists():
+            raise SystemExit(
+                f"gltf-transform failed for {name}:\n{result.stdout}\n{result.stderr}"
+            )
+
+        info[name] = {
+            "file": f"models/{name}.glb",
+            "sourceTriangles": raw_tris,
+            "bytes": final.stat().st_size,
+            "boundsM": bounds,
+        }
+        log(
+            f"{name}: {raw_tris} tris, {src.stat().st_size / 1048576:.2f} MB STL "
+            f"-> {final.stat().st_size / 1024:.0f} KB glb"
+        )
+
+    shutil.rmtree(tmp_dir)
+    return info
+
+
+def export_mjcf(out_dir: Path) -> str:
+    """Dump the MJCF exactly as the training environment builds it."""
+    from pendulum_env import PendulumParams, build_mjcf
+
+    params = PendulumParams.load()
+    xml = build_mjcf(params)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "model.xml").write_text(xml)
+    log(f"model.xml: {len(xml)} bytes")
+    return xml
+
+
+def build_scene(mesh_info: dict[str, dict]) -> dict:
+    """Visual transform chain for the renderer.
+
+    Derived from the MJCF, not the URDF: urdf/model.urdf places the
+    arm_to_pendulum joint at (0, 0, 0.014) with no x-offset while the pendulum's
+    inertial origin sits at x=0.062. Because the swing axis IS x, that
+    inconsistency has no effect on dynamics and went unnoticed — but it would
+    put the rendered pendulum 62 mm from the arm tip. The MJCF is the model the
+    simulation actually integrates, so it is the authority here.
+    """
+    import pendulum_env as pe
+
+    # Mesh-frame facts measured from the STL bounds, in metres.
+    base_top_z = mesh_info["base"]["boundsM"][1][2]
+
+    return {
+        "_note": (
+            "Visual transforms for the 3D demo. Derived from the MJCF "
+            "(see build_scene in scripts/export_assets.py for why not the URDF)."
+        ),
+        "units": "metres",
+        "armLengthM": pe.ARM_LENGTH_M,
+        "baseTopZ": base_top_z,
+        "nodes": {
+            # The enclosure is static; the arm plane sits on top of it.
+            "base": {"mesh": "base", "parent": None, "position": [0, 0, 0]},
+            "lid": {"mesh": "lid", "parent": None, "position": [0, 0, base_top_z]},
+            # Rotates about +z by the motor angle.
+            "arm": {
+                "mesh": "arm",
+                "parent": None,
+                "position": [0, 0, base_top_z],
+                "rotationAxis": "z",
+                "joint": "motor",
+            },
+            # Sits at the arm tip and rotates about the arm's local +x.
+            # The mesh is authored with the rod pointing +z, while the MJCF's
+            # qpos=0 pose hangs the pendulum along -z, hence the pi offset.
+            "pendulum": {
+                "mesh": "pendulum",
+                "parent": "arm",
+                "position": [pe.ARM_LENGTH_M, 0, 0],
+                "rotationAxis": "x",
+                "joint": "pendulum",
+                "angleOffsetRad": math.pi,
+            },
+        },
+        "meshes": mesh_info,
+    }
+
+
+def export_replay(
+    out_dir: Path, duration_s: float = 30.0, capture: Path | None = None
+) -> dict | None:
+    """Slice real on-device telemetry into a compact replay asset.
+
+    recordings/ is gitignored, so this asset must be committed; without it the
+    landing page has nothing to show before the user opts into the live sim.
+    Pass --capture to point at a capture outside this checkout (recordings only
+    exist in whichever working tree actually ran analyze_onboard.py).
+    """
+    import numpy as np
+
+    # Default is the h16-float 50 Hz champion: the capture whose policy and
+    # control rate match what RLControl.ino + policy_weights.h currently flash
+    # (commit a019a1b, 0.997 balanced over 5 minutes). onboard_champion_5min.npz
+    # is a better-known name but is a 35 Hz capture from the previous era.
+    capture = capture or RL / "recordings" / "onboard_smooth50async-h16float_50hz.npz"
+    if not capture.exists():
+        log(f"WARNING: {capture.name} not found — skipping replay export.")
+        log("  The landing page will start in live-sim mode instead of replay.")
+        return None
+
+    data = np.load(capture)
+    t = data["t_s"]
+    rate = float(data["control_freq_hz"])
+    n = min(len(t), int(duration_s * rate))
+
+    t0 = float(t[0])
+    motor = data["motor_pos_rad"][:n].astype(float)
+    pend = data["pendulum_pos_rad"][:n].astype(float)
+    action = data["action"][:n].astype(float)
+
+    # Quantise to the sensors' own resolution: keeping float64 precision on a
+    # signal the AS5600 only knows to 12 bits would be false precision, and
+    # int16 at these scales is lossless relative to the encoder LSB.
+    payload = {
+        "_note": (
+            "Real telemetry captured from the standalone Nano by analyze_onboard.py. "
+            "Angles are int16, scaled by `scale` radians per count."
+        ),
+        "source": f"recordings/{capture.name}",
+        "controlFreqHz": rate,
+        "samples": n,
+        "durationS": round(float(t[n - 1] - t0), 3),
+        "scale": 1e-4,
+        "motorPos": [int(round(v / 1e-4)) for v in motor],
+        "pendulumPos": [int(round(v / 1e-4)) for v in pend],
+        "action": [int(round(v * 10000)) for v in action],
+        "actionScale": 1e-4,
+    }
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / "replay.json"
+    path.write_text(json.dumps(payload))
+    log(
+        f"replay.json: {n} samples @ {rate:g} Hz "
+        f"({payload['durationS']:.1f} s), {path.stat().st_size / 1024:.0f} KB"
+    )
+    return payload
+
+
+def main() -> None:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--capture",
+        type=Path,
+        default=None,
+        help="on-device .npz capture to slice for the replay asset "
+        "(default: RL recordings/onboard_champion_5min.npz)",
+    )
+    ap.add_argument(
+        "--replay-duration-s", type=float, default=30.0, help="replay length (default 30)"
+    )
+    ap.add_argument("--skip-meshes", action="store_true", help="only refresh sim/ assets")
+    args = ap.parse_args()
+
+    models = SITE / "public" / "models"
+    sim = SITE / "public" / "sim"
+
+    if args.skip_meshes:
+        mesh_info = json.loads((sim / "scene.json").read_text())["meshes"]
+        log("skipping mesh export, reusing transforms from scene.json")
+    else:
+        mesh_info = export_meshes(models)
+    export_mjcf(sim)
+    scene = build_scene(mesh_info)
+    (sim / "scene.json").write_text(json.dumps(scene, indent=2) + "\n")
+    log(f"scene.json: {len(scene['nodes'])} nodes")
+    export_replay(sim, duration_s=args.replay_duration_s, capture=args.capture)
+
+    total = sum(m["bytes"] for m in mesh_info.values())
+    log(f"done — {total / 1024:.0f} KB of meshes total")
+
+
+if __name__ == "__main__":
+    main()

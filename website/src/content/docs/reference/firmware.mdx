@@ -1,0 +1,99 @@
+---
+title: Firmware sketches
+description: What each Arduino sketch is for, and the hardware constants they share.
+---
+
+import Constants from '../../../components/ConstantsTable.astro';
+
+All sketches target the Arduino Nano (ATmega328) and live in
+[`RotaryInvertedPendulum-arduino/`](https://github.com/ferrolho/rotary-inverted-pendulum/tree/main/RotaryInvertedPendulum-arduino).
+
+```bash
+arduino-cli compile --upload -p <PORT> \
+    --fqbn arduino:avr:nano:cpu=atmega328 \
+    RotaryInvertedPendulum-arduino/<SketchName>
+```
+
+## Production sketches
+
+### `RLControl`
+
+The standalone learned controller — the end state of the whole pipeline. Runs
+the distilled policy from `policy_weights.h` with no host attached, swings up
+from hanging, and balances.
+
+- Velocity-mode actions: the network's `tanh` output is a velocity setpoint,
+  converted to an acceleration command each tick by a saturating P-law.
+- Boot takes the pendulum's resting pose as the encoder zero, so hold it still
+  and hanging through the 1 s settle delay (LED solid).
+- Telemetry at 500,000 baud, scored by `analyze_onboard.py`.
+
+### `LowLevelServer`
+
+Turns the Nano into a state/command server so a laptop can close the loop. Used
+for real-rig fine-tuning and by the Julia clients. See [serial
+protocols](/rotary-inverted-pendulum/reference/serial-protocol/).
+
+### `PIDControl`
+
+Self-contained hand-tuned PID. Balances but does not swing up — lift the
+pendulum to within ~25° of vertical and it engages. Predates the learned
+controller; see the [tuning
+history](/rotary-inverted-pendulum/reference/pid-tuning-history/).
+
+## Test sketches
+
+| Sketch | Verifies |
+| --- | --- |
+| `TestHeartbeat` | The board runs at all — double-pulse LED, heartbeat count at 115200 |
+| `TestEncoder` | AS5600 reading and magnet placement, prints `pendulum_deg:<v>` |
+| `TestMotor` | Stepper motion, ±90° oscillation at 1/10 production speed |
+| `TestSerial` | Serial round-trip time (~2.5 ms, ~400 Hz theoretical) |
+| `TestServer` | Request/response plumbing with sine/cosine waves |
+
+Walkthrough with expected output and failure modes: [First
+power-on](/rotary-inverted-pendulum/build/first-power-on/).
+
+## Shared constants
+
+These must agree between the firmware and the simulation. The values below are
+extracted from `RLControl.ino` and `pendulum_env.py` when this page is built, so
+they cannot drift from the source the way prose can.
+
+<Constants />
+
+### Pin assignments
+
+| Signal | Pin | Note |
+| --- | --- | --- |
+| STEP | 9 | **Required** — FastAccelStepper needs Timer1 OC1A on ATmega328 |
+| DIR | 2 | |
+| ENABLE | 5 | Active-low on both TMC2209 and DRV8825 |
+| AS5600 SDA/SCL | A4 / A5 | I²C at 400 kHz (fast mode) |
+
+Pin 9 is not a preference. FastAccelStepper generates steps from Timer1's output
+compare unit, and the sketch halts in `setup()` if the step pin is not
+Timer1-capable.
+
+### Microstepping
+
+`MICROSTEPS` must match how you wired the driver: **16** on a TMC2209 with MS1
+and MS2 high (3200 steps/rev), 8 on a DRV8825 (1600). Steps per revolution, the
+speed cap and all radian↔step conversions derive from this one constant, so a
+mismatch silently scales the arm's real speed and range while the firmware
+believes otherwise.
+
+## Common failures
+
+- **`[FATAL] FastAccelStepper config rejected`** — the requested `MOTOR_MAX_SPEED`
+  exceeds FastAccelStepper's AVR ceiling of 50 kSteps/s for a single stepper.
+- **Balances tethered but spins standalone** — check the loop rate first. If
+  `analyze_onboard.py` does not report the configured rate, inference is
+  overrunning the tick budget and you are evaluating a broken deployment, not a
+  bad policy.
+- **Swings but never reaches upright** — `MOTOR_ACCELERATION` differs between
+  `LowLevelServer.ino` (used during fine-tuning) and `RLControl.ino` (used at
+  deployment). They must agree, or the policy is trained against one plant and
+  deployed against another.
+- **Buzzing or grinding under load** — step skipping. Drop `MOTOR_ACCELERATION`
+  from 50 k to 30 k and re-flash.

@@ -1,0 +1,30 @@
+/* Accent tuned to the arm's blue in the 3D view, so the page and the demo read
+   as one thing rather than a widget dropped into a template.
+   Only the accent ramp is overridden: --sl-color-white is Starlight's
+   *foreground* token, not a literal white, and pinning it makes every heading
+   invisible in light mode. */
+:root {
+  --sl-color-accent-low: #12243a;
+  --sl-color-accent: #2f7fd0;
+  --sl-color-accent-high: #b3d4f5;
+}
+
+:root[data-theme='light'] {
+  --sl-color-accent-low: #c6dcf3;
+  --sl-color-accent: #1c62aa;
+  --sl-color-accent-high: #10314f;
+}
+
+/* The runbook and reference pages carry wide command lines and measurement
+   tables; give them room before the prose column clamps. */
+:root {
+  --sl-content-width: 50rem;
+}
+
+/* Tables in the reference docs are data, not layout — let them scroll rather
+   than squeezing columns into unreadable widths on narrow screens. */
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  font-variant-numeric: tabular-nums;
+}

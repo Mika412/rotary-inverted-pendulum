@@ -4,6 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Active initiatives
 
+- **Documentation site**: `website/` is an Astro Starlight site published to
+  GitHub Pages, with an in-browser demo of the deployed policy (official MuJoCo
+  WASM + the weights parsed from `RLControl/policy_weights.h`).
+  **Never hard-code firmware constants in prose.** `website/scripts/extract_constants.mjs`
+  reads them from `RLControl.ino`, `policy_weights.h` and `pendulum_env.py`;
+  render them via `ConstantsTable.astro`. This guard exists because the runbook
+  asserted a 35 Hz control rate for weeks after the firmware moved to 50 Hz
+  (reconciled in 352c809).
+  Tests: `npm test` (the flashed policy still balances, 3D transform chain
+  correct) and `npm run test:smoke` (real headless browser against the build).
+
 - **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `docs/end_to_end_runbook.md` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`.
   **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing.** Every default across the Python stack and the sketches is set to this, so a bare end-to-end run of the runbook reproduces the current champion — do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). `docs/control_rate_selection.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:
   - `docs/rl_transitions.md` — the `(s, a, r, s')` transition contract in plain English.
@@ -104,12 +115,19 @@ Commands are sent as text strings:
 - `"6"`: Stop motor
 
 ### Binary protocol (LowLevelServer)
-Commands are single bytes:
-- `0x01`: Check ready
-- `0x02`: Get state (returns time, motor position, pendulum position as floats)
-- `0x03`: Set target (expects 4-byte float in radians)
+Commands are single bytes, some followed by a little-endian 4-byte float:
+- `0x01`: Check ready (echoes `0x01`)
+- `0x02`: Get state — 20-byte reply: `uint32` timestamp µs, then floats for
+  motor position, pendulum position, motor velocity, pendulum velocity.
+  Signs are flipped to the sim frame; velocities are windowed finite
+  differences, and the timestamp is the sample time, not the reply time.
+- `0x03`: Set **angular acceleration** (rad/s²) — was `CMD_SET_TARGET` in
+  position mode; the switch to accel is what made on-device deployment
+  viable (see `docs/transport_delay.md`)
 - `0x04`: Engage motor
 - `0x05`: Disengage motor
+- `0x06`: Tare pendulum (re-zero to the current AS5600 reading)
+- `0x07`: Set target motor position (rad) — position mode
 
 ## Julia Development
 

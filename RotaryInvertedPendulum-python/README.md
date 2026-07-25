@@ -33,19 +33,25 @@ Notes:
 
 ## Control rate
 
-This rig's canonical operating rate is **35 Hz** (28.6 ms per control step,
-`max_action_delta_rad = 0.10` → 3.5 rad/s slew). It's the empirically-best
-operating point on this hardware: 100 Hz pushes the policy into a noisy
-"active correction" attractor where the motor swings ±0.5 rad even when
-balanced; 30 Hz lacks slew authority for disturbance recovery; 35 Hz lands
-in the calm-attractor side of the boundary at slew ~3.5 rad/s.
+This rig's canonical operating rate is **50 Hz** (20 ms per control step,
+±3.5 rad/s velocity setpoints, K=4 frame stacking, 4-tap actuator action
+smoothing). Every `--control-freq` flag and `control_freq_hz` constructor
+default across `pendulum_env.py`, `real_env.py`, `async_control.py`,
+`train_sac.py`, `finetune_async.py`, `eval_randomized.py`, `run_policy.py`
+and `distill.py` is set to it, as is `analyze_onboard.py --expect-hz` and
+`RLControl.ino` — so a bare end-to-end run reproduces the current champion.
 
-All `--control-freq` flags and the `control_freq_hz` constructor defaults
-across `pendulum_env.py`, `real_env.py`, `async_control.py`, `train_sac.py`,
-`finetune_async.py`, `eval_randomized.py`, `run_policy.py`, and `distill.py`
-default to 35 Hz. Override only if you have a reason — see
-[`../docs/control_rate_selection.md`](../docs/control_rate_selection.md) for
-the principled rate-window argument and the calm-vs-active attractor data.
+**Do not change the rate in one place.** Training, fine-tuning and
+deployment must agree, or the policy silently misbehaves;
+`run_config.check_config` aborts on a mismatch rather than letting you
+deploy a rate-mismatched policy.
+
+[`../docs/control_rate_selection.md`](../docs/control_rate_selection.md)
+concludes 35 Hz and explains the rate-window method. Its measurements stand,
+but its answer is superseded: 50 Hz previously lost because the policy's
+alternating-sign action dither excited the compliant base, and actuator-side
+action smoothing removed that failure mode. Read it for the method, take
+50 Hz as the answer.
 
 ## End-to-end pipeline
 

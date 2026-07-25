@@ -1,0 +1,135 @@
+---
+/**
+ * Renders the constants extracted from firmware and simulation source.
+ *
+ * The point of this component is that nobody types these numbers into prose.
+ * The runbook asserted a 35 Hz control rate for weeks after the firmware moved
+ * to 50 Hz; anything rendered here follows the source automatically.
+ */
+import constants from '../generated/constants.json';
+
+const { control, motor, encoder, physics, policy, _source } = constants;
+
+const rows: { group: string; items: [string, string, string][] }[] = [
+  {
+    group: 'Control loop',
+    items: [
+      ['Control rate', `${control.frequencyHz} Hz`, `${(1000 / control.frequencyHz).toFixed(1)} ms per tick`],
+      ['Action mode', control.actionMode, 'policy output is a velocity setpoint'],
+      ['Max velocity', `${control.maxVelocityRadS} rad/s`, 'action scale'],
+      ['Max acceleration', `${control.maxAccelRadS2} rad/s²`, 'P-law saturation'],
+      ['Velocity correction λ', String(control.vCmdLambda), 'per tick, toward measured velocity'],
+      ['Action smoothing', `${control.actionSmoothWindow} ticks`, 'boxcar, actuator side only'],
+      ['Observation', `${control.obsFrames} × ${control.frameDim}`, 'frame stack × frame width'],
+    ],
+  },
+  {
+    group: 'Motor',
+    items: [
+      ['Microsteps', String(motor.microsteps), `${motor.stepsPerRevolution} steps/rev`],
+      ['Step resolution', `${(motor.stepLsbRad * 1000).toFixed(3)} mrad`, 'one microstep'],
+      ['Soft limit', `±${((motor.safeLimitRad * 180) / Math.PI).toFixed(0)}°`, 'firmware brakes past this'],
+      ['Hard limit', `±${((motor.hardLimitRad * 180) / Math.PI).toFixed(0)}°`, 'episode terminates'],
+    ],
+  },
+  {
+    group: 'Encoder',
+    items: [
+      ['Resolution', `${encoder.bits}-bit`, `${encoder.counts} counts/rev`],
+      ['Step resolution', `${(encoder.lsbRad * 1000).toFixed(3)} mrad`, 'one count'],
+      ['Velocity window', `${(encoder.velWindowS * 1000).toFixed(0)} ms`, 'finite-difference span'],
+    ],
+  },
+  {
+    group: 'Geometry & physics',
+    items: [
+      ['Arm length', `${(physics.armLengthM * 1000).toFixed(0)} mm`, 'motor axis to pendulum pivot'],
+      ['Arm mass', `${(physics.armMassKg * 1000).toFixed(0)} g`, ''],
+      ['Physics timestep', `${(physics.timestepS * 1000).toFixed(0)} ms`, 'MuJoCo integrator step'],
+      ['Gravity', `${physics.gravity} m/s²`, ''],
+    ],
+  },
+  {
+    group: 'Deployed network',
+    items: [
+      ['Architecture', policy.architecture, 'ReLU, ReLU, tanh'],
+      ['Parameters', String(policy.paramCount), `${policy.flashBytes} bytes of flash`],
+      ['Distillation val MSE', String(policy.distillValMse), ''],
+      ['Weights generated', policy.generated ?? 'unknown', ''],
+    ],
+  },
+];
+---
+
+<div class="constants">
+  {
+    rows.map((section) => (
+      <table>
+        <caption>{section.group}</caption>
+        <tbody>
+          {section.items.map(([name, value, note]) => (
+            <tr>
+              <th scope="row">{name}</th>
+              <td>{value}</td>
+              <td class="constants__note">{note}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ))
+  }
+  <p class="constants__provenance">
+    Extracted at build time from <code>{_source.firmware}</code>,
+    <code>{_source.weights}</code> and <code>{_source.env}</code>.
+  </p>
+</div>
+
+<style>
+  .constants {
+    display: grid;
+    gap: 1.25rem;
+    margin-block: 1.5rem;
+  }
+
+  .constants table {
+    width: 100%;
+    margin: 0;
+    border-collapse: collapse;
+    font-size: var(--sl-text-sm);
+  }
+
+  .constants caption {
+    text-align: start;
+    font-weight: 600;
+    color: var(--sl-color-white);
+    padding-block-end: 0.35rem;
+  }
+
+  .constants th[scope='row'] {
+    text-align: start;
+    font-weight: 400;
+    color: var(--sl-color-gray-2);
+    width: 40%;
+  }
+
+  .constants td {
+    font-variant-numeric: tabular-nums;
+    color: var(--sl-color-white);
+  }
+
+  .constants__note {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+
+  .constants tr:not(:last-child) th,
+  .constants tr:not(:last-child) td {
+    border-bottom: 1px solid var(--sl-color-gray-6);
+  }
+
+  .constants__provenance {
+    margin: 0;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>

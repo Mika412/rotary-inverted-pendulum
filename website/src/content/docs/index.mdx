@@ -1,0 +1,94 @@
+---
+title: A pendulum that teaches itself to balance
+description: A £20 DIY rotary inverted pendulum that balances itself with a 689-parameter neural network running standalone on an Arduino Nano — trained in simulation, fine-tuned on the real hardware, and distilled to fit in 2.7 KB of flash.
+template: splash
+hero:
+  tagline: |
+    Print it, solder it, and train it at home for about £20. The controller is a
+    689-parameter network that learned to swing up and balance — trained in
+    simulation, fine-tuned on the real rig, then distilled small enough to run
+    standalone on an Arduino Nano.
+  actions:
+    - text: Build one
+      link: /rotary-inverted-pendulum/build/bom/
+      icon: right-arrow
+    - text: How it learns
+      link: /rotary-inverted-pendulum/train/pipeline/
+      variant: minimal
+    - text: GitHub
+      link: https://github.com/ferrolho/rotary-inverted-pendulum
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import PendulumDemo from '../../components/PendulumDemo.astro';
+import constants from '../../generated/constants.json';
+
+<PendulumDemo />
+
+The panel above is not an animation. **Real rig** replays telemetry captured
+from the pendulum balancing on its own, untethered. **Live network** loads the
+physics engine into your browser and runs the exact weights that are flashed on
+the Nano — the same `policy_weights.h` that `arduino-cli` compiles — through the
+same control law the firmware executes. Nudge it and the policy has to recover
+from a state nobody scripted.
+
+## Why this is interesting
+
+A rotary inverted pendulum is the standard testbed for control theory: an
+unstable equilibrium you can only hold by moving the thing underneath it.
+Commercial teaching rigs cost thousands — a Quanser QUBE Servo 2 lists at around
+£4,500. This one is printed plastic, a NEMA17 stepper, a magnetic encoder and an
+Arduino Nano.
+
+The interesting part is what runs on it. Not a hand-tuned PID, but a policy that
+was trained by reinforcement learning and then squeezed until it fit on an
+8-bit microcontroller with 2 KB of RAM.
+
+<CardGrid>
+  <Card title="Small enough to fit" icon="approve-check">
+    The deployed network is **{constants.policy.architecture}** —
+    {constants.policy.paramCount} parameters in {constants.policy.flashBytes}
+    bytes of flash. A forward pass takes about 8 ms on the ATmega328, inside a
+    {(1000 / constants.control.frequencyHz).toFixed(1)} ms control tick.
+  </Card>
+  <Card title="Trained where it is cheap" icon="rocket">
+    A large teacher learns in simulation in about 25 minutes on a laptop, across
+    three stages of increasing domain randomisation.
+  </Card>
+  <Card title="Fine-tuned where it counts" icon="setting">
+    Simulation alone does not transfer. Roughly 30–80 real-rig episodes close the
+    gap, with the physical pendulum in the loop.
+  </Card>
+  <Card title="Distilled, not shrunk" icon="puzzle">
+    Training a tiny network directly with RL failed twice on hardware. Imitating
+    the big teacher works — the student's slight underfit acts as gain reduction
+    and buys robustness.
+  </Card>
+</CardGrid>
+
+## Start here
+
+<CardGrid>
+  <LinkCard
+    title="Build the rig"
+    description="Bill of materials, printing, assembly, wiring and first power-on."
+    href="/rotary-inverted-pendulum/build/bom/"
+  />
+  <LinkCard
+    title="Train and deploy a policy"
+    description="The end-to-end pipeline, from measuring your rig to a pendulum that balances with no laptop attached."
+    href="/rotary-inverted-pendulum/train/pipeline/"
+  />
+  <LinkCard
+    title="How it works"
+    description="The transition contract, domain randomisation, and the transport-delay work that made deployment possible."
+    href="/rotary-inverted-pendulum/reference/transitions/"
+  />
+  <LinkCard
+    title="Watch the build"
+    description="A video walkthrough of the mechanical build."
+    href="https://www.youtube.com/watch?v=rKChjuuR7K8"
+  />
+</CardGrid>

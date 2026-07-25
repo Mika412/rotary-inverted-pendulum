@@ -1,0 +1,232 @@
+---
+/**
+ * The landing-page demo island.
+ *
+ * Server-rendered as a static, readable panel; the 3D canvas and simulation
+ * hydrate on the client. Everything visible before hydration is real content,
+ * so the page is never a blank box waiting on JavaScript.
+ */
+import constants from '../generated/constants.json';
+
+const { control, policy } = constants;
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+---
+
+<div class="demo" data-demo data-base-url={base}>
+  <div class="demo__stage">
+    <canvas data-canvas aria-label="3D view of the rotary inverted pendulum"></canvas>
+    <p class="demo__status" data-status>Loading…</p>
+    <noscript>
+      <p class="demo__status">
+        The interactive demo needs JavaScript. The rig balances itself with a
+        {policy.paramCount}-parameter network running on an Arduino Nano — the
+        documentation below explains how it gets there.
+      </p>
+    </noscript>
+  </div>
+
+  <div class="demo__panel">
+    <div class="demo__modes" role="group" aria-label="Data source">
+      <button type="button" data-mode="replay" aria-pressed="true">Real rig</button>
+      <button type="button" data-mode="live">Live network</button>
+    </div>
+
+    <p class="demo__mode-label" data-mode-label>recording · real hardware</p>
+
+    <dl class="demo__stats">
+      <div>
+        <dt>Angle from upright</dt>
+        <dd data-theta>—</dd>
+      </div>
+      <div>
+        <dt>Action</dt>
+        <dd data-action>—</dd>
+      </div>
+      <div>
+        <dt>Balanced fraction</dt>
+        <dd data-balanced>—</dd>
+      </div>
+      <div>
+        <dt>Upright for</dt>
+        <dd data-streak>—</dd>
+      </div>
+    </dl>
+
+    <div class="demo__actions">
+      <button type="button" data-action-nudge disabled>Nudge it</button>
+      <button type="button" data-action-reset>Restart</button>
+    </div>
+
+    <p class="demo__footnote">
+      <strong>{policy.architecture}</strong> · {policy.paramCount} parameters ·
+      {policy.flashBytes} bytes of flash · {control.frequencyHz} Hz
+    </p>
+  </div>
+</div>
+
+<script>
+  import { mountDemo } from '../demo/index.ts';
+
+  const root = document.querySelector<HTMLElement>('[data-demo]');
+  if (root) {
+    mountDemo(root).catch((err) => {
+      console.error('demo failed to start', err);
+      const status = root.querySelector('[data-status]');
+      if (status) status.textContent = 'The interactive demo failed to start.';
+    });
+  }
+</script>
+
+<style>
+  .demo {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: stretch;
+    margin-block: 2rem;
+    container-type: inline-size;
+  }
+
+  @media (max-width: 50rem) {
+    .demo {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .demo__stage {
+    position: relative;
+    min-height: 22rem;
+    border-radius: 0.75rem;
+    overflow: hidden;
+    background:
+      radial-gradient(
+        circle at 50% 35%,
+        color-mix(in srgb, var(--sl-color-accent) 14%, transparent),
+        transparent 70%
+      ),
+      var(--sl-color-black);
+    border: 1px solid var(--sl-color-gray-5);
+  }
+
+  .demo__stage canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    /* The canvas owns the drag gesture for orbiting; vertical panning still
+       works because the wheel handler yields at the zoom limits. */
+    touch-action: pan-y;
+    cursor: grab;
+  }
+
+  .demo__stage canvas:active {
+    cursor: grabbing;
+  }
+
+  .demo__status {
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0.75rem;
+    margin: 0;
+    text-align: center;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+
+  .demo__panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .demo__modes {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.2rem;
+    border-radius: 0.5rem;
+    background: var(--sl-color-gray-6);
+    border: 1px solid var(--sl-color-gray-5);
+  }
+
+  .demo__modes button {
+    flex: 1;
+    padding: 0.4rem 0.5rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: var(--sl-color-gray-2);
+    font: inherit;
+    font-size: var(--sl-text-xs);
+    cursor: pointer;
+  }
+
+  .demo__modes button[aria-pressed='true'] {
+    background: var(--sl-color-accent);
+    color: var(--sl-color-white);
+  }
+
+  .demo__modes button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .demo__mode-label {
+    margin: 0;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .demo__stats {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  .demo__stats dt {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+
+  .demo__stats dd {
+    margin: 0;
+    font-size: var(--sl-text-lg);
+    font-variant-numeric: tabular-nums;
+    color: var(--sl-color-white);
+  }
+
+  .demo__actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .demo__actions button {
+    flex: 1;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.4rem;
+    border: 1px solid var(--sl-color-gray-5);
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-white);
+    font: inherit;
+    font-size: var(--sl-text-xs);
+    cursor: pointer;
+  }
+
+  .demo__actions button:hover:not(:disabled) {
+    border-color: var(--sl-color-accent);
+  }
+
+  .demo__actions button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .demo__footnote {
+    margin: 0;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    line-height: 1.5;
+  }
+</style>

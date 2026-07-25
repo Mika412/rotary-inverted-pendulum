@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Rotary inverted pendulum">
+  <!-- The rig in its balanced pose: enclosure, arm, and the pendulum upright. -->
+  <rect width="32" height="32" rx="6" fill="#1b2433"/>
+  <!-- enclosure -->
+  <rect x="7" y="21" width="18" height="6" rx="1.5" fill="#2f3542"/>
+  <!-- arm -->
+  <rect x="9" y="18.5" width="14" height="2.6" rx="1.3" fill="#4a90d9"/>
+  <!-- pendulum, vertical, with the coin mass at the tip -->
+  <rect x="19.6" y="7" width="2.4" height="12" rx="1.2" fill="#e8503a"/>
+  <circle cx="20.8" cy="6.4" r="3.4" fill="#e8503a"/>
+  <circle cx="20.8" cy="6.4" r="1.5" fill="#f6b93b"/>
+  <!-- motor axis -->
+  <circle cx="11" cy="19.8" r="1.5" fill="#1b2433"/>
+</svg>
