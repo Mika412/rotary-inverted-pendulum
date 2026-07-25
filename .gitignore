@@ -243,3 +243,6 @@ MUJOCO_LOG.TXT
 # anything I'm iterating on but don't want to track in git history)
 .notes/
 
+
+# Claude Code local state (agent worktrees, session data)
+.claude/

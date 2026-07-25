@@ -42,6 +42,7 @@ CMD_ENGAGE_MOTOR = 0x04
 CMD_DISENGAGE_MOTOR = 0x05
 CMD_TARE_PENDULUM = 0x06
 CMD_SET_TARGET = 0x07  # position-mode: commanded motor position in radians (moveTo)
+CMD_ZERO_MOTOR = 0x08  # re-zero the motor step counter to the arm's current position
 
 # time_us (uint32 LE), motor_pos, pen_pos, motor_vel, pen_vel (4× float32 LE).
 _STATE_STRUCT = struct.Struct("<Iffff")
@@ -203,3 +204,16 @@ class LowLevelClient:
             self.ser.flush()
             resp = self.ser.read(1)
         return resp == bytes([CMD_TARE_PENDULUM])
+
+    def zero_motor(self, *, timeout_s: float = 0.5) -> bool:
+        """Re-zero the motor step counter to the arm's current position.
+
+        Called by `real_env.reset()` after the operator re-centres the arm by
+        hand — the counter is open-loop, so it would otherwise keep reporting
+        the stale pre-move position. Returns True on ack.
+        """
+        with self._lock:
+            self.ser.write(bytes([CMD_ZERO_MOTOR]))
+            self.ser.flush()
+            resp = self.ser.read(1)
+        return resp == bytes([CMD_ZERO_MOTOR])

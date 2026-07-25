@@ -142,6 +142,7 @@ Commands are single bytes, some followed by a little-endian 4-byte float:
 - `0x05`: Disengage motor
 - `0x06`: Tare pendulum (re-zero to the current AS5600 reading)
 - `0x07`: Set target motor position (rad) — position mode
+- `0x08`: Zero the motor step counter to the arm's current position (called after the operator re-centres the arm between fine-tune episodes)
 
 ## Julia Development
 

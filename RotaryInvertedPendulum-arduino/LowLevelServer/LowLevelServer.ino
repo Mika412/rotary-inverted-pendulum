@@ -15,6 +15,7 @@ const long BAUD_RATE = 2000000;
 #define CMD_DISENGAGE_MOTOR 0x05
 #define CMD_TARE_PENDULUM 0x06   // re-zero pen_position_rad to current AS5600 reading
 #define CMD_SET_TARGET 0x07      // position-mode: commanded motor position (rad) → moveTo
+#define CMD_ZERO_MOTOR 0x08      // re-zero the motor step counter to the arm's current position
 
 // Pin assignments. STEP must be on pin 9 (Timer1 OC1A on ATmega328) for
 // FastAccelStepper. DIR and ENABLE can be any digital pin.
@@ -371,6 +372,24 @@ void handleCommand()
         }
         interrupts();
         Serial.write(CMD_TARE_PENDULUM);  // ack
+        break;
+
+    case CMD_ZERO_MOTOR:
+        // Re-zero the step counter to the arm's current position, for when the
+        // operator has moved the arm by hand between episodes. Shift the ring
+        // buffer by the same offset (as CMD_TARE_PENDULUM does) so velocity
+        // stays continuous; interrupts off for a consistent buffer.
+        noInterrupts();
+        {
+            int32_t offset = stepper->getCurrentPosition();
+            for (uint8_t i = 0; i < BUFFER_SIZE; i++)
+            {
+                motor_step_buf[i] -= offset;
+            }
+            stepper->setCurrentPosition(0);
+        }
+        interrupts();
+        Serial.write(CMD_ZERO_MOTOR);  // ack
         break;
 
     default:

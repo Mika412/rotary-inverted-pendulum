@@ -23,6 +23,7 @@ Commands are a single byte, some followed by a little-endian IEEE-754 `float`
 | `0x05` | `CMD_DISENGAGE_MOTOR` | — | — |
 | `0x06` | `CMD_TARE_PENDULUM` | — | re-zeroes the pendulum angle to the current reading |
 | `0x07` | `CMD_SET_TARGET` | `float` absolute motor position, rad | — |
+| `0x08` | `CMD_ZERO_MOTOR` | — | re-zeroes the motor step counter to the arm's current position; echoes `0x08` |
 
 :::note[`0x03` is acceleration, not position]
 `CMD_SET_ACCEL` was formerly `CMD_SET_TARGET` and took a position. The switch to

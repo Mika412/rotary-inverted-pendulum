@@ -381,6 +381,8 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         # encoder zero, polluting the bias signal we rely on.
         client.disengage_motor()
         self._motor_engaged = False
+        print("  [reset] re-centre the arm and let the pendulum settle — the "
+              "next episode starts once it is at rest")
         rested = self._wait_for_pendulum_rest(client)
 
         # Re-tare the pendulum encoder — but ONLY if the pendulum is
@@ -439,6 +441,15 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         _, motor_pos, phi, _, _ = self._read_raw_state()
         client.engage_motor()
         self._motor_engaged = True
+
+        # The step counter is open-loop, so re-zero it now the operator has
+        # re-centred the arm; otherwise the stale position drifts further every
+        # episode until it trips the hard-stop check.
+        if not client.zero_motor():
+            raise RuntimeError("zero_motor did not ack — firmware older "
+                               "than CMD_ZERO_MOTOR (0x08)?")
+        motor_pos = 0.0
+
         if self.action_mode == "accel":
             client.set_acceleration(0.0)
         else:
