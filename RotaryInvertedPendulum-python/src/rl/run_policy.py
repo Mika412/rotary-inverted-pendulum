@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                         "docs/control_rate_selection.md. Default 50 Hz "
                         "matches this rig's canonical design rate.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
-                   default="accel",
+                   default="velocity",
                    help="how the action drives the motor. 'accel' (default): via "
                         "CMD_SET_ACCEL. 'velocity': velocity setpoint converted "
                         "host-side to an accel command each tick (same "

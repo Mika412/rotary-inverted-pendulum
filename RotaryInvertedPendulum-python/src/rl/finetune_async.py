@@ -124,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
                         "the canonical operating point for this rig — see "
                         "docs/control_rate_selection.md.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
-                   default="accel",
+                   default="velocity",
                    help="how the action drives the motor. Must match the mode the "
                         "sim policy was trained with. 'accel' (default): "
                         "CMD_SET_ACCEL. 'velocity': velocity setpoint converted "
@@ -246,6 +246,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.obs_history_len is not None
         else int(saved_cfg.get("obs_history_len") or 1)
     )
+    # Reward extras inherit too: they must match training or the fine-tune
+    # gradient pulls the policy out of the basin SAC found in sim (that is
+    # exactly how a stillness-bonus mismatch silently undid earlier
+    # fine-tunes — see reward.py's module docstring).
+    reward_stillness_bonus_weight = (
+        float(args.reward_stillness_bonus_weight)
+        if args.reward_stillness_bonus_weight is not None
+        else float(saved_cfg.get("reward_stillness_bonus_weight") or 0.0)
+    )
+    reward_action_rate_weight = (
+        float(args.reward_action_rate_weight)
+        if args.reward_action_rate_weight is not None
+        else float(saved_cfg.get("reward_action_rate_weight") or 0.0)
+    )
     # Always inherited from the checkpoint — obs construction is not a
     # fine-tune-time choice.
     obs_include_velocities = bool(saved_cfg.get("obs_include_velocities", True))
@@ -267,8 +281,8 @@ def main(argv: list[str] | None = None) -> int:
     expected = {
         "action_mode": args.action_mode,
         "control_freq_hz": float(args.control_freq),
-        "reward_action_rate_weight": float(args.reward_action_rate_weight or 0.0),
-        "reward_stillness_bonus_weight": float(args.reward_stillness_bonus_weight or 0.0),
+        "reward_action_rate_weight": reward_action_rate_weight,
+        "reward_stillness_bonus_weight": reward_stillness_bonus_weight,
         "reward_alive_offset": reward_alive_offset,
         "reward_upright_alive_weight": reward_upright_alive_weight,
         "obs_history_len": obs_history_len,
@@ -315,10 +329,8 @@ def main(argv: list[str] | None = None) -> int:
         reward_motor_pos_weight=reward_motor_pos_weight,
         reward_motor_vel_weight=reward_motor_vel_weight,
     )
-    if args.reward_action_rate_weight is not None:
-        env_kwargs["reward_action_rate_weight"] = args.reward_action_rate_weight
-    if args.reward_stillness_bonus_weight is not None:
-        env_kwargs["reward_stillness_bonus_weight"] = args.reward_stillness_bonus_weight
+    env_kwargs["reward_action_rate_weight"] = reward_action_rate_weight
+    env_kwargs["reward_stillness_bonus_weight"] = reward_stillness_bonus_weight
     env = RealRotaryInvertedPendulumEnv(**env_kwargs)
     print(f"Control: {args.control_freq} Hz, action_mode={args.action_mode}")
 

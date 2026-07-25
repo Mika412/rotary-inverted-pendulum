@@ -129,9 +129,13 @@ arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
     RotaryInvertedPendulum-arduino/LowLevelServer
 ```
 
-Then run the async orchestrator. `--resume-buffer` is optional on the
-first session; on subsequent sessions, point it at the previous run's
-`replay_buffer.pkl` to keep accumulated real-rig transitions:
+Then run the async orchestrator. Rate, action mode, action scale, the
+reward extras and the smoothing window are all either defaults or
+**inherited from the checkpoint's `config.json`** — you do not retype them,
+and `run_config.check_config` aborts if they ever disagree.
+`--resume-buffer` is optional on the first session; on subsequent sessions,
+point it at the previous run's `replay_buffer.pkl` to keep accumulated
+real-rig transitions:
 
 ```bash
 cd RotaryInvertedPendulum-python/src/rl
@@ -154,7 +158,7 @@ python finetune_async.py \
 
 Architecture detail: [`async_control_architecture.md`](async_control_architecture.md).
 
-The orchestrator disengages the motor for `--reset-settle-s` (default 5)
+The orchestrator disengages the motor for `--reset-settle-s` (default 15)
 between episodes so the pendulum coasts to rest passively. **Listen** to
 the motor during the first few episodes — a smooth whirr is fine, a
 buzzy/grinding sound means step-skipping (drop `MOTOR_ACCELERATION` in
@@ -211,9 +215,12 @@ python dagger_distill.py \
 
 Why this shape (all measured, 2026-07-22):
 
-- **H=16 is the production width.** It runs in ~8 ms on the Nano; H=32
-  float (~23 ms) does not fit the 28.6 ms tick and silently sagged the
-  loop to 25 Hz.
+- **H=16 is the production width.** Software float on the AVR costs
+  ~19 µs per multiply-accumulate, so H=16 lands at ~12 ms — inside the
+  20 ms tick at 50 Hz. H=32 float (~35-40 ms) does not fit and silently
+  sagged the loop (measured at 35 Hz: 28.6 ms tick → 25 Hz actual, which
+  turned a balancing policy into a spinner). `analyze_onboard --expect-hz`
+  exists to catch exactly that.
 - **BC alone does not deploy** (closed-loop gate 0.12 despite good MSE —
   covariate shift near the unstable equilibrium). DAgger fixes it, but
   ONLY when its rollouts run under the deployment transport: the
@@ -227,9 +234,15 @@ Why this shape (all measured, 2026-07-22):
   transport changes, while the student's slight underfit acts as gain
   reduction and buys exactly that robustness.
 
-Acceptance: the DAgger gate (printed per round, honest balanced fraction
-in the device-transport sim) should reach **≥ 0.7**; sim under-predicts
-smooth students on the rig (0.763 gated → 0.892 measured).
+Acceptance: judge the DAgger gate (printed per round — honest balanced
+fraction in the device-transport sim) **relative to the teacher's own gate,
+not against an absolute bar.** Sim systematically under-predicts smooth
+students on the rig, and it under-predicts them *most* when the teacher was
+rig-fine-tuned, because such a teacher has adapted to dynamics the rigid-base
+sim cannot reproduce: measured 0.763 → 0.892, 0.569 → 0.881, and the current
+champion gated just **0.655 in sim yet deployed at 0.996**. A student that
+reaches roughly its teacher's gate (or better) is good; an absolute
+"≥ 0.7" rule would have rejected the champion.
 
 ## 5. Test the student on the rig — tethered (optional)
 
@@ -246,6 +259,19 @@ python run_policy.py \
 ```
 
 ## 6. Flash the standalone sketch — remove the tether
+
+The sketch carries its own copy of the operating point, and it must agree
+with the policy's `config.json` — the header only carries weights, not the
+loop shape. Defaults already match the canonical recipe, so this is a
+one-time check per rig (`RLControl.ino`):
+
+| sketch constant          | must equal                        | default |
+| ------------------------ | --------------------------------- | ------- |
+| `CONTROL_FREQUENCY_HZ`   | `control_freq_hz`                 | 50      |
+| `ACTION_SMOOTH_WINDOW`   | `action_smooth_window`            | 4       |
+| `OBS_FRAMES`             | `obs_history_len`                 | 4       |
+| `MAX_VELOCITY_RAD_S`     | `max_velocity_rad_s`              | 3.5     |
+| `MICROSTEPS`             | your driver wiring (not training) | 16      |
 
 ```bash
 # Export PROGMEM weights into the Arduino sketch directory
