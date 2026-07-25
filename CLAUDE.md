@@ -216,6 +216,12 @@ Libraries required (install via Arduino IDE Library Manager):
 - Provides 12-bit resolution (0-4095 raw values)
 - Maps to 0-360° or 0-2π radians
 - Handles multi-revolution tracking with wraparound logic
+- **The tracked angle is an accumulator that never resets, so every sketch that
+  accumulates it must reject implausible per-sample jumps** (>500 LSB): one
+  corrupted I²C read otherwise offsets the angle for the rest of the run, and
+  the controller then balances against a false vertical. Guarded in
+  `LowLevelServer`, `RLControl` and `PIDControl`; deliberately not in
+  `TestEncoder`, where seeing raw glitches is the point.
 - Check magnet strength on startup
 
 **PID Control Parameters:**

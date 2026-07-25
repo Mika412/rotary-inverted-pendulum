@@ -240,6 +240,7 @@ static float read_pendulum_rad()
 {
     const long AS5600_RES = 4096;
     const long WRAP_THRESH = AS5600_RES / 2;
+    const long PEN_RAW_MAX_DELTA_LSB = 500;
     const float RAD_PER_SEG = (2.0f * (float)PI) / (float)AS5600_RES;
 
     static long raw_prev = 0;
@@ -258,6 +259,14 @@ static float read_pendulum_rad()
     long delta = raw - raw_prev;
     if (delta >  WRAP_THRESH) delta -= AS5600_RES;
     if (delta < -WRAP_THRESH) delta += AS5600_RES;
+
+    // Reject corrupted I2C reads: `pos` never resets, so one bad sample
+    // offsets theta for the rest of the run (observed: 230 s of balance, then
+    // flailing against a false vertical). Same guard as LowLevelServer.
+    if (delta > PEN_RAW_MAX_DELTA_LSB || delta < -PEN_RAW_MAX_DELTA_LSB)
+    {
+        return pos;
+    }
 
     pos += (float)delta * RAD_PER_SEG;
     raw_prev = raw;

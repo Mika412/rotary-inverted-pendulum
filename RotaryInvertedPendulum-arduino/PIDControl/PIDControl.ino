@@ -247,6 +247,10 @@ float readPendulumAngle()
     if (delta > WRAPAROUND_THRESHOLD)  delta -= AS5600_RESOLUTION;
     if (delta < -WRAPAROUND_THRESHOLD) delta += AS5600_RESOLUTION;
 
+    // Reject corrupted I2C reads: `position` never resets, so one bad sample
+    // would leave the PID balancing against a false vertical.
+    if (delta > 500 || delta < -500) return position;
+
     position += delta * DEG_PER_SEGMENT;
     raw_prev = raw;
 
