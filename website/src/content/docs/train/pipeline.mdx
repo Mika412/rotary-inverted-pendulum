@@ -26,7 +26,9 @@ delay](/rotary-inverted-pendulum/reference/transport-delay/).
 
 **50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action
 smoothing.** Every default across the Python stack and the sketches is set to
-this, so a bare run of these steps reproduces the current champion.
+this, so a bare run of these steps reproduces a champion-grade policy
+(measured: 0.980 balanced / 265 s hold from scratch, vs the champion's
+1.000 / 299 s).
 
 Do not change one of them in isolation. Training, fine-tuning and deployment
 must agree, and `run_config.check_config` aborts on a mismatch rather than

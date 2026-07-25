@@ -18,8 +18,12 @@ Its defaults ARE the validated production recipe — velocity mode, 50 Hz,
 ±3.5 rad/s, K=4 frame stacking, gSDE, stillness bonus, firmware
 measurement model, 4-tap actuator action smoothing — so a bare invocation
 trains the canonical teacher, and a bare run of this whole pipeline
-reproduces the current champion (verified by diffing the resulting
-`config.json` against the champion's).
+reproduces a champion-grade policy — the resulting `config.json` matches the
+champion's knob for knob, and an independent from-scratch run measured
+**0.980 balanced with a 265 s unbroken hold** against the champion's 1.000 /
+299 s. Expect that ballpark rather than an exact tie: the fine-tune samples a
+different rig session, so runs differ by a percent or two of balanced
+fraction and a few degrees of arm motion.
 
 Every component defaults to 50 Hz; if you override the rate, keep it
 identical across training, fine-tuning, and deployment — a policy trained
