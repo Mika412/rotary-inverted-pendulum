@@ -125,6 +125,24 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  arm sway <1s (bal):      {avg('arm_sway_deg'):.2f} deg")
     print(f"  arm speed RMS (bal):     {avg('arm_speed_rms'):.2f} rad/s")
     print(f"  motor-cmd travel:        {avg('motor_cmd_travel'):.1f} /s")
+    print(f"  arm lean signed (bal):   {avg('arm_off_centre_signed_deg'):+.1f} deg")
+
+    # Direction split, summed over episodes rather than averaged: these are
+    # counts of an event that happens a handful of times per episode, so a
+    # per-episode mean would round most of them to noise. Same quantities
+    # analyze_onboard.py reports for the rig, so sim and rig stay comparable.
+    ccw = sum(m.arrivals_ccw for m in scored)
+    cw = sum(m.arrivals_cw for m in scored)
+    caught_ccw = sum(m.catches_ccw for m in scored)
+    caught_cw = sum(m.catches_cw for m in scored)
+    if ccw + cw:
+        rate = lambda c, n: f"{100 * c / n:3.0f}%" if n else "  n/a"
+        print(f"  arrivals CCW / CW:       {ccw} / {cw}   "
+              f"(bias {abs(ccw - cw) / (ccw + cw):.2f})")
+        print(f"  catch rate CCW / CW:     {rate(caught_ccw, ccw)} / "
+              f"{rate(caught_cw, cw)}")
+    else:
+        print("  arrivals at upright:     0 (no direction split)")
     return 0
 
 
