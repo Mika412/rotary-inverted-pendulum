@@ -47,6 +47,13 @@ jobs:
           cache: npm
           cache-dependency-path: website/package-lock.json
 
+      # `npm ci` is strict about the lockfile, and npm versions disagree about
+      # which platform-specific optional dependencies must be listed: a lockfile
+      # written by npm 11 was rejected by the npm 10 that Node 22 ships, for
+      # missing two transitive optional deps of `sharp`. If this step fails that
+      # way again, reconcile the lockfile with `npx npm@10 install` (which adds
+      # the entries without changing any resolved version) rather than loosening
+      # this to `npm install`.
       - run: npm ci
 
       - name: Prepare generated content
