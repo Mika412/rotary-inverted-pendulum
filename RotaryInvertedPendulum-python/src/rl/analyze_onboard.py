@@ -6,14 +6,13 @@ is enabled ('P' command):
     t_us, motor_pos_rad*1000, phi_rad*1000, action*1000, state, freq_hz, overruns
 
 This script opens the port, sends 'P' to enable the stream, captures for
---duration-s, and computes the same honest metrics as run_policy /
-analyze_deploy (|theta| <= 15 deg AND |theta_dot| <= 2 rad/s, streaks,
-revolutions, verdict) so on-device policies can be compared to tethered
-deploys — and to each other — on rig truth rather than sim predictions.
+--duration-s, and scores it with `balance_metrics` — the same module
+`analyze_sim.py` uses — so on-device policies can be compared to sim
+predictions, to tethered deploys, and to each other on rig truth.
 
 theta_dot is a central finite difference of the streamed phi at the control
 rate (the sketch doesn't stream its window velocities); at 35 Hz and 12-bit
-resolution that's ~0.05 rad/s resolution — fine for a 2 rad/s gate.
+resolution that's ~0.05 rad/s resolution — fine for the 4 rad/s gate.
 
 Usage:
     python analyze_onboard.py --port /dev/cu.usbserial-10 --duration-s 60 \\
@@ -27,21 +26,13 @@ re-engages after its 1 s settle delay. Capture starts after boot.
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 import time
 
 import numpy as np
 import serial
 
-
-BAL_THETA_RAD = math.radians(15.0)
-# Gate raised 2.0 -> 4.0 on 2026-07-22: the old value punished the tight ~5 Hz micro-oscillation of fast balancing policies (theta_dot peaks past 2 rad/s at 1.7 deg amplitude) while spin-through and vibrational stabilisation run >= 7-20 rad/s, so 4.0 keeps the gate's anti-spoof teeth without underrating genuine tight balance.
-BAL_PEN_VEL_RAD_S = 4.0
-
-
-def _wrap_pi(x: np.ndarray) -> np.ndarray:
-    return (x + np.pi) % (2.0 * np.pi) - np.pi
+import balance_metrics
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -107,50 +98,13 @@ def main(argv: list[str] | None = None) -> int:
               "*** for the tick?) — this capture does NOT evaluate the policy, ***\n"
               "*** it evaluates a broken deployment. ***")
 
-    theta = _wrap_pi(phi - np.pi)
-    # Central-difference pendulum velocity from the streamed positions.
-    pen_vel = np.gradient(np.unwrap(phi), t_s)
-
-    balanced = (np.abs(theta) <= BAL_THETA_RAD) & (np.abs(pen_vel) <= BAL_PEN_VEL_RAD_S)
-    frac = float(balanced.mean())
-    # Longest streak + catches >= 1 s.
-    best = cur = 0
-    catches = 0
-    for b in balanced:
-        cur = cur + 1 if b else 0
-        if cur == int(round(1.0 / dt)):
-            catches += 1
-        best = max(best, cur)
-    travel_rev = float(np.sum(np.abs(np.diff(np.unwrap(phi)))) / (2 * np.pi))
-
-    if frac >= 0.5 and best * dt >= 2.0:
-        verdict = "BALANCED"
-    elif travel_rev > 5 and frac < 0.3:
-        verdict = "SPINNING"
-    else:
-        verdict = "PARTIAL"
+    m = balance_metrics.score(phi=phi, motor_pos=motor_pos, action=action,
+                              t_s=t_s)
 
     print(f"\nOn-device honest balance ({n} ticks @ {freq:.1f} Hz, "
           f"{n * dt:.1f}s scored, {overruns} loop overruns):")
-    print(f"  balanced fraction:       {frac:.3f}")
-    print(f"  longest balanced streak: {best * dt:.2f} s")
-    print(f"  catches (>=1s):          {catches}")
-    print(f"  pendulum revolutions:    {travel_rev:.1f} gross")
-    print(f"  |action| mean:           {float(np.abs(action).mean()):.3f}")
-    print(f"  verdict:                 {verdict}")
-
-    # Calmness during the balanced phase. A real Furuta balances WITH arm
-    # motion, so some is unavoidable; excess arm wander/sway is what shakes
-    # the base. Arm sway is the sub-1s component of the arm angle (the
-    # ~0.6 Hz balancing wiggle); arm std includes slow drift too. Reported
-    # so deployed policies can be compared on calmness, not just balance.
-    if int(balanced.sum()) >= int(round(1.0 / dt)):
-        win = max(1, int(round(1.0 / dt)))
-        arm_drift = np.convolve(motor_pos, np.ones(win) / win, mode="same")
-        arm_sway = motor_pos - arm_drift
-        print(f"  pendulum std (bal):      {np.degrees(theta[balanced].std()):.2f} deg")
-        print(f"  arm std (bal):           {np.degrees(motor_pos[balanced].std()):.1f} deg")
-        print(f"  arm sway <1s (bal):      {np.degrees(arm_sway[balanced].std()):.2f} deg")
+    for line in m.report_lines():
+        print(line)
 
     if args.log:
         if not args.log.endswith(".npz"):
