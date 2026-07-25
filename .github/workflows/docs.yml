@@ -75,7 +75,9 @@ jobs:
             curl -sf http://localhost:4322/rotary-inverted-pendulum/ >/dev/null && break
             sleep 1
           done
-          npm run test:smoke
+          # Pass the URL explicitly — the test's default port is 4321, and a
+          # silent mismatch here tests a dead port rather than the site.
+          npm run test:smoke -- http://localhost:4322/rotary-inverted-pendulum/
 
       - name: Upload the built site
         uses: actions/upload-pages-artifact@v3

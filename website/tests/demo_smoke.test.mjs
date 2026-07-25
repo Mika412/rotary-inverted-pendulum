@@ -173,6 +173,29 @@ try {
   console.log(`loading ${BASE_URL}\n`);
   await cdp.send('Page.navigate', { url: BASE_URL });
 
+  // Confirm we actually reached the site before judging the demo. Pointed at a
+  // dead port, every later check reads as "the demo did not initialise", which
+  // is a confusing way to learn the URL was wrong.
+  const reachedSite = await (async () => {
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const found = await cdp.eval(`!!document.querySelector('[data-demo]')`);
+      if (found) return true;
+      await sleep(250);
+    }
+    return false;
+  })();
+  if (!reachedSite) {
+    const info = await cdp.eval(
+      `JSON.stringify({ url: location.href, title: document.title })`
+    );
+    console.error(
+      `  FAIL the page has no demo root — is the site actually served at this URL?\n` +
+        `       ${info}`
+    );
+    failures++;
+  }
+
   // Wait for the demo to signal readiness, which it sets only after the meshes
   // have decoded and the first frame is scheduled.
   const deadline = Date.now() + 30000;
@@ -301,7 +324,15 @@ try {
     /* already gone */
   }
   proc.kill('SIGKILL');
-  await fs.rm(profile, { recursive: true, force: true });
+  // Chrome keeps writing to its profile for a moment after the signal, so a
+  // straight rm races it and throws ENOTEMPTY — which would otherwise surface
+  // as an uncaught exception that masks the real test result.
+  await sleep(500);
+  try {
+    await fs.rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch (err) {
+    console.warn(`demo_smoke: could not remove ${profile} (${err.code}); ignoring`);
+  }
 }
 
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} check(s) failed`);
