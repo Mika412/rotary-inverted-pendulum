@@ -241,6 +241,51 @@ pendulum's phase favours — but SAC has to find it while it can still explore.
 That makes `--mirror-augment` during training the primary path and
 `--symmetrize-teacher` a diagnostic rather than a shortcut.
 
+## Learning it during RL does work
+
+A controlled 2×2 — identical recipe and code, two seeds per arm, differing
+only in `--mirror-augment`, full three-stage curriculum at 100k steps per
+stage. Scored on DR-sim rollouts, 12 paired mirrored episodes, and 10 scored
+episodes through the device transport:
+
+| run | rel. asym | engage | self-start | solved | pairs≠ | balanced | CCW/CW | bias | arm lean |
+|---|---|---|---|---|---|---|---|---|---|
+| `base_s0` | 1.023 | +0.838 | 1.32 s | 11/12 | 1/12 | 0.783 | 16/3 | 0.68 | +19.5° |
+| `base_s1` | 0.588 | +0.523 | 1.34 s | 9/12 | 3/12 | 0.792 | 6/12 | 0.33 | −3.1° |
+| `sym_s0` | **0.301** | +0.073 | 1.78 s | **12/12** | 1/12 | **0.814** | 9/4 | 0.38 | +1.3° |
+| `sym_s1` | **0.303** | −0.218 | 1.76 s | **12/12** | 1/12 | **0.819** | 7/6 | **0.08** | +2.2° |
+
+Four things worth reading off this.
+
+**The asymmetry roughly halves, and becomes reproducible.** 0.301 and 0.303
+against baselines of 1.023 and 0.588. The consistency matters as much as the
+level: the baseline's asymmetry is a coin flip that varies 2× between seeds,
+while both augmented runs land in the same place. That is what "stop the
+policy picking an arbitrary direction" looks like.
+
+**They still self-start — no firmware nudge needed.** 1.76–1.78 s from the
+exact engage state versus 1.32–1.34 s for the baselines. Roughly 0.45 s
+slower, because the residual tie-break is smaller (engage action 0.07–0.22 vs
+0.52–0.84), but the swing-up survives. This is the opposite of what post-hoc
+symmetrisation did, and it is the central result: SAC can find a symmetric
+pumping strategy when it learns one, and cannot have one imposed afterwards.
+
+**Performance did not suffer — it improved slightly.** 12/12 solved on both
+augmented seeds against 11/12 and 9/12, with balanced fraction 0.814/0.819
+against 0.783/0.792. Only 12 episodes per run, so treat the solve rate as
+suggestive rather than significant; the direction of the effect is at least
+not adverse.
+
+**The arm lean collapses.** `base_s0` balances 19.5° off centre; both
+augmented runs sit within 2.2°. The DR eval randomises tilt azimuth per
+episode, so a symmetric policy should average to zero — and does.
+
+Honest limits: two seeds per arm; relative asymmetry 0.30 is *halved*, not
+zero, so these policies still have a mild preference (and its sign still
+differs between seeds); paired disagreement barely moved (1/12 vs 1/12 and
+3/12) and the reward gap not at all, so at n=12 the asymmetry score is the
+cleaner instrument. All of it is sim. Rig confirmation is still owed.
+
 ### Expectations
 
 The reliable wins are **behavioural consistency** and **coverage**, not a
@@ -308,19 +353,16 @@ curriculum stage is legal.
 
 ## Open questions
 
-- Can SAC learn a symmetric *swing-up* under `--mirror-augment`, and at what
-  cost to swing-up time? Post-hoc projection can't (above); learning it during
-  RL should, but that is untested. This is the load-bearing unknown.
-- Does a mirror-augmented policy clear the engage self-start gate, or does
-  every well-symmetrised policy need the arm nudge? Both students that were
-  symmetric enough to matter had engage actions of +0.02 and +0.0005 — small
-  enough that the answer is probably "it needs the nudge", but a policy that
-  learned symmetry rather than having it imposed may distribute its residual
-  differently.
+- Does the sim result hold on the rig? Everything above is sim except the
+  direction-preference and catch-rate evidence from the deploy logs.
+- Why does mirror augmentation only halve the asymmetry rather than drive it to
+  zero? Expected for the DUP method — Abdolhosseini et al. found it the
+  weakest of the four at *enforcing* symmetry — so adding the LOSS method to
+  SAC's actor update (currently only wired into `distill.py`) is the obvious
+  next lever if 0.30 isn't low enough.
 - Is the −14° balance lean really base tilt? Levelling the table and
   re-measuring `arm_off_centre_signed_deg` would settle it, and would also
   bound how much per-rig specialisation mirror augmentation gives up.
-- Does symmetric training help or hurt final rig performance? Everything above
-  establishes that the asymmetry is real and costly, and that it cannot be
-  fixed after training; none of it proves that removing it during training is
-  free.
+- Does the ~0.45 s slower swing-up matter on the rig? In sim it's the price of
+  the smaller residual tie-break at the engage state. If it's annoying in
+  practice, the arm nudge buys it back.
