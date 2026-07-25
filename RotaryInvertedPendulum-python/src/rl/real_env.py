@@ -91,10 +91,10 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         *,
         port: str = "/dev/cu.usbserial-110",
         baud: int = 2_000_000,
-        control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
         action_mode: str = "accel",  # "accel", "velocity", or "position_delta" — must match sim training
         max_accel_rad_s2: float = 100.0,
-        max_velocity_rad_s: float = 5.0,  # velocity-mode action scale; matches sim MAX_VELOCITY_RAD_S
+        max_velocity_rad_s: float = 3.5,  # velocity-mode action scale; matches sim MAX_VELOCITY_RAD_S
         max_action_delta_rad: float = MAX_ACTION_DELTA_RAD,  # position-mode per-step target delta
         episode_length_s: float = 6.0,
         # Max seconds to wait for the pendulum to come to rest between
@@ -130,12 +130,12 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
         # Alive terms — must match sim training (see reward.py, audit F1).
         reward_alive_offset: float | None = None,
         reward_upright_alive_weight: float | None = None,
-        obs_history_len: int = 1,  # frames per observation — must match sim training
+        obs_history_len: int = 4,  # frames per observation — must match sim training
         obs_include_velocities: bool = True,  # False: positions-only frames — must match sim training
         # Actuator receives the moving average of the last N actions —
         # mirror of pendulum_env's action_smooth_window and of
         # ACTION_SMOOTH_WINDOW in RLControl.ino. Must match sim training.
-        action_smooth_window: int = 1,
+        action_smooth_window: int = 4,
         params_path: str | Path | None = None,
     ):
         super().__init__()

@@ -118,9 +118,9 @@ def main(argv: list[str] | None = None) -> int:
                         "tares and proceeds. On timeout, skips the tare "
                         "and proceeds anyway. 15 s gives the operator time "
                         "to stop the pendulum manually between episodes.")
-    p.add_argument("--control-freq", type=float, default=35.0,
+    p.add_argument("--control-freq", type=float, default=50.0,
                    help="strict control rate in Hz; this orchestrator holds "
-                        "this rate even at high --gradient-steps. 35 Hz is "
+                        "this rate even at high --gradient-steps. 50 Hz is "
                         "the canonical operating point for this rig — see "
                         "docs/control_rate_selection.md.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
@@ -133,10 +133,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
                    help="accel/velocity mode: accel command clamp [-max, +max] "
                         "rad/s². Must match the sim training value (150).")
-    p.add_argument("--max-velocity-rad-s", type=float, default=5.0,
+    p.add_argument("--max-velocity-rad-s", type=float, default=3.5,
                    help="velocity mode: action maps to velocity setpoint "
                         "[-max, +max] rad/s. Must match the sim training "
-                        "value (5.0).")
+                        "value (3.5).")
     p.add_argument("--max-action-delta-rad", type=float, default=0.10,
                    help="position_delta mode: per-tick motor-target delta of "
                         "action × this (rad). Must match sim training (0.10).")

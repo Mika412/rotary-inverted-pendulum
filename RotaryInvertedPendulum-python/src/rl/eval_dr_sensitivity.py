@@ -96,7 +96,7 @@ def main() -> None:
     p.add_argument("policy", type=Path)
     p.add_argument("--n-episodes", type=int, default=10)
     p.add_argument("--episode-length-s", type=float, default=8.0)
-    p.add_argument("--control-freq", type=float, default=35.0)
+    p.add_argument("--control-freq", type=float, default=50.0)
     p.add_argument("--upright-threshold-deg", type=float, default=15.0)
     p.add_argument("--device", default="cpu")
     args = p.parse_args()

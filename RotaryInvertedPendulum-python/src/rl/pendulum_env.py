@@ -139,7 +139,7 @@ DR_PENDULUM_FRICTION_MULT_RANGE = (0.5, 2.0)
 # (RLControl.ino's own envelope is ~196 rad/s; not the binding limit.)
 MAX_ACTION_DELTA_RAD = 0.10
 
-MAX_VELOCITY_RAD_S = 5.0
+MAX_VELOCITY_RAD_S = 3.5
 MAX_ACCEL_RAD_S2 = 150.0   # bumped from 100 after the first accel-mode
                             # deployment showed the policy saturating its
                             # accel command at ±99 repeatedly — needed more
@@ -386,7 +386,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self,
         *,
         params_path: str | Path | None = None,
-        control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
         action_mode: str = "accel",  # "accel" (current) or "position_delta" (original)
         max_accel_rad_s2: float = MAX_ACCEL_RAD_S2,  # accel-mode: action × this = commanded angular accel
         max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # accel-mode: velocity saturation cap
@@ -411,7 +411,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # concatenate oldest → newest; at reset the history is seeded with
         # K copies of the initial frame. Must match between training,
         # fine-tuning, and deployment (recorded in config.json).
-        obs_history_len: int = 1,
+        obs_history_len: int = 4,
         # Include velocities in each observation frame (legacy True). With
         # False the frame is [motor_pos, sin θ, cos θ, prev_action] and the
         # policy must derive velocities from the stacked position history —
@@ -498,7 +498,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         # almost untouched (gain 0.96) at a fixed 1.5-tick delay. Must match
         # ACTION_SMOOTH_WINDOW in RLControl.ino; the raw action still feeds
         # the reward and the observation's prev_action channel.
-        action_smooth_window: int = 1,
+        action_smooth_window: int = 4,
         motor_tau_s: float = 0.0,  # position-mode fixed motor-bandwidth lag (non-DR)
         terminate_on_hard_stop: bool = True,
         hard_stop_penalty: float = 5.0,

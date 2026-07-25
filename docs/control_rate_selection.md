@@ -1,5 +1,16 @@
 # Choosing the Control Rate (and `max_action_delta_rad`)
 
+> **Canonical rate is now 50 Hz, not the 35 Hz this doc concludes.** The
+> measurements below stand as recorded — 35 Hz genuinely beat 50 Hz at the
+> time. What changed is the plant, not the analysis: 50 Hz previously lost
+> because the policy's alternating-sign action dither excited the compliant
+> base, and rate/2 dither gets worse as the rate rises. Actuator-side action
+> smoothing (`ACTION_SMOOTH_WINDOW`, a 4-tap boxcar with exact nulls at
+> rate/2 and rate/4) removed that failure mode, after which 50 Hz became
+> strictly better — the current champion balances 1.000 with zero drops.
+> Read the recipe below as the method; take 50 Hz as the answer it now
+> yields. See `transport_delay.md` § actuator-side action smoothing.
+
 Picking these is **not** a free choice. Done badly, the policy "works"
 in sim and is broken on hardware, or vice versa. Done correctly, the
 choice falls out of the sysid measurements.
@@ -269,6 +280,6 @@ Change the cutoff if any of:
 
 | Knob | Default | Where it's set / read |
 |---|---|---|
-| `control_freq_hz` | **35** everywhere — `pendulum_env.py`, `real_env.py`, `async_control.py`, and `--control-freq` defaults in `train_sac.py` / `finetune_async.py` / `eval_randomized.py` / `run_policy.py` / `distill.py`. The historic 100 Hz default predated the empirical 35 Hz finding (Phase 4.6) and was wrong for this rig. | Sim env `__init__`, real env `__init__`, deployment loop |
+| `control_freq_hz` | **50** everywhere — `pendulum_env.py`, `real_env.py`, `async_control.py`, and `--control-freq` defaults in `train_sac.py` / `finetune_async.py` / `eval_randomized.py` / `run_policy.py` / `distill.py`, plus `--expect-hz` in `analyze_onboard.py`. (Was 35 before actuator action smoothing made 50 Hz viable; the historic 100 Hz default predated both.) | Sim env `__init__`, real env `__init__`, deployment loop |
 | `max_action_delta_rad` | 0.10 in env `__init__`; `--max-action-delta-rad` flag in `train_sac.py` and `finetune_async.py` | Inside `step()` / `apply_action()` clipping |
 | Curriculum stage delays (steps) | Computed in `curriculum_train.sh` from physical milliseconds × `CONTROL_FREQ` | Bash arithmetic at script top |

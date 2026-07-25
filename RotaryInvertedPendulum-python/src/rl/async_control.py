@@ -211,7 +211,7 @@ class AsyncControlLoop:
         queue: TransitionQueue,
         stop_flag: threading.Event,
         *,
-        control_freq_hz: float = 35.0,  # canonical for this rig — see docs/control_rate_selection.md
+        control_freq_hz: float = 50.0,  # canonical for this rig — see docs/control_rate_selection.md
         timing_violation_threshold_s: float = 0.005,
         timing_violation_strikes: int = 3,
         deterministic_actions: bool = False,

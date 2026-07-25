@@ -163,7 +163,7 @@ def stage_dataset(
     device: str = "cpu",
     batch_size: int = 4096,
     sim_augment_steps: int = 0,
-    control_freq_hz: float = 35.0,
+    control_freq_hz: float = 50.0,
     seed: int = 0,
 ) -> None:
     """Re-evaluate the teacher's deterministic action over the buffer's observations.
@@ -438,7 +438,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--device", default="cpu")
-    p.add_argument("--control-freq", type=float, default=35.0,
+    p.add_argument("--control-freq", type=float, default=50.0,
                    help="must match the teacher's training rate")
     p.add_argument("--sim-augment-steps", type=int, default=100000,
                    help="add N teacher sim-rollout steps to the real-rig buffer. "

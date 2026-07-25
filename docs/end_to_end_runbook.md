@@ -39,7 +39,7 @@ each tick by a P-law tracking the controller's own commanded-velocity
 integrator (never the quantised measured velocity — that injected a
 ±17 rad/s² dither, removed 2026-07-21), over the same `CMD_SET_ACCEL`
 firmware transport in every deployment. All defaults — the curriculum,
-`train_sac.py` at 35 Hz, `RLControl.ino` — are set for this mode; run
+`train_sac.py` at 50 Hz, `RLControl.ino` — are set for this mode; run
 the commands as written.
 
 Legacy modes remain selectable for comparisons (`--action-mode accel` /
@@ -94,10 +94,13 @@ bash curriculum_train.sh
 
 `curriculum_train.sh` reads `sysid_params.json` and runs three DR stages
 (no DR → transport-delay ramp → concentrated on the measured rig delay).
-Its defaults ARE the validated production recipe — velocity mode, 35 Hz,
+Its defaults ARE the validated production recipe — velocity mode, 50 Hz,
 ±3.5 rad/s, K=4 frame stacking, gSDE, stillness bonus, firmware
-measurement model — so a bare invocation trains the canonical teacher.
-Every component now defaults to 35 Hz; if you override the rate, keep it
+measurement model, 4-tap actuator action smoothing — so a bare invocation
+trains the canonical teacher, and a bare run of this whole runbook
+reproduces the current champion (verified by diffing the resulting
+`config.json` against the champion's).
+Every component now defaults to 50 Hz; if you override the rate, keep it
 identical across training, fine-tuning, and deployment — a policy trained
 at one rate produces garbage at another (measured: an over-budget
 inference that sagged the on-device loop to 25 Hz turned a balancing
@@ -183,7 +186,7 @@ spinning):
   through `sim_vs_real.py`, check the transport-delay assumptions.
 
 If you're happy keeping the laptop attached, **you can stop here**.
-The teacher runs at 35 Hz over USB serial just fine.
+The teacher runs at 50 Hz over USB serial just fine.
 
 ## 4. Distill — shrink the actor for the deployment transport
 
@@ -295,7 +298,7 @@ Every step is idempotent and can be re-run on its own:
 ## Troubleshooting
 
 - **Policy balances tethered but spins on the Nano**: check, in order:
-  (1) `analyze_onboard`'s rate line — if the loop isn't ~35 Hz, the
+  (1) `analyze_onboard`'s rate line — if the loop isn't ~50 Hz, the
   network is too big for the tick (H=16 is the budget); (2) whether the
   flashed network is an imitation student or a direct-RL actor — actors
   are transport-brittle and fail standalone even when excellent tethered

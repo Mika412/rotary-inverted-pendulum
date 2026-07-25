@@ -56,7 +56,7 @@ TRANSPORTS = {
 def make_env(cfg: dict, *, dr: bool, transport: str) -> RotaryInvertedPendulumEnv:
     (delay_range, lag_range), (gate_delay, gate_lag) = TRANSPORTS[transport]
     kwargs = dict(
-        control_freq_hz=float(cfg.get("control_freq_hz", 35.0)),
+        control_freq_hz=float(cfg.get("control_freq_hz", 50.0)),
         episode_length_s=8.0,
         action_mode=str(cfg.get("action_mode", "velocity")),
         obs_history_len=int(cfg.get("obs_history_len") or 1),

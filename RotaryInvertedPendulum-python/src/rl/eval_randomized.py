@@ -52,7 +52,7 @@ from run_config import find_run_config
 
 
 def evaluate_one(model, env, *, episode_steps: int, upright_threshold_rad: float,
-                 hold_window_s: float = 1.0, control_freq_hz: float = 35.0) -> dict:
+                 hold_window_s: float = 1.0, control_freq_hz: float = 50.0) -> dict:
     """Run a single episode. Return per-episode metrics."""
     obs, _ = env.reset()
     total_reward = 0.0
@@ -108,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--n-episodes", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--episode-length-s", type=float, default=8.0)
-    p.add_argument("--control-freq", type=float, default=35.0,
+    p.add_argument("--control-freq", type=float, default=50.0,
                    help="canonical operating rate for this rig — see "
                         "docs/control_rate_selection.md.")
     p.add_argument("--upright-threshold-deg", type=float, default=15.0,

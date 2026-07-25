@@ -43,7 +43,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--settle-s", type=float, default=5.0,
                    help="discard this much stream after boot (swing-up + "
                         "the sketch's own engage delay)")
-    p.add_argument("--expect-hz", type=float, default=35.0,
+    p.add_argument("--expect-hz", type=float, default=50.0,
                    help="the flashed policy's control rate — the capture is "
                         "flagged invalid if the measured loop rate deviates")
     p.add_argument("--log", default=None, help="optional .npz output")

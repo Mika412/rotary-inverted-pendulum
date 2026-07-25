@@ -84,7 +84,7 @@ def make_env(
     dr_action_delay_steps_range: tuple[int, int] | None = None,
     dr_action_lag_tau_range_s: tuple[float, float] | None = None,
     dr_control_dt_jitter_frac: float | None = None,
-    control_freq_hz: float = 35.0,
+    control_freq_hz: float = 50.0,
     action_mode: str = "accel",
     max_accel_rad_s2: float = 150.0,
     max_action_delta_rad: float | None = None,
@@ -98,12 +98,12 @@ def make_env(
     reward_upright_alive_weight: float | None = None,
     dr_theta_bias_max_rad: float | None = None,
     upright_reset_frac: float = 0.0,
-    obs_history_len: int = 1,
+    obs_history_len: int = 4,
     obs_include_velocities: bool = True,
     firmware_obs_model: bool = False,
     action_delay_steps: int = 0,
     action_lag_tau_s: float = 0.0,
-    action_smooth_window: int = 1,
+    action_smooth_window: int = 4,
 ):
     def _thunk():
         env_kwargs = dict(
@@ -420,9 +420,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "(seconds). Continuous analogue of --dr-delay-max. "
                         "Set this to override env defaults. See "
                         "docs/transport_delay.md.")
-    p.add_argument("--control-freq", type=float, default=35.0,
+    p.add_argument("--control-freq", type=float, default=50.0,
                    help="sim control rate (Hz). Must match the rate used in "
-                        "fine-tuning and deployment. 35 Hz is the empirically-best "
+                        "fine-tuning and deployment. 50 Hz is the empirically-best "
                         "operating point for this rig — see "
                         "docs/control_rate_selection.md for the principled selection.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
@@ -449,7 +449,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "No effect in accel mode.")
     p.add_argument("--max-velocity-rad-s", type=float, default=None,
                    help="motor angular-velocity saturation cap (rad/s). "
-                        "Default None → env default (5.0). Lower values "
+                        "Default None → env default (3.5). Lower values "
                         "force the policy below the Kapitza parametric "
                         "stabilisation regime, which requires a·ω above "
                         "a threshold proportional to sqrt(2gL). Capping "
@@ -486,7 +486,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "penalties (which collapsed entropy in accel "
                         "mode). Fresh runs only; ignored on --resume "
                         "(SAC.load keeps the checkpoint's setting).")
-    p.add_argument("--obs-history-len", type=int, default=1,
+    p.add_argument("--obs-history-len", type=int, default=4,
                    help="number of past 6-dim frames stacked into the "
                         "observation (oldest → newest). Each frame carries "
                         "prev_action, so K>1 gives the policy obs AND action "
@@ -512,7 +512,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "P-law feedback, mirroring the real host. Sim-only "
                         "realism knob (obs shape unchanged); recorded in "
                         "config.json so resumes/evals stay consistent.")
-    p.add_argument("--action-smooth-window", type=int, default=1,
+    p.add_argument("--action-smooth-window", type=int, default=4,
                    help="firmware-side action smoothing: the actuator "
                         "receives the moving average of the last N policy "
                         "outputs (1 = off). N=4 nulls the learned PWM "

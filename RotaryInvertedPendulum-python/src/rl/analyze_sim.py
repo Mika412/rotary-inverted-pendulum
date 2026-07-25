@@ -86,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
             "matching env (action mode, rate, smoothing window)")
     predict, label = _load_policy(policy_path, args.device)
     env = make_env(cfg, dr=False, transport=args.transport)
-    hz = float(cfg.get("control_freq_hz", 35.0))
+    hz = float(cfg.get("control_freq_hz", 50.0))
 
     scored = []
     for ep in range(args.episodes):

@@ -90,10 +90,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--policy", required=True, help="path to a .zip checkpoint")
     p.add_argument("--port", required=True, help="serial port, e.g. /dev/cu.usbserial-1130")
     p.add_argument("--baud", type=int, default=2_000_000)
-    p.add_argument("--control-freq", type=float, default=35.0,
+    p.add_argument("--control-freq", type=float, default=50.0,
                    help="control loop frequency in Hz. MUST match the rate "
                         "the policy was trained at — see "
-                        "docs/control_rate_selection.md. Default 35 Hz "
+                        "docs/control_rate_selection.md. Default 50 Hz "
                         "matches this rig's canonical design rate.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
                    default="accel",
@@ -106,10 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--max-accel-rad-s2", type=float, default=150.0,
                    help="accel/velocity mode: accel command clamp [-max, +max] "
                         "rad/s². Must match training-time max_accel_rad_s2 (150).")
-    p.add_argument("--max-velocity-rad-s", type=float, default=5.0,
+    p.add_argument("--max-velocity-rad-s", type=float, default=3.5,
                    help="velocity mode: action maps to velocity setpoint "
                         "[-max, +max] rad/s. Must match training-time "
-                        "max_velocity_rad_s (5.0).")
+                        "max_velocity_rad_s (3.5).")
     p.add_argument("--max-action-delta-rad", type=float, default=0.10,
                    help="position_delta mode: per-tick motor-target delta of "
                         "action × this (rad). Must match training (default 0.10).")
