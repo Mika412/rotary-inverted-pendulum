@@ -206,8 +206,7 @@ def main(argv: list[str] | None = None) -> int:
                 return predict_fn(obs, deterministic=deterministic)
 
         model = _StudentShim()
-        kind = "QAT (int8)" if is_qat else "float"
-        print(f"  loaded {kind} distilled student "
+        print(f"  loaded float distilled student "
               f"({ckpt['obs_dim']}->{ckpt['hidden']}->{ckpt['hidden']}->{ckpt['act_dim']}, "
               f"val_mse={ckpt.get('val_mse', float('nan')):.6f})")
     else:
