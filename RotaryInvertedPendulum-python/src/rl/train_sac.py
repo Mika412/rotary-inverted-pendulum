@@ -104,6 +104,8 @@ def make_env(
     action_delay_steps: int = 0,
     action_lag_tau_s: float = 0.0,
     action_smooth_window: int = 4,
+    dr_obs_staleness_range_s: tuple[float, float] | None = None,
+    obs_staleness_s: float | None = None,
 ):
     def _thunk():
         env_kwargs = dict(
@@ -129,6 +131,10 @@ def make_env(
             reward_stillness_bonus_weight=reward_stillness_bonus_weight,
             dr_theta_bias_max_rad=dr_theta_bias_max_rad,
         )
+        if dr_obs_staleness_range_s is not None:
+            env_kwargs["dr_obs_staleness_range_s"] = dr_obs_staleness_range_s
+        if obs_staleness_s is not None:
+            env_kwargs["obs_staleness_s"] = obs_staleness_s
         # These two have non-None defaults in the env; only pass when the
         # caller explicitly set a value, preserving env canonical defaults.
         if reward_motor_vel_weight is not None:
@@ -170,12 +176,21 @@ def train(args: argparse.Namespace) -> Path:
         (args.dr_action_lag_tau_min, args.dr_action_lag_tau_max)
         if args.dr_action_lag_tau_max is not None else None
     )
+    # Opt-in only. The measured rig value is 15.6 ms, outside the env default
+    # range of 2-10 ms, but widening it changes which checkpoint EvalCallback
+    # picks, so the default is left alone until a from-scratch run validates
+    # it. See website/src/content/docs/reference/transport-delay.md.
+    dr_stale = (
+        (args.dr_obs_staleness_min, args.dr_obs_staleness_max)
+        if args.dr_obs_staleness_max is not None else None
+    )
     train_env = DummyVecEnv([make_env(
         run_dir,
         domain_randomization=args.domain_randomization,
         dr_motor_accel_range_rad_s2=dr_accel,
         dr_action_delay_steps_range=dr_delay,
         dr_action_lag_tau_range_s=dr_action_lag,
+        dr_obs_staleness_range_s=dr_stale,
         dr_control_dt_jitter_frac=args.dr_dt_jitter_frac,
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
@@ -216,10 +231,14 @@ def train(args: argparse.Namespace) -> Path:
     if args.domain_randomization and (eval_delay_steps or eval_lag_tau_s):
         print(f"eval env transport pinned to DR midpoint: "
               f"delay={eval_delay_steps} ticks, lag tau={eval_lag_tau_s*1000:.1f} ms")
+    # Same rule as delay/lag above: if staleness is randomised, the eval env
+    # sits at the DR midpoint, not the env nominal, so best_model is not
+    # chosen by a test the training episodes never saw.
     eval_env = DummyVecEnv([make_env(
         domain_randomization=False,
         action_delay_steps=eval_delay_steps,
         action_lag_tau_s=eval_lag_tau_s,
+        obs_staleness_s=(sum(dr_stale) / 2.0) if dr_stale else None,
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
         max_accel_rad_s2=args.max_accel_rad_s2,
@@ -412,6 +431,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                    help="lower bound on action_delay_steps sampled per episode")
     p.add_argument("--dr-delay-max", type=int, default=None,
                    help="upper bound on action_delay_steps. Set this to override env defaults.")
+    p.add_argument("--dr-obs-staleness-min", type=float, default=0.002,
+                   help="lower bound of the sampled observation staleness (s); "
+                        "only used when --dr-obs-staleness-max is given")
+    p.add_argument("--dr-obs-staleness-max", type=float, default=None,
+                   help="upper bound of the sampled observation staleness (s). "
+                        "Unset keeps the env default 2-10 ms. Measured on the "
+                        "rig: 15.6 ms, so 0.020 covers reality — UNVALIDATED, "
+                        "needs a from-scratch run before becoming the default")
     p.add_argument("--dr-action-lag-tau-min", type=float, default=0.0,
                    help="lower bound on first-order action-lag time constant "
                         "(seconds) sampled per episode.")

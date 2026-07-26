@@ -128,9 +128,61 @@ their mean, p95 and max next to the nominal the simulation assumes
     (sim models this as obs_staleness_s = 4 ms nominal)
 ```
 
-No reference figures are quoted here yet — this instrumentation is newer than
-the measurements above, so record what your own rig reports rather than
-inheriting a number from this page.
+### What this rig measured (2026-07-26, TMC2209, champion policy)
+
+```
+  sample->command latency     : mean 15.64 ms, p95 17.12 ms, max 17.72 ms
+```
+
+**Four times the 4 ms nominal, and outside the 2–10 ms range the curriculum
+randomises over** — no policy in this repo has trained at the latency it is
+deployed at, not even as a randomised extreme.
+
+A boot-time benchmark decomposes it:
+
+| term | cost | note |
+| --- | --- | --- |
+| policy forward pass | 12.93 ms | 83% of the total |
+| `sinf` + `cosf` + `tanhf` | 0.42 ms | 2.7% — a lookup table would buy nothing |
+| 500 Hz sampler staleness | ≤2 ms | the mean→max spread is this jitter |
+
+The forward pass is 656 multiply-accumulates at ~17 µs each, which is simply
+what software float costs on a 16 MHz AVR (`__mulsf3` + `__addsf3` ≈ 210
+cycles). Adding the 8 ms `setForwardPlanningTimeInMs` gives a real standalone
+budget of **≈24 ms against the 12 ms the sim models** — and note that puts the
+real device path closer to the sim's *tethered* model (28 ms) than its device
+one.
+
+### Does it matter?
+
+Measured in sim, gate versus staleness, 30 episodes:
+
+| policy | 2 ms | 4 ms | 8 ms | 16 ms | 22 ms |
+| --- | --- | --- | --- | --- | --- |
+| `smooth50` (flashed champion) | 0.674 | 0.694 | 0.674 | 0.691 | 0.693 |
+| `tmc_still` | 0.797 | 0.798 | 0.795 | 0.754 | 0.660 |
+
+The champion is insensitive across the whole range, which is why the gap never
+showed up as a failure. `tmc_still` is flat to 8 ms and then falls away
+sharply. The rig sits at 15.6 ms, on the shoulder of that curve: today is fine,
+but there is no headroom — a wider network pushes compute past 20 ms and over
+the edge.
+
+Two consequences, deliberately kept separate:
+
+- **Scoring** now uses the measured value. The device gate in
+  `dagger_distill.TRANSPORTS` pins `obs_staleness_s = 0.0156`, so a policy is
+  rated at the latency it will actually run at. This touches evaluation only.
+- **Training** is unchanged. Widening the DR range would change which
+  checkpoint `EvalCallback` selects, so the default stays at 2–10 ms until a
+  from-scratch run validates the alternative. It is available opt-in:
+
+  ```bash
+  DR_OBS_STALENESS_MAX=0.020 ./curriculum_train.sh <run-name>
+  ```
+
+  which also moves the eval env to the new midpoint, for the same reason delay
+  and lag are pinned to theirs.
 
 This closes the loop on the whole page: the delay the sim randomises over is no
 longer an estimate carried forward from 2026-05-16 measurements, it is

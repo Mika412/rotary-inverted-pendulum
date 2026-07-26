@@ -127,6 +127,7 @@ DROP_VEL_OBS="${DROP_VEL_OBS:-}"
 ACTION_SMOOTH_WINDOW="${ACTION_SMOOTH_WINDOW:-4}"
 NET_ARCH="${NET_ARCH:-}"
 REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
+DR_OBS_STALENESS_MAX="${DR_OBS_STALENESS_MAX:-}"
 REWARD_MOTOR_VEL_WEIGHT="${REWARD_MOTOR_VEL_WEIGHT:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
@@ -163,6 +164,9 @@ if [ -n "$FIRMWARE_OBS_MODEL" ]; then
 fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
+fi
+if [ -n "$DR_OBS_STALENESS_MAX" ]; then
+    COMMON_ARGS+=(--dr-obs-staleness-max "$DR_OBS_STALENESS_MAX")
 fi
 if [ -n "$NET_ARCH" ]; then
     COMMON_ARGS+=(--net-arch "$NET_ARCH")
