@@ -49,17 +49,30 @@ fine-tunes to ~0.97 deployed vs the default 256×256/100k's 0.996
 Stage boundaries and the reasoning behind each randomised parameter are on the
 [domain randomization page](/rotary-inverted-pendulum/reference/domain-randomization/).
 
-## Mirror symmetry (experimental)
+## Mirror symmetry (on by default)
 
 The rig is left/right symmetric, but a plain SAC run picks an arbitrary
-preferred swing-up direction and catches worse on the other side. `MIRROR_AUGMENT=1`
-stores every transition alongside its mirror image, which is exact rather than
-synthetic:
+preferred swing-up direction and catches worse on the other side. Mirror
+augmentation stores every transition alongside its mirror image, which is exact
+rather than synthetic.
+
+**This is the default**, because the flashed champion is a mirror-augmented
+student — a bare run has to include it to reproduce the champion. A plain
+invocation already has it on:
 
 ```bash
-MIRROR_AUGMENT=1 bash curriculum_train.sh sym_v1
+bash curriculum_train.sh sym_v1
 python analyze_symmetry.py runs/sym_v1_stage3/best_model.zip   # must still self-start
 ```
+
+To train the asymmetric baseline for an A/B, opt out:
+
+```bash
+MIRROR_AUGMENT=0 bash curriculum_train.sh base_v1
+```
+
+The run header prints `mirror augmentation: ON`/`OFF`, so check it rather than
+trusting the invocation.
 
 Costs no measurable throughput. Check the result before spending rig time —
 the evidence, the caveats, and why symmetrising a *finished* teacher does not

@@ -37,6 +37,8 @@ import sys
 from pathlib import Path
 
 import numpy as np
+
+import balance_metrics
 import torch
 import torch.nn.functional as F
 from stable_baselines3 import SAC
@@ -59,11 +61,12 @@ TRANSPORTS = {
 # None keeps the env default (tethered has never been measured).
 
 
-def make_env(cfg: dict, *, dr: bool, transport: str) -> RotaryInvertedPendulumEnv:
+def make_env(cfg: dict, *, dr: bool, transport: str,
+             episode_length_s: float = 8.0) -> RotaryInvertedPendulumEnv:
     (delay_range, lag_range), (gate_delay, gate_lag, gate_stale) = TRANSPORTS[transport]
     kwargs = dict(
         control_freq_hz=float(cfg.get("control_freq_hz", 50.0)),
-        episode_length_s=8.0,
+        episode_length_s=float(episode_length_s),
         action_mode=str(cfg.get("action_mode", "velocity")),
         obs_history_len=int(cfg.get("obs_history_len") or 1),
         obs_include_velocities=bool(cfg.get("obs_include_velocities", True)),
@@ -87,7 +90,7 @@ def make_env(cfg: dict, *, dr: bool, transport: str) -> RotaryInvertedPendulumEn
 
 
 def gate(predict_fn, cfg: dict, transport: str, n_ep: int = 10) -> float:
-    """Honest balanced fraction (|θ|≤15°, |θ̇|≤2 rad/s), deterministic."""
+    """Honest balanced fraction, deterministic. Gate from balance_metrics."""
     env = make_env(cfg, dr=False, transport=transport)
     fracs = []
     for ep in range(n_ep):
@@ -99,8 +102,8 @@ def gate(predict_fn, cfg: dict, transport: str, n_ep: int = 10) -> float:
             obs, _, term, trunc, info = env.step(a)
             th = abs(((info["phi"] - np.pi + np.pi) % (2 * np.pi)) - np.pi)
             pv = abs(float(env.data.qvel[env._pen_qvel_addr]))
-            # velocity gate 4.0 — see analyze_onboard.py
-            bal += (th <= np.radians(15) and pv <= 4.0)
+            bal += (th <= balance_metrics.BAL_THETA_RAD
+                    and pv <= balance_metrics.BAL_PEN_VEL_RAD_S)
             n += 1
             done = term or trunc
         fracs.append(bal / max(1, n))

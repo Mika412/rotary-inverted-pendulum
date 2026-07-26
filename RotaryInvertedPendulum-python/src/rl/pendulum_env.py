@@ -606,6 +606,8 @@ class RotaryInvertedPendulumEnv(gym.Env):
                 f"action_smooth_window must be >= 1, got {action_smooth_window}"
             )
         self.action_smooth_window = int(action_smooth_window)
+        self._kick_ticks_left = 0
+        self._kick_value = 0.0
         self._action_smooth_buf: deque = deque(
             [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
         )
@@ -770,6 +772,8 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self._lagged_accel_cmd = 0.0
         self._accel_cmd_queue = deque([0.0] * self._action_delay_steps,
                                       maxlen=max(1, self._action_delay_steps + 1))
+        self._kick_ticks_left = 0
+        self._kick_value = 0.0
         self._action_smooth_buf = deque(
             [0.0] * self.action_smooth_window, maxlen=self.action_smooth_window
         )
@@ -915,6 +919,15 @@ class RotaryInvertedPendulumEnv(gym.Env):
             rng.uniform(*DR_MOTOR_FRICTIONLOSS_RANGE_N_M)
         )
 
+    def kick(self, value: float, ticks: int = 2) -> None:
+        """Drive the actuator at `value` for the next `ticks` control steps.
+
+        The mirror of overriding a_cmd in run_policy.py, so the sim protocol
+        and the rig protocol are the same experiment.
+        """
+        self._kick_value = float(np.clip(value, -1.0, 1.0))
+        self._kick_ticks_left = max(0, int(ticks))
+
     def step(self, action):
         action = float(np.clip(np.asarray(action).flatten()[0], -1.0, 1.0))
 
@@ -929,6 +942,17 @@ class RotaryInvertedPendulumEnv(gym.Env):
             smoothed_action = sum(self._action_smooth_buf) / self.action_smooth_window
         else:
             smoothed_action = action
+
+        # --- Disturbance injection (see disturbance.py). ---
+        # Overrides the actuator command only. `action` stays the policy's own
+        # output, so prev_action and the reward never see the kick: the policy
+        # observes motion it did not cause, which is what makes this a
+        # disturbance rather than an action it must own. Sits here, after the
+        # boxcar, so the impulse reaches the motor at full amplitude instead of
+        # being smeared over the window.
+        if self._kick_ticks_left > 0:
+            smoothed_action = self._kick_value
+            self._kick_ticks_left -= 1
 
         # --- Continuous action lag: first-order LP filter on the action. ---
         # Models the laptop ↔ Arduino ↔ stepper-ISR pipeline as a low-pass.
