@@ -178,6 +178,11 @@ def run_sim(waveform_fn, duration: float, sample_rate: float,
     env = RotaryInvertedPendulumEnv(
         control_freq_hz=sample_rate,
         domain_randomization=False,
+        # The real side drives CMD_SET_ACCEL with no smoothing, so pin both
+        # here: the env defaults are the policy's (velocity, 4-tap boxcar) and
+        # would replay a different waveform than the rig was given.
+        action_mode="accel",
+        action_smooth_window=1,
         action_delay_steps=0,
         max_accel_rad_s2=MAX_ACCEL_RAD_S2,
         # Use the nominal motor envelope (no per-episode DR sampling here).
