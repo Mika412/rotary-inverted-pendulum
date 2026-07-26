@@ -450,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
                       f"(spinning if ≫1 after swing-up)")
 
             if args.log and loop_count > 0:
+                Path(args.log).parent.mkdir(parents=True, exist_ok=True)
                 np.savez(
                     args.log,
                     time_us=log_t_us[:loop_count],

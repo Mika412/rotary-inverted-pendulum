@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import serial
@@ -121,6 +122,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.log:
         if not args.log.endswith(".npz"):
             raise SystemExit("--log must end in .npz")
+        # gitignored dir, absent in a fresh clone; failing here would throw
+        # away a capture that already cost rig time.
+        Path(args.log).parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(args.log, t_s=t_s, motor_pos_rad=motor_pos,
                             pendulum_pos_rad=phi, action=action,
                             control_freq_hz=freq)
