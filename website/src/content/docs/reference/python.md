@@ -69,6 +69,7 @@ and destroys policies that work fine on hardware.
 
 | Script | Purpose |
 | --- | --- |
+| `distill_student.sh` | **The one command to use** — runs BC, then DAgger at the deployment transport, then scores the student in sim. Defaults are the validated recipe; env vars override |
 | `distill.py` | Behaviour cloning from teacher + real-rig buffer |
 | `dagger_distill.py` | DAgger at the deployment transport — the step that makes it deploy |
 | `export_weights.py` | Emits the PROGMEM `policy_weights.h` the Nano is flashed with |

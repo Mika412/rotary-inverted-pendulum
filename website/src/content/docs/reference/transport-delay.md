@@ -108,6 +108,37 @@ day). Curriculum stage 3 now trains delay = 1 tick + tau ∈ [0, 15] ms.
 - Curriculum stage 2/3 delay ranges should be tightened to bracket the
   actual ~14 ms, not the historical 30–50 ms.
 
+## The standalone rig now measures its own latency
+
+Everything above was inferred indirectly — step tests with the pendulum held,
+and half-step model fits to deploy logs. `RLControl` now reports the quantity
+directly: it records the timestamp of the sample the policy actually read, and
+pairs it with a `micros()` taken immediately before `moveByAcceleration`. The
+difference is the **sample→command latency**, which is exactly what
+`pendulum_env` models as `obs_staleness_s`.
+
+Two fields ride in the [telemetry
+CSV](/rotary-inverted-pendulum/reference/serial-protocol/#the-telemetry-csv) —
+this tick's latency and the worst since boot — and `analyze_onboard.py` prints
+their mean, p95 and max next to the nominal the simulation assumes
+(`OBS_STALENESS_NOMINAL_S`, 4 ms), in the form:
+
+```
+  sample->command latency     : mean <x> ms, p95 <x> ms, max <x> ms
+    (sim models this as obs_staleness_s = 4 ms nominal)
+```
+
+No reference figures are quoted here yet — this instrumentation is newer than
+the measurements above, so record what your own rig reports rather than
+inheriting a number from this page.
+
+This closes the loop on the whole page: the delay the sim randomises over is no
+longer an estimate carried forward from 2026-05-16 measurements, it is
+observable on every deployment. If a capture's measured latency sits outside the
+range the curriculum trained against, that is a concrete sim-to-real gap to fix
+rather than a suspicion — and it is worth checking whenever a policy scores well
+tethered but poorly standalone.
+
 ## Actuator-side action smoothing (`ACTION_SMOOTH_WINDOW`)
 
 Deliberate, fixed shaping of the action path — not DR. Motivation: SAC

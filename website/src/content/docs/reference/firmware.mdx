@@ -75,6 +75,25 @@ Pin 9 is not a preference. FastAccelStepper generates steps from Timer1's output
 compare unit, and the sketch halts in `setup()` if the step pin is not
 Timer1-capable.
 
+### The encoder angle is an accumulator — guard it
+
+The AS5600 reports an absolute angle within one turn; every sketch that tracks
+multiple revolutions accumulates it, and **that accumulator never resets**. So a
+single corrupted I²C read does not produce one bad sample — it offsets the angle
+for the remainder of the run, and the controller then balances against a false
+vertical. The observed failure was 230 seconds of clean balancing followed by
+sustained flailing.
+
+Every accumulating sketch therefore rejects implausible per-sample jumps
+(**> 500 LSB**, about 44°, far beyond anything the pendulum can do in one 2 ms
+sample) by returning the previous value:
+
+- Guarded: `LowLevelServer`, `RLControl`, `PIDControl`.
+- Deliberately **not** guarded: `TestEncoder` — seeing the raw glitches is the
+  entire point of that sketch.
+
+If you add a sketch that accumulates the angle, it needs the same guard.
+
 ### Microstepping
 
 `MICROSTEPS` must match how you wired the driver: **16** on a TMC2209 with MS1

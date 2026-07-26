@@ -92,11 +92,47 @@ There is also an older text protocol (`"1"` ready, `"2"` motor position, `"3"`
 pendulum position, `"4 <pos>"` set target, `"5"` start, `"6"` stop) used by the
 legacy gamepad script.
 
-## `RLControl` — no host protocol
+## `RLControl` — telemetry only
 
-The standalone RL sketch does not take commands. It prints telemetry at 500,000
-baud, which is what `analyze_onboard.py` captures to score a deployment. On boot
-it also prints `[boot] policy(hanging/upright) = …`, which you can compare
+The standalone RL sketch is fully autonomous and needs no host, but it accepts a
+few single-character commands at 500,000 baud:
+
+| Command | Effect |
+| --- | --- |
+| `P` | toggle CSV telemetry |
+| `E` | engage the motor (re-arm after a hard-limit trip) |
+| `D` | disengage the motor |
+| `M` | print AS5600 magnet diagnostics |
+
+### The telemetry CSV
+
+This is what `analyze_onboard.py` captures to score a deployment:
+
+| Column | Field | Note |
+| --- | --- | --- |
+| 1 | `t_us` | microseconds |
+| 2 | `motor_pos_rad` | ×1000 |
+| 3 | `phi_rad` | ×1000, 0 = hanging |
+| 4 | `action` | ×1000, the raw policy output |
+| 5 | `state` | controller state machine |
+| 6 | `freq_hz` | **check this first** — an off-rate loop invalidates the numbers |
+| 7 | `overruns` | ticks that missed their deadline |
+| 8 | `latency_us` | sample→command latency this tick |
+| 9 | `latency_max_us` | worst seen since boot |
+
+Columns 8 and 9 measure the delay between the sensor sample the policy read and
+the moment the resulting command reached the stepper — the quantity the
+simulation models as `obs_staleness_s`. `analyze_onboard.py` reports their mean,
+p95 and max alongside the nominal the sim assumes, so a real rig can be checked
+against its model rather than trusted. See [transport
+delay](/rotary-inverted-pendulum/reference/transport-delay/).
+
+Older captures have seven columns; the analysis script treats the latency fields
+as optional and skips that line when they are absent.
+
+### On boot
+
+The sketch prints `[boot] policy(hanging/upright) = …`, which you can compare
 against the PyTorch student on the same reference inputs if you suspect a weight
 export or PROGMEM bug.
 

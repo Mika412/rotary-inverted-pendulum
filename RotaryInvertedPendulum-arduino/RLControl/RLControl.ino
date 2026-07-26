@@ -2,9 +2,10 @@
  * RLControl.ino — Standalone on-device RL controller for the rotary inverted pendulum.
  *
  * Runs a distilled student MLP (24 -> H -> H -> 1, ReLU/ReLU/tanh, float32
- * weights in PROGMEM) at a fixed 35 Hz to swing up + balance the pendulum
- * without any laptop tether. Distilled from the vel_v8 line via
- * `distill.py` (+ DAgger) and exported by `export_weights.py`.
+ * weights in PROGMEM) at a fixed CONTROL_FREQUENCY_HZ (50 Hz, the canonical
+ * operating point) to swing up + balance the pendulum without any laptop
+ * tether. Produced by `distill_student.sh` (behaviour cloning + DAgger at the
+ * device transport) and exported by `export_weights.py`.
  *
  * Action mode: VELOCITY. The policy's tanh output is a velocity setpoint
  * (action × MAX_VELOCITY_RAD_S). A saturating P-law converts it to an
@@ -24,7 +25,8 @@
  * computation LowLevelServer's GET_STATE serves the tethered stack, so the
  * on-device policy sees identical measurement statistics to its training
  * and fine-tuning data. Flash weights from a policy trained with
- * `--action-mode velocity --obs-history-len 4` at 35 Hz.
+ * `--action-mode velocity --obs-history-len 4` at the SAME rate as
+ * CONTROL_FREQUENCY_HZ below; run_config.check_config enforces this.
  *
  * Step generation runs from a Timer1 ISR via FastAccelStepper. The main
  * loop is therefore free to spend ~10 ms on inference without stalling the
@@ -60,8 +62,12 @@
  *   'D' / 'd' : disengage motor (manual stop)
  *   'M' / 'm' : print AS5600 magnet diagnostics
  *
- * Telemetry CSV (when toggled on, 1 Hz):
- *   t_us, motor_pos_rad×1000, phi_rad×1000, action×1000, state, freq_hz, overruns
+ * Telemetry CSV (when toggled on, one line per control tick):
+ *   t_us, motor_pos_rad×1000, phi_rad×1000, action×1000, state, freq_hz,
+ *   overruns, latency_us, latency_max_us
+ * latency_* are the sample->command delay (what the sim calls
+ * obs_staleness_s); analyze_onboard.py treats them as optional so older
+ * seven-column captures still parse.
  */
 
 #include <FastAccelStepper.h>
@@ -351,11 +357,13 @@ static void read_measured_state(float* motor_pos, float* phi,
 //
 // 24 -> H -> H -> 1 MLP, ReLU/ReLU/tanh. Weights live in PROGMEM and are
 // read with pgm_read_*(); only the H+H activation buffers + the input
-// live in SRAM. Software-float cost is ~12 µs/MAC: ~8 ms at H=16 —
-// comfortably inside the 28.6 ms tick. H=32 (~23 ms) does NOT fit at
-// 35 Hz (measured 2026-07-22: the loop sagged to 25 Hz and the policy
-// broke) — H=16 is the production width, and the imitation pipeline
-// works best at that size anyway (see website/src/content/docs/train/pipeline.mdx).
+// live in SRAM. H=16 is the production width: it fits inside the tick with
+// margin, while H=32 float does not and silently sags the loop (measured at
+// 35 Hz, 2026-07-22: 28.6 ms tick -> 25 Hz actual, which turned a balancing
+// policy into a spinner). The current per-MAC cost and tick budget are
+// recorded in website/src/content/docs/train/distill.md — keep the numbers in
+// one place rather than duplicating them here. The imitation pipeline also
+// works best at H=16 anyway.
 // Stepping runs from the Timer1 ISR so inference never stalls the motor —
 // but the 500 Hz measurement sampler DOES run in the main loop, so the
 // hidden-layer row loops call update_sample_buffer() between rows
@@ -729,7 +737,7 @@ void loop()
 
     // Telemetry: PER TICK while enabled ('P'), so a host capture of the
     // stream can compute the same honest balance metrics as tethered
-    // deploys (see analyze_onboard.py). ~40 bytes/tick at 35 Hz is
+    // deploys (see analyze_onboard.py). ~50 bytes/tick at the control rate is
     // negligible at 500 kbaud. Rate/overrun counters still reset each
     // second so freq_hz stays meaningful.
     static unsigned long last_freq_us = 0;

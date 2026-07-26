@@ -59,6 +59,13 @@ Read the header line first: it must say **~{c.frequencyHz.toFixed(1)} Hz**, matc
 means inference exceeded the tick budget and the numbers evaluate a broken
 deployment, not the policy.
 
+The script also reports the **sample→command latency** the sketch measured —
+mean, p95 and max — against the nominal the simulation assumes. That is the one
+number here describing the sim-to-real gap rather than the policy: if it sits
+outside the range the curriculum trained over, fix the model before blaming the
+controller. Detail in [transport
+delay](/rotary-inverted-pendulum/reference/transport-delay/#the-standalone-rig-now-measures-its-own-latency).
+
 2026-07-22 reference: balanced fraction **0.892**, 5 s streaks, verdict
 BALANCED. The current champion scores **0.996** over five minutes.
 
