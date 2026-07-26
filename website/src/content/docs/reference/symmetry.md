@@ -286,6 +286,40 @@ differs between seeds); paired disagreement barely moved (1/12 vs 1/12 and
 3/12) and the reward gap not at all, so at n=12 the asymmetry score is the
 cleaner instrument. All of it is sim. Rig confirmation is still owed.
 
+## On the rig
+
+`sym_s1_stage3` → 50-episode `--mirror-augment` fine-tune → `distill_student.sh`
+→ flashed. Both captures are 300 s standalone:
+
+| | champion | symmetric student |
+|---|---|---|
+| balanced fraction | 1.000 | 0.988 |
+| longest streak | 299.5 s | 265.9 s |
+| **arm lean signed** | **−17.8°** | **−1.7°** |
+| arm off-centre | 17.9° | 8.1° |
+| arrivals CCW / CW | 0 / 0 | 4 / 5 (bias 0.11) |
+| pendulum std | 2.47° | 2.90° |
+
+**The arm settles on centre.** −17.8° → −1.7°. The lean was never a reward-tuning
+problem — it was the broken symmetry, and it went away when the symmetry was
+restored rather than when the centring penalty was raised.
+
+The balanced fractions are not comparable: the symmetric capture was
+deliberately perturbed by hand ~9 times and the champion capture was not,
+which is also why it shows 42.9 pendulum revolutions against 29.2 and 5
+catches against 1. The 1.2% is recovery time from knockdowns the champion
+never faced.
+
+Two things to note about where the asymmetry ends up. The fine-tune *raised*
+the overall score (0.314 → 0.536 on the teacher, 0.531 on the student), but it
+concentrated entirely in the swing-up: balance gains are symmetric to 0.003 at
+±5.7° and ±11.5°, while the engage action grew from −0.218 to −0.702. That is
+unavoidable — every fine-tune episode starts at the engage state, which is its
+own mirror image, so augmentation contributes `(s, +a)` and `(s, −a)` with
+identical reward and the policy must pick one. It is also what makes it
+self-start in 1.62 s. And DAgger, which has no symmetry support, *preserved*
+the teacher's symmetry rather than eroding it (0.531 vs 0.536).
+
 ### Expectations
 
 The reliable wins are **behavioural consistency** and **coverage**, not a
@@ -353,16 +387,14 @@ curriculum stage is legal.
 
 ## Open questions
 
-- Does the sim result hold on the rig? Everything above is sim except the
-  direction-preference and catch-rate evidence from the deploy logs.
-- Why does mirror augmentation only halve the asymmetry rather than drive it to
-  zero? Expected for the DUP method — Abdolhosseini et al. found it the
-  weakest of the four at *enforcing* symmetry — so adding the LOSS method to
-  SAC's actor update (currently only wired into `distill.py`) is the obvious
-  next lever if 0.30 isn't low enough.
-- Is the −14° balance lean really base tilt? Levelling the table and
-  re-measuring `arm_off_centre_signed_deg` would settle it, and would also
-  bound how much per-rig specialisation mirror augmentation gives up.
-- Does the ~0.45 s slower swing-up matter on the rig? In sim it's the price of
-  the smaller residual tie-break at the engage state. If it's annoying in
-  practice, the arm nudge buys it back.
+- Would the LOSS method inside SAC's actor update beat augmentation alone?
+  Abdolhosseini et al. found DUP the weakest of the four at *enforcing*
+  symmetry and LOSS the most consistent; only `distill.py` has a mirror-loss
+  term today.
+- Is the residual lean (−1.7°) base tilt or measurement? Levelling the table
+  and re-measuring `arm_off_centre_signed_deg` would settle it.
+- Does mirror augmentation compose with the widened observation-staleness DR
+  (`DR_OBS_STALENESS_MAX`)? The symmetric teacher was trained before that
+  landed, so the two have never been combined.
+- Can a matched-protocol capture separate the two policies on balanced
+  fraction? The pair above cannot — one was perturbed, one wasn't.
