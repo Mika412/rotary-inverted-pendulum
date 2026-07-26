@@ -54,6 +54,3 @@ the motor during the first few episodes — a smooth whirr is fine, a
 buzzy/grinding sound means step-skipping (drop `MOTOR_ACCELERATION` in
 `LowLevelServer.ino` and `RLControl.ino` from 50 k → 30 k and re-flash).
 
-## Next
-
-[3. Test the teacher on the rig →](/rotary-inverted-pendulum/train/test-teacher/)

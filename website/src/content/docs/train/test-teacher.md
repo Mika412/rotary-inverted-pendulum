@@ -37,6 +37,3 @@ The teacher runs at 50 Hz over USB serial just fine, and steps 4–6 exist only
 to remove the tether.
 :::
 
-## Next
-
-[4. Distill the student →](/rotary-inverted-pendulum/train/distill/)

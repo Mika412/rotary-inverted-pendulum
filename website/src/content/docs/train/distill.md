@@ -57,6 +57,3 @@ champion gated just **0.655 in sim yet deployed at 0.996**. A student that
 reaches roughly its teacher's gate (or better) is good; an absolute
 "≥ 0.7" rule would have rejected the champion.
 
-## Next
-
-[5. Test the student on the rig →](/rotary-inverted-pendulum/train/test-student/)

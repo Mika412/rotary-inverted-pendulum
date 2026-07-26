@@ -161,6 +161,3 @@ envelope fit.
   ground-truth: if real and sim envelopes overlap closely, the fit is
   correct regardless of the absolute values.
 
-## Next
-
-[1. Train the teacher in sim →](/rotary-inverted-pendulum/train/sim-training/)

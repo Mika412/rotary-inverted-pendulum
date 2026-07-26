@@ -138,8 +138,3 @@ take over. Swinging up from hanging is something the learned policy does and the
 PID does not.
 :::
 
-## Next
-
-Your rig works. Now measure it:
-
-[System identification →](/rotary-inverted-pendulum/train/sysid/)

@@ -45,6 +45,3 @@ fine-tunes to ~0.97 deployed vs the default 256×256/100k's 0.996
 Stage boundaries and the reasoning behind each randomised parameter are on the
 [domain randomization page](/rotary-inverted-pendulum/reference/domain-randomization/).
 
-## Next
-
-[2. Fine-tune on the real rig →](/rotary-inverted-pendulum/train/fine-tune/)

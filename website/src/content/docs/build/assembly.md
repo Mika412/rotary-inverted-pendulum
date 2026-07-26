@@ -95,6 +95,3 @@ anything:
 - The pendulum hangs straight down at rest, repeatably. That resting pose becomes
   the encoder zero every time the firmware boots.
 
-## Next
-
-[Wire the electronics →](/rotary-inverted-pendulum/build/electronics/)

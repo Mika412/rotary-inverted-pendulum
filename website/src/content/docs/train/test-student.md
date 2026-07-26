@@ -16,6 +16,3 @@ python run_policy.py \
     --duration-s 30
 ```
 
-## Next
-
-[6. Flash the standalone sketch →](/rotary-inverted-pendulum/train/flash/)
