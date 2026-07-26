@@ -168,21 +168,27 @@ sharply. The rig sits at 15.6 ms, on the shoulder of that curve: today is fine,
 but there is no headroom — a wider network pushes compute past 20 ms and over
 the edge.
 
-Two consequences, deliberately kept separate:
+Two consequences:
 
-- **Scoring** now uses the measured value. The device gate in
+- **Scoring** uses the measured value. The device gate in
   `dagger_distill.TRANSPORTS` pins `obs_staleness_s = 0.0156`, so a policy is
-  rated at the latency it will actually run at. This touches evaluation only.
-- **Training** is unchanged. Widening the DR range would change which
-  checkpoint `EvalCallback` selects, so the default stays at 2–10 ms until a
-  from-scratch run validates the alternative. It is available opt-in:
+  rated at the latency it will actually run at.
+- **Training** now randomises over **2–20 ms**, a range that spans the measured
+  15.6 ms where the old 2–10 ms did not. `DR_OBS_STALENESS_MAX=0.020` is the
+  default in `curriculum_train.sh`, so a bare run includes it; it also moves
+  the eval env to the new midpoint, for the same reason delay and lag are
+  pinned to theirs. Set `DR_OBS_STALENESS_MAX=0` to fall back to the env
+  default and train the narrow-range baseline.
 
-  ```bash
-  DR_OBS_STALENESS_MAX=0.020 ./curriculum_train.sh <run-name>
-  ```
-
-  which also moves the eval env to the new midpoint, for the same reason delay
-  and lag are pinned to theirs.
+This was held back as opt-in until a from-scratch run validated it, because
+widening the range changes which checkpoint `EvalCallback` selects — i.e. the
+recipe. That run is now done, and it produced the current champion: combined
+with mirror augmentation it took a matched 300 s standalone capture to
+**1.000 balanced / 299.6 s / zero drops** with `|action|` 0.325 → 0.239,
+pendulum σ 2.53° → 1.90°, arm speed 1.18 → 0.89 and arm lean −17.4° → +4.6°.
+Since the champion needs the wider range, a bare pipeline run has to include it
+to reproduce the champion — which is why it is now the default rather than a
+flag.
 
 This closes the loop on the whole page: the delay the sim randomises over is no
 longer an estimate carried forward from 2026-05-16 measurements, it is

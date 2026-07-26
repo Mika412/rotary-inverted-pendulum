@@ -125,9 +125,10 @@ def main(argv: list[str] | None = None) -> int:
         # gitignored dir, absent in a fresh clone; failing here would throw
         # away a capture that already cost rig time.
         Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+        extra = {} if latency_us is None else {"latency_us": latency_us[keep]}
         np.savez_compressed(args.log, t_s=t_s, motor_pos_rad=motor_pos,
                             pendulum_pos_rad=phi, action=action,
-                            control_freq_hz=freq)
+                            control_freq_hz=freq, **extra)
         print(f"saved capture -> {args.log}")
     return 0
 

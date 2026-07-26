@@ -144,7 +144,11 @@ MIRROR_AUGMENT="${MIRROR_AUGMENT-1}"
 ACTION_SMOOTH_WINDOW="${ACTION_SMOOTH_WINDOW:-4}"
 NET_ARCH="${NET_ARCH:-}"
 REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
-DR_OBS_STALENESS_MAX="${DR_OBS_STALENESS_MAX:-}"
+# ON by default at the MEASURED rig latency (15.6 ms sample->command, so the
+# 2-20 ms range spans reality where the env default 2-10 ms does not). The
+# champion was trained with this; a bare run needs it to reproduce. Set 0 or
+# empty to fall back to the env default.
+DR_OBS_STALENESS_MAX="${DR_OBS_STALENESS_MAX-0.020}"
 REWARD_MOTOR_VEL_WEIGHT="${REWARD_MOTOR_VEL_WEIGHT:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
@@ -185,7 +189,7 @@ fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
 fi
-if [ -n "$DR_OBS_STALENESS_MAX" ]; then
+if [ -n "$DR_OBS_STALENESS_MAX" ] && [ "$DR_OBS_STALENESS_MAX" != 0 ]; then
     COMMON_ARGS+=(--dr-obs-staleness-max "$DR_OBS_STALENESS_MAX")
 fi
 if [ -n "$NET_ARCH" ]; then
@@ -215,8 +219,10 @@ if [ -n "$MIRROR_AUGMENT" ] && [ "$MIRROR_AUGMENT" != 0 ]; then
 else
     echo "  mirror augmentation: OFF (asymmetric baseline)"
 fi
-if [ -n "$DR_OBS_STALENESS_MAX" ]; then
+if [ -n "$DR_OBS_STALENESS_MAX" ] && [ "$DR_OBS_STALENESS_MAX" != 0 ]; then
     echo "  obs staleness DR: up to ${DR_OBS_STALENESS_MAX} s (measured rig value 0.0156)"
+else
+    echo "  obs staleness DR: env default 2-10 ms (does NOT span the measured 15.6 ms)"
 fi
 if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     echo "  reward_stillness_bonus_weight: $REWARD_STILLNESS_BONUS_WEIGHT"
