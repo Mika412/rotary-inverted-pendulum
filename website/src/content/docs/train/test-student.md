@@ -1,5 +1,5 @@
 ---
-title: 5 · Test the student (optional)
+title: 5. Test the student (optional)
 description: A quick tethered sanity check before flashing — expect it below the teacher, because the student was aimed at a different transport.
 ---
 
@@ -18,4 +18,4 @@ python run_policy.py \
 
 ## Next
 
-[6 · Flash the standalone sketch →](/rotary-inverted-pendulum/train/flash/)
+[6. Flash the standalone sketch →](/rotary-inverted-pendulum/train/flash/)

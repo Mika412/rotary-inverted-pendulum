@@ -1,5 +1,5 @@
 ---
-title: "0 · System identification"
+title: "0. System identification"
 description: "Measuring the friction parameters that pin the simulation to your rig."
 ---
 
@@ -163,4 +163,4 @@ envelope fit.
 
 ## Next
 
-[1 · Train the teacher in sim →](/rotary-inverted-pendulum/train/sim-training/)
+[1. Train the teacher in sim →](/rotary-inverted-pendulum/train/sim-training/)

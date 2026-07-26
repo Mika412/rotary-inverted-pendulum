@@ -1,5 +1,5 @@
 ---
-title: 3 · Test the teacher on the rig
+title: 3. Test the teacher on the rig
 description: Thirty seconds of rig time that decides whether the teacher is worth distilling — and the point you can stop at if you keep the laptop attached.
 ---
 
@@ -39,4 +39,4 @@ to remove the tether.
 
 ## Next
 
-[4 · Distill the student →](/rotary-inverted-pendulum/train/distill/)
+[4. Distill the student →](/rotary-inverted-pendulum/train/distill/)

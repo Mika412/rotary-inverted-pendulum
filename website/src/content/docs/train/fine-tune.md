@@ -1,5 +1,5 @@
 ---
-title: 2 · Fine-tune on the real rig
+title: 2. Fine-tune on the real rig
 description: Closing the sim-to-real gap with 30–80 real-rig episodes, using the async orchestrator.
 ---
 
@@ -56,4 +56,4 @@ buzzy/grinding sound means step-skipping (drop `MOTOR_ACCELERATION` in
 
 ## Next
 
-[3 · Test the teacher on the rig →](/rotary-inverted-pendulum/train/test-teacher/)
+[3. Test the teacher on the rig →](/rotary-inverted-pendulum/train/test-teacher/)

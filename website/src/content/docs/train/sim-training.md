@@ -1,5 +1,5 @@
 ---
-title: 1 · Train the teacher in sim
+title: 1. Train the teacher in sim
 description: The three-stage domain-randomisation curriculum that trains the large SAC teacher, in about 25 minutes on a laptop.
 ---
 
@@ -47,4 +47,4 @@ Stage boundaries and the reasoning behind each randomised parameter are on the
 
 ## Next
 
-[2 · Fine-tune on the real rig →](/rotary-inverted-pendulum/train/fine-tune/)
+[2. Fine-tune on the real rig →](/rotary-inverted-pendulum/train/fine-tune/)

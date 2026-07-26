@@ -1,5 +1,5 @@
 ---
-title: 4 · Distill the student
+title: 4. Distill the student
 description: Behaviour cloning then DAgger aimed at the deployment transport — the step that makes a network small enough to run on the Nano actually work there.
 ---
 
@@ -59,4 +59,4 @@ reaches roughly its teacher's gate (or better) is good; an absolute
 
 ## Next
 
-[5 · Test the student on the rig →](/rotary-inverted-pendulum/train/test-student/)
+[5. Test the student on the rig →](/rotary-inverted-pendulum/train/test-student/)
