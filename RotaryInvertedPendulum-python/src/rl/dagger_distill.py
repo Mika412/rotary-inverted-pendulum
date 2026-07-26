@@ -48,13 +48,19 @@ from run_config import find_run_config
 
 TRANSPORTS = {
     # (dr_delay_range, dr_lag_range) for rollouts; (delay, lag) for the gate
-    "device": (((0, 0), (0.005, 0.015)), (0, 0.008)),
-    "tethered": (((1, 1), (0.000, 0.015)), (1, 0.008)),
+    "device": (((0, 0), (0.005, 0.015)), (0, 0.008, 0.0156)),
+    "tethered": (((1, 1), (0.000, 0.015)), (1, 0.008, None)),
 }
+# The third gate entry is observation staleness. On the device it is MEASURED:
+# 15.6 ms sample->command on the rig (RLControl reports it per tick; see
+# analyze_onboard.py), against an env nominal of 4 ms. Scoring at the nominal
+# rates a policy at a latency it will never run at. Gate/analysis only —
+# training staleness is the env DR range, deliberately untouched here.
+# None keeps the env default (tethered has never been measured).
 
 
 def make_env(cfg: dict, *, dr: bool, transport: str) -> RotaryInvertedPendulumEnv:
-    (delay_range, lag_range), (gate_delay, gate_lag) = TRANSPORTS[transport]
+    (delay_range, lag_range), (gate_delay, gate_lag, gate_stale) = TRANSPORTS[transport]
     kwargs = dict(
         control_freq_hz=float(cfg.get("control_freq_hz", 50.0)),
         episode_length_s=8.0,
@@ -72,6 +78,8 @@ def make_env(cfg: dict, *, dr: bool, transport: str) -> RotaryInvertedPendulumEn
         kwargs.update(dr_theta_bias_max_rad=0.0,
                       action_delay_steps=gate_delay,
                       action_lag_tau_s=gate_lag)
+        if gate_stale is not None:
+            kwargs["obs_staleness_s"] = gate_stale
     for key in ("max_accel_rad_s2", "max_velocity_rad_s", "max_action_delta_rad"):
         if cfg.get(key) is not None:
             kwargs[key] = float(cfg[key])
