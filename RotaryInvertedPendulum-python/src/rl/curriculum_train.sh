@@ -114,6 +114,8 @@ set -euo pipefail
 
 PREFIX="${1:-curriculum}"
 SEED="${SEED:-0}"
+# Resume point: 2 or 3 skips earlier stages and picks up their best_model.zip.
+START_STAGE="${START_STAGE:-1}"
 STEPS_PER_STAGE="${STEPS_PER_STAGE:-100000}"
 DEVICE="${DEVICE:-cuda}"
 CONTROL_FREQ="${CONTROL_FREQ:-50}"
@@ -213,6 +215,9 @@ if [ -n "$MIRROR_AUGMENT" ] && [ "$MIRROR_AUGMENT" != 0 ]; then
 else
     echo "  mirror augmentation: OFF (asymmetric baseline)"
 fi
+if [ -n "$DR_OBS_STALENESS_MAX" ]; then
+    echo "  obs staleness DR: up to ${DR_OBS_STALENESS_MAX} s (measured rig value 0.0156)"
+fi
 if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     echo "  reward_stillness_bonus_weight: $REWARD_STILLNESS_BONUS_WEIGHT"
 fi
@@ -236,6 +241,7 @@ if [ -n "$REWARD_MOTOR_VEL_WEIGHT" ]; then
 fi
 echo
 
+if [ "$START_STAGE" -le 1 ]; then
 echo "=== Stage 1 (no DR) ==="
 python -u train_sac.py \
     --total-steps "$STEPS_PER_STAGE" \
@@ -246,7 +252,11 @@ python -u train_sac.py \
     ${EXTRA_REWARD_ARGS[@]+"${EXTRA_REWARD_ARGS[@]}"} \
     --run-name "$run_stage1" \
     --seed "$SEED"
+else
+    echo "=== Stage 1 skipped (START_STAGE=$START_STAGE) ==="
+fi
 
+if [ "$START_STAGE" -le 2 ]; then
 echo "=== Stage 2 (delay [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks, lag tau [${DR_LAG_TAU_MIN_S2}, ${DR_LAG_TAU_MAX_S2}] s) ==="
 python -u train_sac.py \
     --total-steps "$STEPS_PER_STAGE" \
@@ -263,6 +273,9 @@ python -u train_sac.py \
     --resume "runs/${run_stage1}/best_model.zip" \
     --run-name "$run_stage2" \
     --seed "$SEED"
+else
+    echo "=== Stage 2 skipped (START_STAGE=$START_STAGE) ==="
+fi
 
 echo "=== Stage 3 (delay [${DR_DELAY_MIN_S3}, ${DR_DELAY_MAX_S3}] ticks, lag tau [${DR_LAG_TAU_MIN_S3}, ${DR_LAG_TAU_MAX_S3}] s) ==="
 python -u train_sac.py \
