@@ -80,7 +80,10 @@ and destroys policies that work fine on hardware.
 | --- | --- |
 | `run_policy.py` | Run a policy on the rig, tethered |
 | `real_env.py`, `lowlevel_client.py` | Hardware bridge over the binary protocol |
-| `analyze_onboard.py` | Capture and score a *standalone* deployment |
+| `analyze_onboard.py` | Capture and score a *standalone* deployment, including the sample→command latency the sketch measures |
+| `analyze_sim.py` | The off-rig counterpart — scores a `.zip` teacher or `student.pt` under the deployment transport, with `--kick-amp` for the disturbance pre-flight |
+| `balance_metrics.py` | Single source of truth for the balance gate and the calmness metrics, shared by the on-rig and in-sim scorers |
+| `disturbance.py` | The calibrated-kick protocol — what each metric is worth, and which ones do *not* rank policies |
 | `analyze_run.py`, `analyze_deploy.py` | Score tethered runs |
 | `sim_vs_real.py` | Replay a real log through the simulation to find model error |
 | `eval_randomized.py`, `eval_dr_sensitivity.py` | Robustness across randomised parameters (`--mirror-pairs` for the symmetry test) |

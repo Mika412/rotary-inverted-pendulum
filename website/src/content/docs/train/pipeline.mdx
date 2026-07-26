@@ -25,10 +25,26 @@ delay](/rotary-inverted-pendulum/reference/transport-delay/).
 ## The canonical operating point
 
 **50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action
-smoothing.** Every default across the Python stack and the sketches is set to
-this, so a bare run of these steps reproduces a champion-grade policy
-(measured: 0.980 balanced / 265 s hold from scratch, vs the champion's
-1.000 / 299 s).
+smoothing, mirror augmentation, and observation-staleness DR over 2–20 ms.**
+Every default across the Python stack and the sketches is set to this, so a
+bare run of these steps reproduces a champion-grade policy.
+
+The last two are recent and both are *required* to reproduce the current
+champion — it was trained with them, so a run without them is a different
+recipe:
+
+- **Mirror augmentation** stores each transition's mirror image as well. The
+  rig is exactly left/right symmetric but SAC breaks that symmetry on every
+  run, which showed up as a persistent arm lean
+  ([why](/rotary-inverted-pendulum/reference/symmetry/)).
+- **Staleness DR 2–20 ms** spans the **15.6 ms** sample→command latency
+  measured on the rig; the older 2–10 ms range did not contain it, so no policy
+  trained at the latency it deployed at
+  ([why](/rotary-inverted-pendulum/reference/transport-delay/)).
+
+Together they took a matched 300 s standalone capture to **1.000 balanced /
+299.6 s / zero drops**, with `|action|` 0.325 → 0.239, pendulum σ 2.53° → 1.90°,
+arm speed 1.18 → 0.89 rad/s and arm lean −17.4° → +4.6°.
 
 Do not change one of them in isolation. Training, fine-tuning and deployment
 must agree, and `run_config.check_config` aborts on a mismatch rather than

@@ -12,11 +12,24 @@ cd RotaryInvertedPendulum-python/src/rl
 bash curriculum_train.sh
 ```
 
+Each stage resumes from the previous stage's `best_model.zip`, so if a run dies
+partway you do not have to repeat the stages that finished:
+
+```bash
+START_STAGE=2 bash curriculum_train.sh <same-name>
+```
+
+Check the header it prints before letting a long run proceed — it echoes the
+knobs actually in effect, including whether mirror augmentation and the widened
+staleness DR are on. That header is the only confirmation; `config.json` does
+not record DR ranges.
+
 `curriculum_train.sh` reads `sysid_params.json` and runs three DR stages
 (no DR → transport-delay ramp → concentrated on the measured rig delay).
 Its defaults ARE the validated production recipe — velocity mode, 50 Hz,
 ±3.5 rad/s, K=4 frame stacking, gSDE, stillness bonus, firmware
-measurement model, 4-tap actuator action smoothing — so a bare invocation
+measurement model, 4-tap actuator action smoothing, mirror augmentation and
+observation-staleness DR over 2–20 ms — so a bare invocation
 trains the canonical teacher, and a bare run of this whole pipeline
 reproduces a champion-grade policy — the resulting `config.json` matches the
 champion's knob for knob, and an independent from-scratch run measured
