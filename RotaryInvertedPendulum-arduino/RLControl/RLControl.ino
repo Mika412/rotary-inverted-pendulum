@@ -299,6 +299,13 @@ static void update_sample_buffer()
     if (buf_head == 0) buf_filled = true;
 }
 
+// Timestamp of the sample the policy actually read. Paired with the micros()
+// taken just before moveByAcceleration, it measures sample->command latency —
+// the quantity pendulum_env models as `obs_staleness_s`.
+static uint32_t used_sample_us = 0;
+static uint16_t latency_us = 0;
+static uint16_t latency_max_us = 0;
+
 /** GET_STATE-equivalent snapshot: newest positions + window-diff velocities. */
 static void read_measured_state(float* motor_pos, float* phi,
                                 float* motor_vel, float* pen_vel)
@@ -306,6 +313,7 @@ static void read_measured_state(float* motor_pos, float* phi,
     uint8_t n_samples = buf_filled ? SAMPLE_BUFFER_SIZE : buf_head;
     if (n_samples == 0)
     {
+        used_sample_us = micros();
         *motor_pos = read_motor_pos_rad();
         *phi = read_pendulum_rad();
         *motor_vel = 0.0f;
@@ -314,6 +322,7 @@ static void read_measured_state(float* motor_pos, float* phi,
     }
 
     uint8_t newest = (uint8_t)((buf_head + SAMPLE_BUFFER_SIZE - 1) % SAMPLE_BUFFER_SIZE);
+    used_sample_us = time_us_buf[newest];
     *motor_pos = (float)motor_step_buf[newest] * RAD_PER_STEP;
     *phi = pen_rad_buf[newest];
 
@@ -531,6 +540,9 @@ static void control_tick()
     {
         accel_steps_s2 = +MOTOR_BRAKE_ACCEL_STEPS_S2;
     }
+    latency_us = (uint16_t)(micros() - used_sample_us);
+    if (latency_us > latency_max_us) latency_max_us = latency_us;
+
     stepper->moveByAcceleration(accel_steps_s2, true);
 }
 
@@ -560,7 +572,8 @@ static void handle_serial()
 static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
 {
     if (!print_enabled) return;
-    // CSV: t_us, motor_pos_rad*1000, phi_rad*1000, action*1000, state, freq_hz, overruns
+    // CSV: t_us, motor_pos_rad*1000, phi_rad*1000, action*1000, state, freq_hz,
+    //      overruns, latency_us, latency_max_us
     // Integer transmission avoids the ~500 µs Serial.print(float) cost.
     // Positions come from the sampler ring's newest entry (same source the
     // policy reads) so host-side analysis sees the policy's own inputs.
@@ -577,7 +590,9 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     ltoa((long)(last_action * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     *p++ = (state == RUNNING) ? '1' : '0'; *p++ = ',';
     utoa(freq_hz, p, 10); p += strlen(p); *p++ = ',';
-    utoa(loop_overruns, p, 10); p += strlen(p);
+    utoa(loop_overruns, p, 10); p += strlen(p); *p++ = ',';
+    utoa(latency_us, p, 10); p += strlen(p); *p++ = ',';
+    utoa(latency_max_us, p, 10); p += strlen(p);
     *p = '\0';
     Serial.println(buf);
 }

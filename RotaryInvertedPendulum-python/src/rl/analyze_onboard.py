@@ -33,6 +33,7 @@ import numpy as np
 import serial
 
 import balance_metrics
+from pendulum_env import OBS_STALENESS_NOMINAL_S
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -61,8 +62,9 @@ def main(argv: list[str] | None = None) -> int:
     while time.monotonic() < t_end:
         line = ser.readline().decode(errors="ignore").strip()
         parts = line.split(",")
-        if len(parts) != 7:
+        if len(parts) < 7:
             continue  # boot banner / partial line
+        parts = parts[:9]
         try:
             rows.append([float(v) for v in parts])
         except ValueError:
@@ -81,6 +83,8 @@ def main(argv: list[str] | None = None) -> int:
     action = arr[:, 3] / 1000.0
     running = arr[:, 4] > 0.5
     overruns = int(arr[-1, 6])
+    # Sample->command latency, present since the sketch started reporting it.
+    latency_us = arr[:, 7] if arr.shape[1] > 7 else None
 
     # Drop the settle window and any non-RUNNING rows (hard-limit trips).
     keep = (t_s >= args.settle_s) & running
@@ -105,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
           f"{n * dt:.1f}s scored, {overruns} loop overruns):")
     for line in m.report_lines():
         print(line)
+
+    if latency_us is not None:
+        lat = latency_us[keep]
+        print(f"  sample->command latency     : mean {lat.mean() / 1000:.2f} ms, "
+              f"p95 {np.percentile(lat, 95) / 1000:.2f} ms, "
+              f"max {int(arr[-1, 8]) / 1000:.2f} ms")
+        print(f"    (sim models this as obs_staleness_s = "
+              f"{OBS_STALENESS_NOMINAL_S * 1000:.0f} ms nominal)")
 
     if args.log:
         if not args.log.endswith(".npz"):
