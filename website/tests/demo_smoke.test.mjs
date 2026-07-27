@@ -166,7 +166,10 @@ try {
       problems.push(url ? `${text} — ${url}` : text);
     }
     if (msg.method === 'Runtime.exceptionThrown') {
-      problems.push(msg.params.exceptionDetails.text);
+      // `text` alone is a bare "Uncaught" — the message and stack live on the
+      // exception object, and without them a failure here is undebuggable.
+      const d = msg.params.exceptionDetails;
+      problems.push(d.exception?.description ?? d.exception?.value ?? d.text);
     }
   });
 
@@ -294,6 +297,78 @@ try {
       Number.isFinite(thetaDeg) && thetaDeg < 25,
       `|theta| = ${live.theta}, balanced = ${live.balanced}`
     );
+
+    // Drag the pendulum with REAL pointer events. Nothing else exercises this
+    // path: the unit tests call the controller directly, and merely loading
+    // the page never touches the renderer's pointer handlers — so a method
+    // missing from the drag chain shows up here and nowhere else.
+    //
+    // Scroll first: getBoundingClientRect is viewport-relative and the canvas
+    // sits below the fold, so events aimed at an unscrolled rect land nowhere.
+    await cdp.eval(
+      `document.querySelector('[data-canvas]').scrollIntoView({ block: 'center' })`
+    );
+    await sleep(400);
+    const rect = JSON.parse(
+      await cdp.eval(`
+        (() => {
+          const r = document.querySelector('[data-canvas]').getBoundingClientRect();
+          return JSON.stringify({ x: r.left, y: r.top, w: r.width, h: r.height });
+        })()
+      `)
+    );
+
+    const cursorAt = async (x, y) => {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved', x, y, button: 'none', buttons: 0,
+      });
+      await sleep(25);
+      return cdp.eval(`document.querySelector('[data-canvas]').style.cursor || ''`);
+    };
+
+    // The pendulum hangs off a rotating arm, so its screen position is not
+    // fixed — hunt for the grab cursor rather than assuming where it is.
+    let hit = null;
+    for (let fy = 0.2; fy <= 0.8 && !hit; fy += 0.1) {
+      for (let fx = 0.15; fx <= 0.85 && !hit; fx += 0.07) {
+        const x = rect.x + rect.w * fx;
+        const y = rect.y + rect.h * fy;
+        if ((await cursorAt(x, y)) === 'grab') hit = { x, y };
+      }
+    }
+    check(
+      'the pointer can find the pendulum to grab',
+      hit !== null,
+      'no point on the canvas offered a grab cursor'
+    );
+
+    if (hit) {
+      const before = parseFloat(
+        await cdp.eval(`document.querySelector('[data-theta]').textContent`)
+      );
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x: hit.x, y: hit.y, button: 'left', clickCount: 1, buttons: 1,
+      });
+      for (let i = 1; i <= 6; i++) {
+        await cdp.send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x: hit.x + i * 15, y: hit.y, button: 'left', buttons: 1,
+        });
+        await sleep(90);
+      }
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x: hit.x + 90, y: hit.y, button: 'left', clickCount: 1, buttons: 0,
+      });
+      const after = parseFloat(
+        await cdp.eval(`document.querySelector('[data-theta]').textContent`)
+      );
+      // A landed drag moves theta far more than the policy's own balancing
+      // micro-corrections, which stay well under a degree.
+      check(
+        'dragging the pendulum with the pointer disturbs it',
+        Math.abs(after - before) > 2,
+        `theta ${before}° -> ${after}° — is the drag chain intact?`
+      );
+    }
   }
 
   const realProblems = problems.filter((p) => {

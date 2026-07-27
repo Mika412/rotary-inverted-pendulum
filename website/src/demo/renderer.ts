@@ -8,18 +8,31 @@
 
 import {
   AmbientLight,
+  ArrowHelper,
   Color,
   DirectionalLight,
   Group,
   Mesh,
   MeshStandardMaterial,
   PerspectiveCamera,
+  Plane,
+  Raycaster,
   Scene,
+  Vector2,
+  Vector3,
   WebGLRenderer,
   type Object3D,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+
+export interface RendererGrabDelegate {
+  /** Called with the world-space hit point; return false to decline the grab
+   *  (and let the gesture orbit the camera instead). */
+  tryGrab(p: [number, number, number]): boolean;
+  drag(p: [number, number, number]): void;
+  release(): void;
+}
 
 export interface SceneManifest {
   armLengthM: number;
@@ -71,6 +84,27 @@ export class PendulumRenderer {
   private distance = 0.36;
   private readonly target = { x: 0.01, y: 0, z: 0.105 };
 
+  // Drag-to-disturb. The plane is rebuilt at grab time so the pointer maps to
+  // world space sensibly from whatever angle the camera happens to be at.
+  /** The pendulum group — the only body a pointer may push. The arm is held by
+   *  a stiff position servo and cannot meaningfully be moved by a force. */
+  private grabGroup: Object3D | null = null;
+  private readonly raycaster = new Raycaster();
+  private readonly dragPlane = new Plane();
+  private readonly ndc = new Vector2();
+  private readonly scratch = new Vector3();
+  private readonly scratch2 = new Vector3();
+  /** The drag arrow, as in zalo's mujoco_wasm demo: you should be able to see
+   *  the force you are applying, not just its effect. */
+  private readonly dragArrow = new ArrowHelper(
+    new Vector3(0, 1, 0),
+    new Vector3(),
+    0.05,
+    0xff5533
+  );
+  /** Set by the demo to claim a drag that starts on a grabbable body. */
+  private grabDelegate: RendererGrabDelegate | null = null;
+
   constructor(private readonly canvas: HTMLCanvasElement, baseUrl: string) {
     this.renderer = new WebGLRenderer({
       canvas,
@@ -86,6 +120,12 @@ export class PendulumRenderer {
     // Z-up, matching the MJCF and the URDF.
     this.camera.up.set(0, 0, 1);
     this.scene.add(this.root);
+    this.dragArrow.visible = false;
+    for (const m of [this.dragArrow.line.material, this.dragArrow.cone.material]) {
+      (m as { transparent: boolean; opacity: number }).transparent = true;
+      (m as { transparent: boolean; opacity: number }).opacity = 0.85;
+    }
+    this.scene.add(this.dragArrow);
 
     this.scene.add(new AmbientLight(0xffffff, 0.55));
     const key = new DirectionalLight(0xffffff, 2.1);
@@ -149,6 +189,7 @@ export class PendulumRenderer {
         // so the mesh slides within it until its bore coincides with that pivot.
         if (node.meshOffset) asset.scene.position.set(...node.meshOffset);
         groups.get(name)!.add(asset.scene);
+        if (name === 'pendulum') this.grabGroup = groups.get(name)!;
       })
     );
 
@@ -169,19 +210,48 @@ export class PendulumRenderer {
     group.rotation[axis] = total;
   }
 
+  setGrabDelegate(d: RendererGrabDelegate | null): void {
+    this.grabDelegate = d;
+  }
+
   private attachPointerControls(): void {
     let dragging = false;
+    let grabbing = false;
     let lastX = 0;
     let lastY = 0;
 
     const down = (e: PointerEvent) => {
+      this.canvas.setPointerCapture(e.pointerId);
+      // A drag that starts ON a body disturbs it; anywhere else orbits. One
+      // gesture, disambiguated by what is under the pointer — so the demo
+      // needs no modifier key and works the same under touch.
+      const hit = this.grabDelegate
+        ? this.pickPendulum(e.clientX, e.clientY)
+        : null;
+      if (hit && this.grabDelegate!.tryGrab(hit)) {
+        grabbing = true;
+        this.canvas.style.cursor = 'grabbing';
+        return;
+      }
       dragging = true;
       lastX = e.clientX;
       lastY = e.clientY;
-      this.canvas.setPointerCapture(e.pointerId);
     };
     const move = (e: PointerEvent) => {
-      if (!dragging) return;
+      if (grabbing) {
+        const p = this.pointerOnDragPlane(e.clientX, e.clientY);
+        if (p) this.grabDelegate!.drag(p);
+        return;
+      }
+      if (!dragging) {
+        // Cursor affordance: dragging the pendulum is not otherwise discoverable.
+        if (this.grabDelegate) {
+          this.canvas.style.cursor = this.pickPendulum(e.clientX, e.clientY)
+            ? 'grab'
+            : 'default';
+        }
+        return;
+      }
       this.yaw -= (e.clientX - lastX) * 0.008;
       this.pitch = Math.max(
         -0.25,
@@ -193,6 +263,11 @@ export class PendulumRenderer {
     };
     const up = (e: PointerEvent) => {
       dragging = false;
+      if (grabbing) {
+        grabbing = false;
+        this.grabDelegate?.release();
+        this.canvas.style.cursor = 'default';
+      }
       if (this.canvas.hasPointerCapture(e.pointerId)) {
         this.canvas.releasePointerCapture(e.pointerId);
       }
@@ -216,6 +291,72 @@ export class PendulumRenderer {
       },
       { passive: false }
     );
+  }
+
+  /** Screen point → NDC, shared by the pick and the drag. */
+  private toNdc(clientX: number, clientY: number): Vector2 {
+    const r = this.canvas.getBoundingClientRect();
+    return this.ndc.set(
+      ((clientX - r.left) / r.width) * 2 - 1,
+      -((clientY - r.top) / r.height) * 2 + 1
+    );
+  }
+
+  /**
+   * Hit-test the grabbable bodies. Returns the hit body and world point, or null if
+   * the pointer missed — which is what lets the same gesture orbit the camera
+   * everywhere else.
+   */
+  /**
+   * Hit-test the pendulum. Returns the world-space hit point, or null if the
+   * pointer missed — which is what lets the same gesture orbit the camera
+   * everywhere else.
+   */
+  pickPendulum(clientX: number, clientY: number): [number, number, number] | null {
+    if (!this.grabGroup) return null;
+    this.raycaster.setFromCamera(this.toNdc(clientX, clientY), this.camera);
+    const hits = this.raycaster.intersectObject(this.grabGroup, true);
+    if (!hits.length) return null;
+    const p = hits[0].point;
+    // Freeze a camera-facing plane through the hit so the drag stays under the
+    // pointer regardless of orbit angle.
+    this.dragPlane.setFromNormalAndCoplanarPoint(
+      this.camera.getWorldDirection(this.scratch).clone().negate(),
+      p
+    );
+    return [p.x, p.y, p.z];
+  }
+
+  /** Where the pointer now sits on the plane frozen at grab time. */
+  pointerOnDragPlane(clientX: number, clientY: number): [number, number, number] | null {
+    this.raycaster.setFromCamera(this.toNdc(clientX, clientY), this.camera);
+    const hit = this.raycaster.ray.intersectPlane(this.dragPlane, this.scratch);
+    return hit ? [hit.x, hit.y, hit.z] : null;
+  }
+
+  /**
+   * Draw the force being applied: tail at the held point on the pendulum, head
+   * at the pointer. Hidden when `ends` is null.
+   */
+  setDragArrow(
+    ends: { from: [number, number, number]; to: [number, number, number] } | null
+  ): void {
+    if (!ends) {
+      this.dragArrow.visible = false;
+      return;
+    }
+    const tail = this.scratch.set(...ends.from);
+    const dir = this.scratch2.set(...ends.to).sub(tail);
+    const len = dir.length();
+    // Below a pixel or two the cone renders as noise at the grab point.
+    if (len < 1e-3) {
+      this.dragArrow.visible = false;
+      return;
+    }
+    this.dragArrow.position.copy(tail);
+    this.dragArrow.setDirection(dir.normalize());
+    this.dragArrow.setLength(len, Math.min(0.02, len * 0.35), 0.008);
+    this.dragArrow.visible = true;
   }
 
   resize(): void {

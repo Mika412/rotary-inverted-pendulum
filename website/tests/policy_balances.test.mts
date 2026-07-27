@@ -137,5 +137,46 @@ check('it recovers from a hard nudge', () => {
   assert.ok(recovered, 'did not return to upright within 8 s of a 6 rad/s nudge');
 });
 
+check('a pointer grab actually pushes the pendulum, and lets go', () => {
+  // The landing page's drag-to-disturb. Worth asserting because the force path
+  // is easy to get silently wrong: a bad body id or a transposed rotation
+  // matrix pushes the wrong link, or nothing at all, with no error.
+  const body = (mujoco as unknown as {
+    mj_name2id(m: unknown, t: number, n: string): number;
+  }).mj_name2id(model, 1, 'pendulum');
+  assert.ok(body > 0, `no "pendulum" body in the MJCF (got id ${body})`);
+
+  // Settle upright first, so what we measure is the grab and not a swing-up.
+  for (let i = 0; i < 3 * constants.control.frequencyHz; i++) controller.step();
+  const before = controller.step().thetaRad;
+
+  // Grab at the COM, not the body origin: the origin IS the hinge, and a force
+  // through a pivot exerts no torque about it. A real pointer hits the pendulum.
+  const p = (data as unknown as { xipos: Float64Array }).xipos;
+  const grabPoint: [number, number, number] = [p[body * 3], p[body * 3 + 1], p[body * 3 + 2]];
+  controller.grab(body, grabPoint);
+  // Drag well off to one side: the capped spring should lean the pendulum over.
+  controller.dragTo([grabPoint[0], grabPoint[1] + 0.08, grabPoint[2]]);
+
+  let peak = 0;
+  for (let i = 0; i < constants.control.frequencyHz; i++) {
+    peak = Math.max(peak, Math.abs(controller.step().thetaRad));
+  }
+  assert.ok(
+    peak > Math.abs(before) + 0.02,
+    `grab moved θ by only ${(peak - Math.abs(before)).toFixed(4)} rad — is the force reaching the body?`
+  );
+
+  controller.release();
+  let recovered = false;
+  for (let i = 0; i < 8 * constants.control.frequencyHz; i++) {
+    if (Math.abs(controller.step().thetaRad) < 0.1) {
+      recovered = true;
+      break;
+    }
+  }
+  assert.ok(recovered, 'did not recover after the grab was released');
+});
+
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} check(s) failed`);
 process.exit(failures === 0 ? 0 : 1);

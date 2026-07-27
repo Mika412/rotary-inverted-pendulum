@@ -18,6 +18,14 @@
 
 import type { Policy } from './policy.ts';
 
+// Pointer-drag disturbance, matching the interaction in zalo's mujoco_wasm
+// demo: force ∝ body mass × pointer offset, applied at the held point via
+// mj_applyFT. Scaling by mass is what makes the drag feel the same regardless
+// of what you grab. The cap only exists so a wild fling cannot hand MuJoCo an
+// absurd force; it sits far above normal dragging.
+const GRAB_STIFFNESS_PER_KG = 250.0;
+const GRAB_MAX_FORCE_N = 5.0;
+
 export interface Constants {
   control: {
     frequencyHz: number;
@@ -71,6 +79,15 @@ function wrapPi(a: number): number {
 /** Minimal structural type for the bits of the MuJoCo binding we use. */
 export interface MujocoLike {
   mj_step(model: unknown, data: unknown): void;
+  mj_applyFT(
+    model: unknown,
+    data: unknown,
+    force: number[],
+    torque: number[],
+    point: number[],
+    bodyId: number,
+    qfrc: unknown
+  ): void;
   mj_forward(model: unknown, data: unknown): void;
   mj_resetData(model: unknown, data: unknown): void;
 }
@@ -79,6 +96,20 @@ export interface MjDataLike {
   qpos: { [i: number]: number };
   qvel: { [i: number]: number };
   ctrl: { [i: number]: number };
+  /** Generalised force, one per DOF — where mj_applyFT accumulates. */
+  qfrc_applied?: { length: number; [i: number]: number };
+  /** Per-body world position, 3 per body. */
+  xpos?: { [i: number]: number };
+  /** Per-body world rotation matrix, 9 per body, row-major. */
+  xmat?: { [i: number]: number };
+}
+
+/** A point held by the pointer, stored in the grabbed body's local frame so it
+ *  tracks the material point on the body rather than a fixed spot in space. */
+interface Grab {
+  bodyId: number;
+  local: [number, number, number];
+  target: [number, number, number];
 }
 
 export class PendulumController {
@@ -113,6 +144,8 @@ export class PendulumController {
   private streak = 0;
   private longestStreak = 0;
   private swingUpTick: number | null = null;
+  private grabbed: Grab | null = null;
+  private grabbedMass = 0;
 
   constructor(opts: {
     mujoco: MujocoLike;
@@ -149,6 +182,7 @@ export class PendulumController {
    * takes the pendulum's resting position as the encoder zero, then swings up.
    */
   reset(opts: { pendulumAngleRad?: number; motorAngleRad?: number } = {}): void {
+    this.release();
     this.mujoco.mj_resetData(this.model, this.data);
     this.data.qpos[0] = opts.motorAngleRad ?? 0;
     // A hair off dead-hanging: exactly 0 is an equilibrium with zero gradient,
@@ -187,6 +221,126 @@ export class PendulumController {
    */
   nudge(deltaVelRadS: number): void {
     this.data.qvel[1] += deltaVelRadS;
+  }
+
+  /**
+   * Grab a material point on a body and drag it — the same disturbance
+   * MuJoCo's own `simulate` viewer applies on ctrl-drag.
+   *
+   * We cannot use `mjv_applyPerturbForce`: it needs an `mjvScene`, and this
+   * demo runs MuJoCo headless (three.js renders from two joint angles). So we
+   * do what that function does internally — a capped spring pulling the held
+   * point toward the pointer — which is a real external force on the plant,
+   * not an override of the controller. That is the point: the policy has to
+   * reject it, exactly as it does when you poke the real pendulum.
+   */
+  grab(bodyId: number, worldPoint: [number, number, number]): void {
+    const xpos = this.data.xpos;
+    const xmat = this.data.xmat;
+    if (!xpos || !xmat || !this.data.qfrc_applied) return;
+    const masses = (this.model as { body_mass?: { [i: number]: number } }).body_mass;
+    this.grabbedMass = masses?.[bodyId] ?? 0.02;
+    const o = bodyId * 3;
+    const m = bodyId * 9;
+    const d = [
+      worldPoint[0] - xpos[o],
+      worldPoint[1] - xpos[o + 1],
+      worldPoint[2] - xpos[o + 2],
+    ];
+    // R is row-major, so R^T d is a column-wise dot — this maps the world
+    // offset into the body frame.
+    this.grabbed = {
+      bodyId,
+      local: [
+        xmat[m] * d[0] + xmat[m + 3] * d[1] + xmat[m + 6] * d[2],
+        xmat[m + 1] * d[0] + xmat[m + 4] * d[1] + xmat[m + 7] * d[2],
+        xmat[m + 2] * d[0] + xmat[m + 5] * d[1] + xmat[m + 8] * d[2],
+      ],
+      target: [...worldPoint] as [number, number, number],
+    };
+  }
+
+  /** Move the pointer target of an active grab. */
+  dragTo(worldPoint: [number, number, number]): void {
+    if (this.grabbed) this.grabbed.target = [...worldPoint] as [number, number, number];
+  }
+
+  /** Release, and clear the force so the body is free again. */
+  release(): void {
+    this.grabbed = null;
+    this.clearGrabForce();
+  }
+
+  /**
+   * The drag arrow's endpoints: the held material point, and the pointer.
+   * Null when nothing is grabbed. One call rather than making the caller
+   * track the target itself and keep it in sync with release().
+   */
+  grabArrow(): { from: [number, number, number]; to: [number, number, number] } | null {
+    const from = this.grabWorldPoint();
+    return from && this.grabbed ? { from, to: this.grabbed.target } : null;
+  }
+
+  /** World position of the held material point. */
+  private grabWorldPoint(): [number, number, number] | null {
+    const g = this.grabbed;
+    const xpos = this.data.xpos;
+    const xmat = this.data.xmat;
+    if (!g || !xpos || !xmat) return null;
+    const o = g.bodyId * 3;
+    const m = g.bodyId * 9;
+    const [lx, ly, lz] = g.local;
+    return [
+      xpos[o] + xmat[m] * lx + xmat[m + 1] * ly + xmat[m + 2] * lz,
+      xpos[o + 1] + xmat[m + 3] * lx + xmat[m + 4] * ly + xmat[m + 5] * lz,
+      xpos[o + 2] + xmat[m + 6] * lx + xmat[m + 7] * ly + xmat[m + 8] * lz,
+    ];
+  }
+
+  private clearGrabForce(): void {
+    const q = this.data.qfrc_applied;
+    if (!q) return;
+    for (let i = 0; i < q.length; i++) q[i] = 0;
+  }
+
+  /**
+   * Recompute the grab force. Called every substep, before mj_step.
+   *
+   * `mj_applyFT` takes the application POINT, so MuJoCo derives the moment arm
+   * itself — no hand-rolled cross product to get subtly wrong. It ACCUMULATES
+   * into qfrc_applied, so the buffer is zeroed first.
+   */
+  private applyGrabForce(): void {
+    const g = this.grabbed;
+    const q = this.data.qfrc_applied;
+    if (!q) return;
+    this.clearGrabForce();
+    if (!g) return;
+
+    const p = this.grabWorldPoint();
+    if (!p) return;
+
+    const k = GRAB_STIFFNESS_PER_KG * this.grabbedMass;
+    let fx = k * (g.target[0] - p[0]);
+    let fy = k * (g.target[1] - p[1]);
+    let fz = k * (g.target[2] - p[2]);
+    const mag = Math.hypot(fx, fy, fz);
+    if (mag > GRAB_MAX_FORCE_N) {
+      const s = GRAB_MAX_FORCE_N / mag;
+      fx *= s;
+      fy *= s;
+      fz *= s;
+    }
+
+    this.mujoco.mj_applyFT(
+      this.model,
+      this.data,
+      [fx, fy, fz],
+      [0, 0, 0],
+      [p[0], p[1], p[2]],
+      g.bodyId,
+      q
+    );
   }
 
   /** Quantised, windowed finite differences — what the firmware actually reads. */
@@ -289,6 +443,9 @@ export class PendulumController {
     for (let k = 0; k < this.nSubsteps; k++) {
       const cmdK = cmdStart + ((cmdEnd - cmdStart) * (k + 1)) / this.nSubsteps;
       this.data.ctrl[0] = cmdK;
+      // Recomputed per substep: the held point moves as the body does, so a
+      // stale force would push in the wrong direction as the pendulum swings.
+      this.applyGrabForce();
       this.mujoco.mj_step(this.model, this.data);
       this.measCmd.push(cmdK);
       this.measPen.push(this.data.qpos[1]);

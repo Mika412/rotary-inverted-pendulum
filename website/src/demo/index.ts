@@ -10,7 +10,7 @@
  *
  *   live   — the flashed network driving MuJoCo in the tab. Costs 2.4 MB of
  *            gzipped WASM, so it is fetched only when the visitor asks for it.
- *            This is the mode that can be nudged.
+ *            This is the mode you can drag the pendulum around in.
  */
 
 import constants from '../generated/constants.json';
@@ -59,12 +59,12 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
   const buttons = {
     replay: el<HTMLButtonElement>(root, '[data-mode="replay"]'),
     live: el<HTMLButtonElement>(root, '[data-mode="live"]'),
-    nudge: el<HTMLButtonElement>(root, '[data-action-nudge]'),
     reset: el<HTMLButtonElement>(root, '[data-action-reset]'),
   };
 
   const baseUrl = root.dataset.baseUrl ?? '/';
 
+  const hint = el<HTMLParagraphElement>(root, '[data-demo-hint]');
   const renderer = new PendulumRenderer(canvas, baseUrl);
   const ro = new ResizeObserver(() => renderer.resize());
   ro.observe(canvas);
@@ -120,6 +120,26 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
         constants: C,
       });
       c.reset();
+      // mjOBJ_BODY = 1. Looked up by name rather than hardcoded so a change to
+      // the MJCF's body order cannot silently push on the wrong link.
+      const name2id = (mujoco as never as {
+        mj_name2id(m: unknown, t: number, n: string): number;
+      }).mj_name2id;
+      const pendulumBody = name2id(model, 1, 'pendulum');
+      if (pendulumBody > 0) {
+        renderer.setGrabDelegate({
+          tryGrab: (p) => {
+            if (mode !== 'live') return false;
+            c.grab(pendulumBody, p);
+            return true;
+          },
+          drag: (p) => c.dragTo(p),
+          release: () => {
+            c.release();
+            renderer.setDragArrow(null);
+          },
+        });
+      }
       controller = c;
       status.textContent = '';
       return c;
@@ -145,10 +165,9 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
       }
     }
     const isLive = mode === 'live';
-    buttons.nudge.disabled = !isLive;
-    buttons.nudge.title = isLive
-      ? 'Disturb the pendulum and watch the policy recover'
-      : 'A recording cannot be perturbed — switch to the live network first';
+    hint.textContent = isLive
+      ? 'Drag the pendulum to push it — the network has to catch it.'
+      : 'This is a recording. Switch to the live network to push it around.';
     buttons.reset.textContent = isLive ? 'Reset' : 'Restart';
     readouts.mode.textContent = isLive
       ? `live · MuJoCo in your browser · ${C.control.frequencyHz} Hz`
@@ -175,20 +194,11 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
     if (replay) void setMode('replay');
   });
   buttons.live.addEventListener('click', () => void setMode('live'));
-  buttons.nudge.addEventListener('click', () => {
-    if (mode !== 'live' || !controller) return;
-    // Sign alternates so repeated clicks push both ways rather than
-    // accumulating spin in one direction.
-    nudgeSign *= -1;
-    controller.nudge(nudgeSign * 5.5);
-  });
   buttons.reset.addEventListener('click', () => {
     if (mode === 'live') controller?.reset();
     else replayIndex = 0;
     accumulator = 0;
   });
-
-  let nudgeSign = 1;
 
   if (!replay) {
     buttons.replay.disabled = true;
@@ -237,6 +247,9 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
 
       if (state) {
         renderer.setJointAngles(state.motorPosRad, state.pendulumPosRad);
+        // Redrawn every frame, not just on pointermove: the held point travels
+        // with the body, so a stale arrow would detach from it while swinging.
+        renderer.setDragArrow(controller.grabArrow());
         const m = controller.metrics;
         readouts.theta.textContent = `${(state.thetaRad * (180 / Math.PI)).toFixed(1)}°`;
         readouts.action.textContent = state.action.toFixed(2);
