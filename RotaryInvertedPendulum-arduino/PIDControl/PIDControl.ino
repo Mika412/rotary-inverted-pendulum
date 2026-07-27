@@ -60,7 +60,11 @@ const int ENABLE_PIN = 5;
 // =============================================================================
 // HARDWARE CONSTANTS
 // =============================================================================
-const long STEPS_PER_REVOLUTION = 200 * 8;  // 200 steps * 8 microsteps = 1600
+// Microstepping: the ONLY place to change it, as in the other sketches. It
+// must match the driver wiring — a mismatch scales the arm's real angle and
+// range while the firmware believes otherwise.
+const int MICROSTEPS = 32;
+const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
 const float DEGREES_PER_STEP = 360.0f / STEPS_PER_REVOLUTION;
 const float STEPS_PER_DEGREE = STEPS_PER_REVOLUTION / 360.0f;
 

@@ -215,9 +215,14 @@ Libraries required (install via Arduino IDE Library Manager):
 ### Key Arduino Concepts
 
 **Stepper Motor Configuration:**
-- Microstepping: set by the single `MICROSTEPS` constant in each sketch —
-  **16 → 3200 steps/revolution** on the TMC2209 (MS1=MS2=HIGH), 8 → 1600 on
-  a DRV8825. Steps/rev, the speed cap and all rad↔step math derive from it.
+- Microstepping: set by the single `MICROSTEPS` constant in each sketch.
+  **The recommendation is 1/32 → 6400 steps/revolution on either driver**,
+  but the pin levels differ — TMC2209 MS1=HIGH/MS2=LOW, DRV8825
+  M0=M1=M2=HIGH — because the two carriers decode the same board positions
+  differently. Steps/rev, the speed cap and all rad↔step math derive from
+  it, and it must match `MOTOR_MICROSTEPS` in `pendulum_env.py` (recorded
+  per run as `motor_microsteps` in `config.json`). Both tables are in
+  [`website/src/content/docs/build/electronics.md`](website/src/content/docs/build/electronics.md).
 - Enable pin inverted (both TMC2209 and DRV8825 use active-low enable)
 - Max speed: 200,000 steps/sec
 - Acceleration: 100,000 steps/sec²

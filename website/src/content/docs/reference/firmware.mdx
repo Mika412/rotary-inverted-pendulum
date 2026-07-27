@@ -96,11 +96,18 @@ If you add a sketch that accumulates the angle, it needs the same guard.
 
 ### Microstepping
 
-`MICROSTEPS` must match how you wired the driver: **16** on a TMC2209 with MS1
-and MS2 high (3200 steps/rev), 8 on a DRV8825 (1600). Steps per revolution, the
-speed cap and all radian↔step conversions derive from this one constant, so a
-mismatch silently scales the arm's real speed and range while the firmware
-believes otherwise.
+`MICROSTEPS` must match how you wired the driver. The recommendation is
+**1/32 (6400 steps/rev) on either driver** — TMC2209 with MS1 high and MS2 low,
+DRV8825 with M0, M1 and M2 all high. The pin levels differ because the two
+carriers decode the same positions differently; both tables are on the
+[electronics page](/rotary-inverted-pendulum/build/electronics/#microstepping).
+
+Steps per revolution, the speed cap and all radian↔step conversions derive from
+this one constant, so a mismatch silently scales the arm's real speed and range
+while the firmware believes otherwise. It must also match `MOTOR_MICROSTEPS` in
+`pendulum_env.py` — that is what the simulation quantises the motor-position
+measurement to, and a policy trained against a coarser step than it deploys at
+sees more velocity noise on the rig than it ever trained on.
 
 ## Common failures
 

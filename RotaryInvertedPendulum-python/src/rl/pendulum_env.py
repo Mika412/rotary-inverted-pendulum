@@ -83,16 +83,18 @@ PENDULUM_LSB_RAD = 2.0 * math.pi / 4096.0
 # (8 ms) window. Motor position is the step counter; the pendulum is the
 # 12-bit AS5600. Quantised finite differences over the window reproduce the
 # rig's velocity spikes mechanistically: ±1 pendulum LSB across the window
-# ≈ 0.19 rad/s, ±1 motor step ≈ 0.25 rad/s at 1/16 (0.49 at 1/8) — the same
-# mechanism behind the ~±0.4 rad/s spikes measured on a stationary pendulum.
-# Enabled via `firmware_obs_model`; when on it feeds both the observation AND
-# the velocity-mode P-law (the real host uses the same GET_STATE read for
-# both).
+# ≈ 0.19 rad/s, ±1 motor step ≈ 0.12 rad/s at 1/32 (0.25 at 1/16, 0.49 at 1/8)
+# — the same mechanism behind the ~±0.4 rad/s spikes measured on a stationary
+# pendulum. Enabled via `firmware_obs_model`; when on it feeds both the
+# observation AND the velocity-mode P-law (the real host uses the same
+# GET_STATE read for both).
 #
 # MOTOR_MICROSTEPS must match the `MICROSTEPS` constant in the firmware
-# sketches (16 on the recommended TMC2209, 8 on a DRV8825) — it sets how
-# coarsely the sim quantises the motor-position measurement.
-MOTOR_MICROSTEPS = 16
+# sketches — it sets how coarsely the sim quantises the motor-position
+# measurement. 1/32 is the one ratio both drivers reach from identical
+# MS-pin levels (DRV8825 M0=H/M1=L/M2=H, TMC2209 MS1=H/MS2=L), so a single
+# wiring and a single policy cover both carriers.
+MOTOR_MICROSTEPS = 32
 MOTOR_STEP_LSB_RAD = 2.0 * math.pi / (200.0 * MOTOR_MICROSTEPS)
 FIRMWARE_VEL_WINDOW_S = 0.008
 # Age of the state snapshot by the time the host acts on it: encoder sample

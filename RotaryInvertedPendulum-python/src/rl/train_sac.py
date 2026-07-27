@@ -34,6 +34,7 @@ import symmetry
 from pendulum_env import (
     MAX_ACTION_DELTA_RAD,
     MAX_VELOCITY_RAD_S,
+    MOTOR_MICROSTEPS,
     RotaryInvertedPendulumEnv,
 )
 from run_config import check_config, save_run_config
@@ -75,6 +76,12 @@ def _resolved_config(args: argparse.Namespace) -> dict:
         "obs_include_velocities": not args.drop_velocity_obs,
         "firmware_obs_model": bool(args.firmware_obs_model),
         "action_smooth_window": int(args.action_smooth_window),
+        # The motor-step quantisation the firmware measurement model applied.
+        # Only bites when firmware_obs_model is on, but recorded either way:
+        # a policy trained against a coarser step LSB than it deploys at sees
+        # less velocity noise than it trained on (benign), while the reverse
+        # is what makes a rig-swapped policy misbehave.
+        "motor_microsteps": int(MOTOR_MICROSTEPS),
         # Provenance only (see run_config.PROVENANCE_ONLY_KEYS): mirror
         # augmentation changes what the buffer holds, not the obs/action
         # layout or the objective, so it is legal to switch between stages.

@@ -90,13 +90,9 @@ middle functions differ:
   with low resistance between them is one coil — then wire one coil to
   1A/1B and the other to 2A/2B. On this rig's harness a 180° connector
   flip happens to produce a valid mapping.
-- **Microstepping**: MS1 = MS2 = HIGH selects **1/16** on a TMC2209 (the
-  same levels give 1/8 on a DRV8825). Set `MICROSTEPS` in the sketches to
-  match — it is a single constant in `RLControl.ino`,
-  `LowLevelServer.ino` and `TestMotor.ino`, and steps/rev, the speed cap
-  and every rad↔step conversion derive from it. Smoothness does not
-  depend on this choice: the TMC2209 interpolates every input step to 256
-  microsteps internally regardless.
+- **Microstepping**: the mode pins sit at the same board positions but
+  decode differently. See [Microstepping](#microstepping) below for both
+  tables and the recommended setting.
 
 ### Vref / current tuning — the TMC2209 sets RMS, not peak
 
@@ -129,8 +125,8 @@ you want an exact figure.
 ## Stepper driver — DRV8825 (original, still supported)
 
 The rig was originally built and tuned around the DRV8825, and every
-sketch still supports it — set `MICROSTEPS = 8` and restore the
-RESET–SLEEP bridge.
+sketch still supports it — wire it for 1/32 per
+[Microstepping](#microstepping) below and restore the RESET–SLEEP bridge.
 
 - **Vref set to 0.45 V → ~0.9 A current limit** per phase (90 % of
   the motor's 1 A rating; this driver's Vref is a *peak* limit).
@@ -154,6 +150,70 @@ between Vref and the resulting phase current differs:
 | DRV8825 | `Vref = Imax / 2` (Rcs = 0.1 Ω, standard on Pololu and most clones); **peak** current                          | **0.45 V** (we ran 0.45 V — close enough)             |
 | A4988   | `Vref = Imax × 8 × Rcs`. Pololu carriers use Rcs = 0.05 Ω; some clones use 0.1 Ω — check yours                 | **0.36 V** (Pololu) / **0.72 V** (Rcs = 0.1 Ω clones) |
 | TMC2209 | **RMS** current, carrier-dependent — see the table above, or the [TMC220X Vref calculator](https://printpractical.github.io/VrefCalculator/) | **≈0.9 V** (0.64 A RMS ≈ 0.9 A peak)                  |
+
+## Microstepping
+
+**We recommend 1/32 — 6400 steps/rev — on either driver.** Both carriers
+reach it, and standardising on one ratio means the flashed policy is
+trained against the motor-step quantisation it actually deploys at,
+whichever driver your rig has. The RL stack models that quantisation
+explicitly (`MOTOR_MICROSTEPS` in `pendulum_env.py`), and it is the
+finest ratio the pair has in common.
+
+The mode pins occupy the same board positions on both carriers but decode
+differently, so **wire your rig from the table for the driver you have** —
+there is no single set of pin levels that gives 1/32 on both. Unconnected
+pins read LOW: both carriers pull the mode inputs down internally, so
+"LOW" means leave the pin unwired.
+
+### DRV8825 — positions 2, 3, 4 (M0, M1, M2)
+
+| M0   | M1   | M2   | resolution | steps/rev |
+| ---- | ---- | ---- | ---------- | --------- |
+| LOW  | LOW  | LOW  | full step  | 200       |
+| HIGH | LOW  | LOW  | 1/2        | 400       |
+| LOW  | HIGH | LOW  | 1/4        | 800       |
+| HIGH | HIGH | LOW  | 1/8        | 1600      |
+| LOW  | LOW  | HIGH | 1/16       | 3200      |
+| **HIGH** | **HIGH** | **HIGH** | **1/32** | **6400** |
+
+1/32 is also reached by `HIGH LOW HIGH` and `LOW HIGH HIGH`, but **all
+three high is the easiest to build**: M0, M1 and M2 are adjacent header
+positions, so you can bridge their solder points together on the
+protoboard in one pass and take a single wire to logic HIGH. The mixed
+combinations need each pin routed individually.
+
+### TMC2209 — positions 2, 3 (MS1, MS2)
+
+| MS1  | MS2  | resolution | steps/rev |
+| ---- | ---- | ---------- | --------- |
+| LOW  | LOW  | 1/8        | 1600      |
+| **HIGH** | **LOW** | **1/32** | **6400** |
+| LOW  | HIGH | 1/64       | 12800     |
+| HIGH | HIGH | 1/16       | 3200      |
+
+`HIGH LOW` is also the least work of the four: MS2 stays unwired on its
+internal pull-down, so 1/32 costs exactly one wire from MS1 to logic HIGH.
+
+Position 4 is **UART_TX** on a TMC2209, not a mode pin — leave it
+unwired. (A shared socket driving position 4 HIGH would give 1/32 on both
+drivers, but it puts a driven signal on the TMC2209's UART line, so we
+don't recommend it.)
+
+### Then set the sketches to match
+
+`MICROSTEPS` is a single constant in `RLControl.ino`,
+`LowLevelServer.ino` and `TestMotor.ino`; steps/rev, the speed cap and
+every rad↔step conversion derive from it. It must also match
+`MOTOR_MICROSTEPS` in `pendulum_env.py`, which is recorded into each
+run's `config.json` as `motor_microsteps` so you can check what a given
+policy was trained against.
+
+Smoothness does not depend on this choice on a TMC2209 — it interpolates
+every input step to 256 microsteps internally regardless. On a DRV8825
+the finer ratio does reduce position quantisation, but its microstep
+*current* accuracy does not improve much past 1/8, so expect a cleaner
+observation rather than dramatically quieter running.
 
 ## Power supply — 12 V, 2 A
 

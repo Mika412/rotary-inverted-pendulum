@@ -89,9 +89,12 @@ const int ENABLE_PIN = 5;
 // =============================================================================
 // HARDWARE CONSTANTS
 // =============================================================================
-// Microstepping: the ONLY place to change it. 16 = TMC2209 MS1=MS2=HIGH;
-// set 8 for DRV8825-style 1/8. Everything below derives from it.
-const int MICROSTEPS = 16;
+// Microstepping: the ONLY place to change it. Everything below derives from it.
+// 32 is the recommended ratio on either driver, but the pin levels differ —
+// DRV8825 M0=M1=M2=HIGH, TMC2209 MS1=HIGH/MS2=LOW. Legacy: 16 = TMC2209
+// MS1=MS2=HIGH, 8 = DRV8825 M0=M1=HIGH. Must match MOTOR_MICROSTEPS in
+// pendulum_env.py; see the microstepping tables on the electronics page.
+const int MICROSTEPS = 32;
 const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
 const float STEPS_PER_RAD = STEPS_PER_REVOLUTION / (2.0f * (float)PI);
 const float RAD_PER_STEP = (2.0f * (float)PI) / (float)STEPS_PER_REVOLUTION;

@@ -9,12 +9,14 @@ changes mechanically (new bearings, rebuilt arm, changed microstepping,
 swapped motor).
 
 :::caution[Check `MICROSTEPS` before flashing anything]
-Each sketch's `MICROSTEPS` constant must match the driver wiring —
-**16 on the recommended TMC2209** (MS1=MS2 HIGH), 8 on a DRV8825. A mismatch
-halves or doubles the arm's real speed and range while the firmware believes
-otherwise, and every calibration downstream inherits the error. Driver choice,
-Vref tuning (the TMC2209 sets **RMS**, not peak) and the wiring differences are
-on the [electronics page](/rotary-inverted-pendulum/build/electronics/).
+Each sketch's `MICROSTEPS` constant must match the driver wiring. The
+recommendation is **1/32 on either driver** — TMC2209 with MS1 HIGH and MS2 LOW,
+DRV8825 with M0, M1 and M2 all HIGH. A mismatch halves or doubles the arm's real
+speed and range while the firmware believes otherwise, and every calibration
+downstream inherits the error. The [microstepping
+tables](/rotary-inverted-pendulum/build/electronics/#microstepping), driver
+choice and Vref tuning (the TMC2209 sets **RMS**, not peak) are on the
+electronics page.
 :::
 
 ## The full protocol

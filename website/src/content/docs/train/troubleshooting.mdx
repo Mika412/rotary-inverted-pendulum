@@ -43,10 +43,14 @@ page](/rotary-inverted-pendulum/build/electronics/).
 
 ## The arm's speed or range is half or double what you expect
 
-`MICROSTEPS` does not match the driver wiring — 16 on a TMC2209 with MS1 and
-MS2 high, 8 on a DRV8825. Steps per revolution, the speed cap and all
-radian↔step conversions derive from that one constant, so the firmware
-believes a wrong number and every calibration downstream inherits it.
+`MICROSTEPS` does not match the driver wiring. The recommended 1/32 needs MS1
+HIGH and MS2 LOW on a TMC2209, but M0, M1 and M2 all HIGH on a DRV8825 — the
+same pin levels do *not* give the same ratio on both carriers, which is the
+usual way this goes wrong after a driver swap. Steps per revolution, the speed
+cap and all radian↔step conversions derive from that one constant, so the
+firmware believes a wrong number and every calibration downstream inherits it.
+Both tables are on the [electronics
+page](/rotary-inverted-pendulum/build/electronics/#microstepping).
 
 ## A rate, action mode or smoothing-window mismatch
 

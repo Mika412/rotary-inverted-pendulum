@@ -2,8 +2,6 @@
 #include <AS5600.h>
 #include <Wire.h>
 
-#include "StepperUtils.h"
-
 // Communication speed
 const long BAUD_RATE = 2000000;
 
@@ -23,10 +21,20 @@ const long BAUD_RATE = 2000000;
 #define STEP_PIN 9
 #define ENABLE_PIN 5
 
-// Microstepping: the ONLY place to change it. 16 = TMC2209 MS1=MS2=HIGH;
-// set 8 for DRV8825-style 1/8. Everything below derives from STEPS_PER_REVOLUTION.
-const int MICROSTEPS = 16;
+// Microstepping: the ONLY place to change it. Everything below derives from
+// STEPS_PER_REVOLUTION. 32 is the recommended ratio on either driver, but the
+// pin levels differ — DRV8825 M0=M1=M2=HIGH, TMC2209 MS1=HIGH/MS2=LOW.
+// Legacy: 16 = TMC2209 MS1=MS2=HIGH, 8 = DRV8825 M0=M1=HIGH. Must match
+// MOTOR_MICROSTEPS in pendulum_env.py and MICROSTEPS in RLControl.ino.
+const int MICROSTEPS = 32;
 const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
+// Both conversions derive from the constant above, exactly as RLControl.ino
+// does. They used to live in StepperUtils.h against a hardcoded 1600
+// steps/rev, which agreed with the sketch only at MICROSTEPS = 8: at any
+// other value GET_STATE reported a motor position scaled by 1600 while
+// velocity, accel commands and the safety rail all used STEPS_PER_REVOLUTION.
+const float STEPS_PER_RAD = (float)STEPS_PER_REVOLUTION / (2.0f * (float)PI);
+const float RAD_PER_STEP = (2.0f * (float)PI) / (float)STEPS_PER_REVOLUTION;
 
 // Accel-mode envelope. See pendulum_env.py for the corresponding sim
 // constants. The velocity cap below corresponds to MAX_VELOCITY_RAD_S
@@ -313,7 +321,7 @@ void handleCommand()
 
             // Clamp to the safety rail so the policy can never command a
             // target past the mechanical hard stop.
-            int32_t target_steps = radiansToSteps(target_rad);
+            int32_t target_steps = (int32_t)lroundf(target_rad * STEPS_PER_RAD);
             if (target_steps >  MOTOR_SAFE_LIMIT_STEPS) target_steps =  MOTOR_SAFE_LIMIT_STEPS;
             if (target_steps < -MOTOR_SAFE_LIMIT_STEPS) target_steps = -MOTOR_SAFE_LIMIT_STEPS;
 
@@ -415,7 +423,7 @@ void sendState()
     // bias.
     uint8_t newest = (uint8_t)((buf_head + BUFFER_SIZE - 1) % BUFFER_SIZE);
     uint32_t current_time = time_us_buf[newest];
-    float motor_position_radians = stepsToRadians(motor_step_buf[newest]);
+    float motor_position_radians = (float)motor_step_buf[newest] * RAD_PER_STEP;
     float pendulum_position_radians = pen_rad_buf[newest];
 
     float motor_velocity_rad_s, pendulum_velocity_rad_s;

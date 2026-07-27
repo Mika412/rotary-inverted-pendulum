@@ -1,4 +1,9 @@
-function convertDegreesToSteps(degrees; microstepping=8)
+# Microstepping: the ONLY place to change it on the Julia side. It must match
+# the driver wiring AND the MICROSTEPS constant in whichever sketch is flashed
+# — a mismatch scales every commanded angle while the caller believes otherwise.
+const MICROSTEPPING = 32
+
+function convertDegreesToSteps(degrees; microstepping=MICROSTEPPING)
     steps_per_revolution = 200 * microstepping
     degrees_per_revolution = 360.0
     steps_per_degree = steps_per_revolution / degrees_per_revolution
