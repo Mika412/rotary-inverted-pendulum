@@ -1,44 +1,26 @@
 /**
  * Landing-page demo orchestrator.
  *
- * Two modes, deliberately distinct:
+ * One mode: the flashed network driving MuJoCo in the tab. The 2.4 MB of
+ * gzipped WASM is fetched when the demo scrolls into view rather than at page
+ * load, so a visitor who never reaches it never pays for it.
  *
- *   replay — real telemetry captured from the standalone Nano. Loads
- *            immediately (~250 KB) so the page has something true on it at
- *            first paint. It is a recording, so it cannot be perturbed, and
- *            the UI says so rather than faking interactivity.
- *
- *   live   — the flashed network driving MuJoCo in the tab. Costs 2.4 MB of
- *            gzipped WASM, so it is fetched only when the visitor asks for it.
- *            This is the mode you can drag the pendulum around in.
+ * Drag the pendulum to disturb it; switch control off to watch it fall, and
+ * back on to watch the same network swing it up again.
  */
 
 import constants from '../generated/constants.json';
 import { PendulumRenderer } from './renderer.ts';
 import { Policy, type PolicyWeights } from './policy.ts';
-import { PendulumController, type Constants, BALANCED_THRESHOLD_RAD } from './control.ts';
-
-type Mode = 'replay' | 'live';
-
-interface Replay {
-  controlFreqHz: number;
-  samples: number;
-  durationS: number;
-  scale: number;
-  actionScale: number;
-  motorPos: number[];
-  pendulumPos: number[];
-  action: number[];
-  source: string;
-}
+import { PendulumController, type Constants } from './control.ts';
+import { Sparkline } from './sparkline.ts';
 
 const C = constants as unknown as Constants;
 
-function wrapPi(a: number): number {
-  let x = (a + Math.PI) % (2 * Math.PI);
-  if (x < 0) x += 2 * Math.PI;
-  return x - Math.PI;
-}
+/** Value readouts refresh at this rate. The simulation ticks 50 times a
+ *  second, and text changing that fast reads as flicker rather than
+ *  information — the traces carry the fast detail. */
+const READOUT_HZ = 5;
 
 function el<T extends HTMLElement>(root: HTMLElement, sel: string): T {
   const found = root.querySelector<T>(sel);
@@ -49,22 +31,40 @@ function el<T extends HTMLElement>(root: HTMLElement, sel: string): T {
 export async function mountDemo(root: HTMLElement): Promise<void> {
   const canvas = el<HTMLCanvasElement>(root, '[data-canvas]');
   const status = el(root, '[data-status]');
-  const readouts = {
-    theta: el(root, '[data-theta]'),
-    action: el(root, '[data-action]'),
-    balanced: el(root, '[data-balanced]'),
-    streak: el(root, '[data-streak]'),
-    mode: el(root, '[data-mode-label]'),
+  const hint = el(root, '[data-demo-hint]');
+  const toggle = el<HTMLInputElement>(root, '[data-control-toggle]');
+  const toggleLabel = el(root, '[data-control-label]');
+
+  // Ranges are fixed where the quantity has a natural one, so a trace means
+  // the same thing from one glance to the next. Angle autoscales because it
+  // spans a couple of degrees while balancing and ±180° when it falls.
+  const plots = {
+    theta: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="theta"]'), {
+      minSpan: 10,
+      zero: 0,
+    }),
+    action: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="action"]'), {
+      min: -1,
+      max: 1,
+      zero: 0,
+    }),
+    balanced: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="balanced"]'), {
+      min: 0,
+      max: 1,
+    }),
+    streak: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="streak"]'), {
+      min: 0,
+      minSpan: 5,
+    }),
   };
-  const buttons = {
-    replay: el<HTMLButtonElement>(root, '[data-mode="replay"]'),
-    live: el<HTMLButtonElement>(root, '[data-mode="live"]'),
-    reset: el<HTMLButtonElement>(root, '[data-action-reset]'),
+  const values = {
+    theta: el(root, '[data-plot-value="theta"]'),
+    action: el(root, '[data-plot-value="action"]'),
+    balanced: el(root, '[data-plot-value="balanced"]'),
+    streak: el(root, '[data-plot-value="streak"]'),
   };
 
   const baseUrl = root.dataset.baseUrl ?? '/';
-
-  const hint = el<HTMLParagraphElement>(root, '[data-demo-hint]');
   const renderer = new PendulumRenderer(canvas, baseUrl);
   const ro = new ResizeObserver(() => renderer.resize());
   ro.observe(canvas);
@@ -78,24 +78,24 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
     return;
   }
 
-  // ---- replay ----------------------------------------------------------
-  let replay: Replay | null = null;
-  try {
-    const res = await fetch(`${baseUrl}sim/replay.json`);
-    if (res.ok) replay = (await res.json()) as Replay;
-  } catch {
-    /* falls through to live-only below */
-  }
-
-  // ---- live (lazily constructed) ---------------------------------------
   let controller: PendulumController | null = null;
-  let liveLoading: Promise<PendulumController> | null = null;
+  let loading: Promise<PendulumController> | null = null;
+
+  function setHint(): void {
+    if (!controller) hint.textContent = '';
+    else if (toggle.checked) {
+      hint.textContent = 'Drag the pendulum to push it — the network has to catch it.';
+    } else {
+      hint.textContent =
+        'Control is off. Switch it back on and the network swings it up again.';
+    }
+  }
 
   async function ensureLive(): Promise<PendulumController> {
     if (controller) return controller;
-    if (liveLoading) return liveLoading;
+    if (loading) return loading;
 
-    liveLoading = (async () => {
+    loading = (async () => {
       status.textContent = 'Loading the physics engine (2.4 MB)…';
       const [{ default: loadMujoco }, xml, weights] = await Promise.all([
         import('@mujoco/mujoco'),
@@ -129,7 +129,6 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
       if (pendulumBody > 0) {
         renderer.setGrabDelegate({
           tryGrab: (p) => {
-            if (mode !== 'live') return false;
             c.grab(pendulumBody, p);
             return true;
           },
@@ -142,104 +141,43 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
       }
       controller = c;
       status.textContent = '';
+      setHint();
       return c;
     })();
 
     try {
-      return await liveLoading;
+      return await loading;
     } catch (err) {
-      liveLoading = null;
+      loading = null;
       status.textContent = 'Could not load the physics engine.';
       console.error(err);
       throw err;
     }
   }
 
-  // ---- mode switching --------------------------------------------------
-  let mode: Mode = replay ? 'replay' : 'live';
-
-  function paintModeButtons(): void {
-    for (const [name, button] of Object.entries(buttons) as [Mode | string, HTMLButtonElement][]) {
-      if (name === 'replay' || name === 'live') {
-        button.setAttribute('aria-pressed', String(mode === name));
-      }
-    }
-    const isLive = mode === 'live';
-    hint.textContent = isLive
-      ? 'Drag the pendulum to push it — the network has to catch it.'
-      : 'This is a recording. Switch to the live network to push it around.';
-    buttons.reset.textContent = isLive ? 'Reset' : 'Restart';
-    readouts.mode.textContent = isLive
-      ? `live · MuJoCo in your browser · ${C.control.frequencyHz} Hz`
-      : `recording · real hardware · ${replay?.controlFreqHz.toFixed(0)} Hz`;
-  }
-
-  async function setMode(next: Mode): Promise<void> {
-    if (next === mode) return;
-    if (next === 'live') {
-      buttons.live.disabled = true;
-      try {
-        await ensureLive();
-      } finally {
-        buttons.live.disabled = false;
-      }
-    }
-    mode = next;
-    replayIndex = 0;
-    accumulator = 0;
-    paintModeButtons();
-  }
-
-  buttons.replay.addEventListener('click', () => {
-    if (replay) void setMode('replay');
-  });
-  buttons.live.addEventListener('click', () => void setMode('live'));
-  buttons.reset.addEventListener('click', () => {
-    if (mode === 'live') controller?.reset();
-    else replayIndex = 0;
-    accumulator = 0;
+  toggle.addEventListener('change', () => {
+    toggleLabel.textContent = toggle.checked ? 'Control on' : 'Control off';
+    setHint();
   });
 
-  if (!replay) {
-    buttons.replay.disabled = true;
-    buttons.replay.title = 'No on-device capture is bundled with this build';
-  }
-
-  // ---- animation loop --------------------------------------------------
-  let replayIndex = 0;
+  const MAX_TICKS_PER_FRAME = 8;
   let accumulator = 0;
   let lastFrameMs = performance.now();
-  let running = true;
-
-  // A tab that has been backgrounded returns a huge dt; stepping through all
-  // of it would freeze the page. Cap catch-up at a few ticks per frame.
-  const MAX_TICKS_PER_FRAME = 8;
-
-  // Replay metrics are computed over the whole capture up front: they describe
-  // the recording, not the portion played so far, and the numbers should match
-  // what analyze_onboard.py reported for this capture.
-  const replayMetrics = replay
-    ? (() => {
-        let n = 0;
-        for (const raw of replay.pendulumPos) {
-          if (Math.abs(wrapPi(raw * replay.scale - Math.PI)) < BALANCED_THRESHOLD_RAD) n++;
-        }
-        return { balancedFraction: n / replay.pendulumPos.length };
-      })()
-    : null;
+  let lastReadoutMs = 0;
+  let running = false;
 
   function frame(nowMs: number): void {
     if (!running) return;
     const dt = Math.min(0.25, (nowMs - lastFrameMs) / 1000);
     lastFrameMs = nowMs;
 
-    if (mode === 'live' && controller) {
+    if (controller) {
       accumulator += dt;
       const period = controller.controlPeriodS;
       let ticks = 0;
       let state = null;
       while (accumulator >= period && ticks < MAX_TICKS_PER_FRAME) {
-        state = controller.step();
+        state = toggle.checked ? controller.step() : controller.coast();
         accumulator -= period;
         ticks++;
       }
@@ -250,50 +188,48 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
         // Redrawn every frame, not just on pointermove: the held point travels
         // with the body, so a stale arrow would detach from it while swinging.
         renderer.setDragArrow(controller.grabArrow());
+
         const m = controller.metrics;
-        readouts.theta.textContent = `${(state.thetaRad * (180 / Math.PI)).toFixed(1)}°`;
-        readouts.action.textContent = state.action.toFixed(2);
-        readouts.balanced.textContent = m.balancedFraction.toFixed(3);
-        readouts.streak.textContent = `${m.currentStreakS.toFixed(1)} s`;
+        const thetaDeg = state.thetaRad * (180 / Math.PI);
+        plots.theta.push(thetaDeg);
+        plots.action.push(state.action);
+        plots.balanced.push(m.balancedFraction);
+        plots.streak.push(m.currentStreakS);
+
+        if (nowMs - lastReadoutMs > 1000 / READOUT_HZ) {
+          lastReadoutMs = nowMs;
+          values.theta.textContent = `${thetaDeg.toFixed(1)}°`;
+          values.action.textContent = state.action.toFixed(2);
+          values.balanced.textContent = m.balancedFraction.toFixed(3);
+          values.streak.textContent = `${m.currentStreakS.toFixed(1)} s`;
+        }
       }
-    } else if (replay) {
-      accumulator += dt;
-      const period = 1 / replay.controlFreqHz;
-      while (accumulator >= period) {
-        replayIndex = (replayIndex + 1) % replay.samples;
-        accumulator -= period;
-      }
-      const motor = replay.motorPos[replayIndex] * replay.scale;
-      const pend = replay.pendulumPos[replayIndex] * replay.scale;
-      const action = replay.action[replayIndex] * replay.actionScale;
-      renderer.setJointAngles(motor, pend);
-      const theta = wrapPi(pend - Math.PI);
-      readouts.theta.textContent = `${(theta * (180 / Math.PI)).toFixed(1)}°`;
-      readouts.action.textContent = action.toFixed(2);
-      readouts.balanced.textContent = replayMetrics!.balancedFraction.toFixed(3);
-      readouts.streak.textContent = `${(replayIndex / replay.controlFreqHz).toFixed(1)} s`;
+      for (const p of Object.values(plots)) p.draw();
     }
 
     renderer.render();
     requestAnimationFrame(frame);
   }
 
-  // Pause when scrolled out of view: this is a landing page, and there is no
-  // reason to burn a visitor's battery simulating a pendulum they cannot see.
+  // Load on approach and pause when scrolled away: this is a landing page, and
+  // there is no reason to burn a visitor's battery — or 2.4 MB of their
+  // bandwidth — on a pendulum they never scroll to.
   const io = new IntersectionObserver((entries) => {
     for (const entry of entries) {
-      if (entry.isIntersecting && !running) {
-        running = true;
-        lastFrameMs = performance.now();
-        requestAnimationFrame(frame);
-      } else if (!entry.isIntersecting) {
+      if (entry.isIntersecting) {
+        void ensureLive().catch(() => {});
+        if (!running) {
+          running = true;
+          lastFrameMs = performance.now();
+          requestAnimationFrame(frame);
+        }
+      } else {
         running = false;
       }
     }
   });
   io.observe(canvas);
 
-  paintModeButtons();
   status.textContent = '';
   root.dataset.ready = 'true';
   requestAnimationFrame(frame);

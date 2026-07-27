@@ -27,12 +27,12 @@ import constants from '../../generated/constants.json';
 
 <PendulumDemo />
 
-The panel above is not an animation. **Real rig** replays telemetry captured
-from the pendulum balancing on its own, untethered. **Live network** loads the
-physics engine into your browser and runs the exact weights that are flashed on
-the Nano — the same `policy_weights.h` that `arduino-cli` compiles — through the
-same control law the firmware executes. Nudge it and the policy has to recover
-from a state nobody scripted.
+The panel above is not an animation. It loads the physics engine into your
+browser and runs the exact weights that are flashed on the Nano — the same
+`policy_weights.h` that `arduino-cli` compiles — through the same control law
+the firmware executes. Drag the pendulum, or switch control off and watch it
+fall: whatever state you leave it in, the policy has to recover from one nobody
+scripted.
 
 ## Why this is interesting
 

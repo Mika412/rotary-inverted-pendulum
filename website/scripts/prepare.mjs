@@ -11,7 +11,7 @@
  * firmware constants the docs render, the policy weights the demo runs, and
  * the Draco decoder.
  *
- * The heavy, rarely-changing assets — meshes, MJCF, replay capture — are NOT
+ * The heavy, rarely-changing assets — meshes, MJCF — are NOT
  * built here either; they are committed. See scripts/export_assets.py.
  */
 import fs from 'node:fs/promises';
@@ -70,16 +70,6 @@ async function checkCommittedAssets() {
       `prepare: missing committed demo assets:\n  ${missing.join('\n  ')}\n` +
         `Regenerate them with:\n  uv run --project ../RotaryInvertedPendulum-python ` +
         `python scripts/export_assets.py`
-    );
-  }
-
-  // replay.json is optional: without it the demo starts in live mode.
-  try {
-    await fs.access(path.join(SITE, 'public/sim/replay.json'));
-  } catch {
-    console.warn(
-      'prepare: WARNING public/sim/replay.json is absent — the demo will start ' +
-        'in live mode and the "recording" toggle will be disabled.'
     );
   }
 }

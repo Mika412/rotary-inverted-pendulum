@@ -388,6 +388,64 @@ export class PendulumController {
   }
 
   /** Advance exactly one control tick. */
+  /**
+   * Run one control period of physics, ramping the position command from the
+   * previous target to `cmdEnd`, and refresh the measurement window.
+   *
+   * The stepper glides continuously through the control period, so the stiff
+   * position servo is fed an interpolated ramp. Handing it the tick's final
+   * target as a staircase hammers it with one impulse per tick, which is where
+   * the historical "kp >= 200 is unstable" ceiling actually came from.
+   */
+  private advance(cmdEnd: number): void {
+    const cmdStart = this.prevCmdPos;
+    for (let k = 0; k < this.nSubsteps; k++) {
+      const cmdK = cmdStart + ((cmdEnd - cmdStart) * (k + 1)) / this.nSubsteps;
+      this.data.ctrl[0] = cmdK;
+      // Recomputed per substep: the held point moves as the body does, so a
+      // stale force would push in the wrong direction as the pendulum swings.
+      this.applyGrabForce();
+      this.mujoco.mj_step(this.model, this.data);
+      this.measCmd.push(cmdK);
+      this.measPen.push(this.data.qpos[1]);
+    }
+    const keep = this.velWindowSubsteps + 4;
+    if (this.measCmd.length > keep) {
+      this.measCmd = this.measCmd.slice(-keep);
+      this.measPen = this.measPen.slice(-keep);
+    }
+    this.prevCmdPos = cmdEnd;
+    this.captureMeasured();
+  }
+
+  /**
+   * Advance physics with the policy switched OFF: the motor holds its last
+   * position and the pendulum is left to fall and swing.
+   *
+   * The observation history and measurement window keep updating, so when
+   * control resumes the policy sees a truthful K-frame stack rather than
+   * frames from before the fall. Scoring is frozen — a balanced fraction that
+   * decayed while the visitor deliberately switched control off would be
+   * measuring the wrong thing.
+   */
+  coast(): SimState {
+    this.pushFrame(0);
+    this.vCmd = 0;
+    this.advance(this.motorTarget);
+    this.streak = 0;
+    const theta = wrapPi(this.data.qpos[1] - Math.PI);
+    return {
+      motorPosRad: this.data.qpos[0],
+      pendulumPosRad: this.data.qpos[1],
+      thetaRad: theta,
+      action: 0,
+      vCmdRadS: 0,
+      balanced: false,
+      tickCount: this.nTicks,
+      elapsedS: this.nTicks * this.dt,
+    };
+  }
+
   step(): SimState {
     const { control, motor } = this.c;
 
@@ -438,25 +496,7 @@ export class PendulumController {
     // position servo is fed an interpolated ramp. Handing it the tick's final
     // target as a staircase hammers it with one impulse per tick, which is
     // where the historical "kp >= 200 is unstable" ceiling actually came from.
-    const cmdStart = this.prevCmdPos;
-    const cmdEnd = this.motorTarget;
-    for (let k = 0; k < this.nSubsteps; k++) {
-      const cmdK = cmdStart + ((cmdEnd - cmdStart) * (k + 1)) / this.nSubsteps;
-      this.data.ctrl[0] = cmdK;
-      // Recomputed per substep: the held point moves as the body does, so a
-      // stale force would push in the wrong direction as the pendulum swings.
-      this.applyGrabForce();
-      this.mujoco.mj_step(this.model, this.data);
-      this.measCmd.push(cmdK);
-      this.measPen.push(this.data.qpos[1]);
-    }
-    const keep = this.velWindowSubsteps + 4;
-    if (this.measCmd.length > keep) {
-      this.measCmd = this.measCmd.slice(-keep);
-      this.measPen = this.measPen.slice(-keep);
-    }
-    this.prevCmdPos = cmdEnd;
-    this.captureMeasured();
+    this.advance(this.motorTarget);
 
     // Metrics on the TRUE joint angle. The observation's upright proxy is
     // spoofable by spinning, which is exactly how earlier evaluations were

@@ -12,12 +12,37 @@ const { control, policy } = constants;
 const base = import.meta.env.BASE_URL.endsWith('/')
   ? import.meta.env.BASE_URL
   : `${import.meta.env.BASE_URL}/`;
+
+// One entry per strip chart. `key` is what the client keys its Sparkline map
+// on, so the markup and the script cannot drift apart silently.
+const plots = [
+  { key: 'theta', label: 'Angle from upright' },
+  { key: 'action', label: 'Action' },
+  { key: 'balanced', label: 'Balanced fraction' },
+  { key: 'streak', label: 'Upright for' },
+];
 ---
 
 <div class="demo" data-demo data-base-url={base}>
   <div class="demo__stage">
     <canvas data-canvas aria-label="3D view of the rotary inverted pendulum"></canvas>
+
+    <div class="demo__overlay demo__overlay--top">
+      <p class="demo__badge" data-mode-label>
+        live · MuJoCo in your browser · {control.frequencyHz} Hz
+      </p>
+      <label class="demo__toggle">
+        <input type="checkbox" data-control-toggle checked />
+        <span class="demo__toggle-track" aria-hidden="true"></span>
+        <span data-control-label>Control on</span>
+      </label>
+    </div>
+
+    <div class="demo__overlay demo__overlay--bottom">
+      <p class="demo__badge" data-demo-hint></p>
+    </div>
     <p class="demo__status" data-status>Loading…</p>
+
     <noscript>
       <p class="demo__status">
         The interactive demo needs JavaScript. The rig balances itself with a
@@ -27,44 +52,25 @@ const base = import.meta.env.BASE_URL.endsWith('/')
     </noscript>
   </div>
 
-  <div class="demo__panel">
-    <div class="demo__modes" role="group" aria-label="Data source">
-      <button type="button" data-mode="replay" aria-pressed="true">Real rig</button>
-      <button type="button" data-mode="live">Live network</button>
-    </div>
-
-    <p class="demo__mode-label" data-mode-label>recording · real hardware</p>
-
-    <dl class="demo__stats">
-      <div>
-        <dt>Angle from upright</dt>
-        <dd data-theta>—</dd>
-      </div>
-      <div>
-        <dt>Action</dt>
-        <dd data-action>—</dd>
-      </div>
-      <div>
-        <dt>Balanced fraction</dt>
-        <dd data-balanced>—</dd>
-      </div>
-      <div>
-        <dt>Upright for</dt>
-        <dd data-streak>—</dd>
-      </div>
-    </dl>
-
-    <div class="demo__actions">
-      <button type="button" data-action-reset>Restart</button>
-    </div>
-
-    <p class="demo__hint" data-demo-hint></p>
-
-    <p class="demo__footnote">
-      <strong>{policy.architecture}</strong> · {policy.paramCount} parameters ·
-      {policy.flashBytes} bytes of flash · {control.frequencyHz} Hz
-    </p>
+  <div class="demo__plots">
+    {
+      plots.map((p) => (
+        <figure class="demo__plot">
+          <figcaption>
+            <span>{p.label}</span>
+            <b data-plot-value={p.key}>—</b>
+          </figcaption>
+          <canvas data-plot={p.key} aria-hidden="true"></canvas>
+        </figure>
+      ))
+    }
   </div>
+
+  <p class="demo__footnote">
+    <strong>{policy.architecture}</strong> · {policy.paramCount} parameters
+    · {policy.flashBytes} bytes of flash · {control.frequencyHz} Hz — the same
+    weights the Arduino is flashed with.
+  </p>
 </div>
 
 <script>
@@ -82,23 +88,16 @@ const base = import.meta.env.BASE_URL.endsWith('/')
 
 <style>
   .demo {
-    display: grid;
-    grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
-    gap: 1.5rem;
-    align-items: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
     margin-block: 2rem;
     container-type: inline-size;
   }
 
-  @media (max-width: 50rem) {
-    .demo {
-      grid-template-columns: minmax(0, 1fr);
-    }
-  }
-
   .demo__stage {
     position: relative;
-    min-height: 22rem;
+    min-height: 24rem;
     border-radius: 0.75rem;
     overflow: hidden;
     background:
@@ -115,113 +114,166 @@ const base = import.meta.env.BASE_URL.endsWith('/')
     display: block;
     width: 100%;
     height: 100%;
-    /* The canvas owns the drag gesture for orbiting; vertical panning still
-       works because the wheel handler yields at the zoom limits. */
+    /* The canvas owns the drag gesture for orbiting and for pushing the
+       pendulum; vertical panning still works because the wheel handler yields
+       at the zoom limits. */
     touch-action: pan-y;
-    cursor: grab;
   }
 
-  .demo__stage canvas:active {
-    cursor: grabbing;
+  /* Overlays sit above the canvas but must not swallow the drag gesture —
+     only the toggle itself takes pointer events. */
+  .demo__overlay {
+    position: absolute;
+    inset-inline: 0;
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+    font-size: var(--sl-text-xs);
+  }
+
+  .demo__overlay--top {
+    top: 0;
+  }
+
+  .demo__overlay--bottom {
+    bottom: 0;
+    justify-content: center;
+    text-align: center;
+    min-height: 2.1rem;
+  }
+
+  .demo__badge:empty {
+    display: none;
+  }
+
+  .demo__badge {
+    margin: 0;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--sl-color-black) 65%, transparent);
+    color: var(--sl-color-gray-2);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .demo__toggle {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.2rem 0.5rem 0.2rem 0.35rem;
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--sl-color-black) 65%, transparent);
+    color: var(--sl-color-gray-2);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .demo__toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .demo__toggle-track {
+    position: relative;
+    width: 1.9rem;
+    height: 1.05rem;
+    border-radius: 999px;
+    background: var(--sl-color-gray-5);
+    transition: background 0.15s ease;
+    flex: none;
+  }
+
+  .demo__toggle-track::after {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.75rem;
+    height: 0.75rem;
+    border-radius: 50%;
+    background: var(--sl-color-white);
+    transition: transform 0.15s ease;
+  }
+
+  .demo__toggle input:checked + .demo__toggle-track {
+    background: var(--sl-color-accent);
+  }
+
+  .demo__toggle input:checked + .demo__toggle-track::after {
+    transform: translateX(0.85rem);
+  }
+
+  .demo__toggle input:focus-visible + .demo__toggle-track {
+    outline: 2px solid var(--sl-color-accent-high);
+    outline-offset: 2px;
   }
 
   .demo__status {
     position: absolute;
     inset-inline: 0;
-    bottom: 0.75rem;
+    top: 50%;
     margin: 0;
     text-align: center;
     font-size: var(--sl-text-xs);
     color: var(--sl-color-gray-3);
+    pointer-events: none;
   }
 
-  .demo__panel {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-    justify-content: center;
+  .demo__status:empty {
+    display: none;
   }
 
-  .demo__modes {
-    display: flex;
-    gap: 0.25rem;
-    padding: 0.2rem;
+  .demo__plots {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.5rem;
+  }
+
+  @container (max-width: 34rem) {
+    .demo__plots {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .demo__plot {
+    margin: 0;
+    padding: 0.5rem 0.6rem 0.35rem;
+    border: 1px solid var(--sl-color-gray-5);
     border-radius: 0.5rem;
     background: var(--sl-color-gray-6);
-    border: 1px solid var(--sl-color-gray-5);
   }
 
-  .demo__modes button {
-    flex: 1;
-    padding: 0.4rem 0.5rem;
-    border: 0;
-    border-radius: 0.35rem;
-    background: transparent;
-    color: var(--sl-color-gray-2);
-    font: inherit;
-    font-size: var(--sl-text-xs);
-    cursor: pointer;
-  }
-
-  .demo__modes button[aria-pressed='true'] {
-    background: var(--sl-color-accent);
-    color: var(--sl-color-white);
-  }
-
-  .demo__modes button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .demo__mode-label {
-    margin: 0;
-    font-size: var(--sl-text-xs);
-    color: var(--sl-color-gray-3);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .demo__stats {
-    display: grid;
-    gap: 0.5rem;
-    margin: 0;
-  }
-
-  .demo__stats dt {
-    font-size: var(--sl-text-xs);
-    color: var(--sl-color-gray-3);
-  }
-
-  .demo__stats dd {
-    margin: 0;
-    font-size: var(--sl-text-lg);
-    font-variant-numeric: tabular-nums;
-    color: var(--sl-color-white);
-  }
-
-  .demo__actions {
+  .demo__plot figcaption {
     display: flex;
+    align-items: baseline;
+    justify-content: space-between;
     gap: 0.5rem;
-  }
-
-  .demo__actions button {
-    flex: 1;
-    padding: 0.45rem 0.6rem;
-    border-radius: 0.4rem;
-    border: 1px solid var(--sl-color-gray-5);
-    background: var(--sl-color-gray-6);
-    color: var(--sl-color-white);
-    font: inherit;
     font-size: var(--sl-text-xs);
-    cursor: pointer;
+    color: var(--sl-color-gray-3);
   }
 
-  .demo__actions button:hover:not(:disabled) {
-    border-color: var(--sl-color-accent);
+  .demo__plot figcaption b {
+    color: var(--sl-color-white);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
   }
 
-  .demo__actions button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
+  .demo__plot canvas {
+    display: block;
+    width: 100%;
+    height: 2.75rem;
+    margin-top: 0.35rem;
+    /* The Sparkline reads these: `color` is the trace, --spark-grid the
+       baseline. Setting them here keeps the chart on the site's theme. */
+    color: var(--sl-color-accent-high);
+    --spark-grid: var(--sl-color-gray-5);
   }
 
   .demo__footnote {
@@ -229,12 +281,5 @@ const base = import.meta.env.BASE_URL.endsWith('/')
     font-size: var(--sl-text-xs);
     color: var(--sl-color-gray-3);
     line-height: 1.5;
-  }
-
-  .demo__hint {
-    margin: 0.35rem 0 0;
-    font-size: 0.85rem;
-    opacity: 0.75;
-    min-height: 1.2em;
   }
 </style>

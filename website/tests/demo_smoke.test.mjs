@@ -240,46 +240,25 @@ try {
   `);
   check('three.js initialised the canvas', typeof meshCount === 'string', String(meshCount));
 
-  // Let the replay run, then confirm the readouts are live numbers rather than
-  // the server-rendered placeholder dashes.
-  await sleep(2500);
-  const readouts = await cdp.eval(`
-    (() => {
-      const root = document.querySelector('[data-demo]');
-      const get = (s) => root.querySelector(s)?.textContent?.trim() ?? '';
-      return {
-        theta: get('[data-theta]'),
-        action: get('[data-action]'),
-        balanced: get('[data-balanced]'),
-      };
-    })()
-  `);
-  check(
-    'the replay drives the readouts',
-    readouts.theta !== '—' && readouts.balanced !== '—',
-    JSON.stringify(readouts)
-  );
-  check(
-    'the replay reports the capture\'s balanced fraction',
-    Number(readouts.balanced) > 0.9,
-    `balanced = ${readouts.balanced}`
+  // Scroll the demo into view: that is what triggers the MuJoCo download, and
+  // it is also required before any pointer coordinate is meaningful.
+  await cdp.eval(
+    `document.querySelector('[data-canvas]').scrollIntoView({ block: 'center' })`
   );
 
-  // Switching to the live network downloads MuJoCo and starts stepping.
-  await cdp.eval(`document.querySelector('[data-mode="live"]').click()`);
   const liveDeadline = Date.now() + 60000;
   let liveOk = false;
   while (Date.now() < liveDeadline) {
-    const label = await cdp.eval(
-      `document.querySelector('[data-mode-label]')?.textContent ?? ''`
+    const v = await cdp.eval(
+      `document.querySelector('[data-plot-value="theta"]')?.textContent ?? ''`
     );
-    if (/live/i.test(label)) {
+    if (v && v !== '—') {
       liveOk = true;
       break;
     }
     await sleep(500);
   }
-  check('the live MuJoCo mode starts', liveOk);
+  check('the live network starts stepping', liveOk);
 
   if (liveOk) {
     // Give the policy time to swing up (measured ~1.7 s of simulated time).
@@ -288,7 +267,10 @@ try {
       (() => {
         const root = document.querySelector('[data-demo]');
         const get = (s) => root.querySelector(s)?.textContent?.trim() ?? '';
-        return { theta: get('[data-theta]'), balanced: get('[data-balanced]') };
+        return {
+          theta: get('[data-plot-value="theta"]'),
+          balanced: get('[data-plot-value="balanced"]'),
+        };
       })()
     `);
     const thetaDeg = Math.abs(parseFloat(live.theta));
@@ -328,13 +310,17 @@ try {
 
     // The pendulum hangs off a rotating arm, so its screen position is not
     // fixed — hunt for the grab cursor rather than assuming where it is.
+    // The pendulum renders as a thin vertical rod — under 5% of the canvas
+    // width — so the x step has to be finer than it is, or the sweep steps
+    // straight over it. A few rows are enough given it is tall.
     let hit = null;
-    for (let fy = 0.2; fy <= 0.8 && !hit; fy += 0.1) {
-      for (let fx = 0.15; fx <= 0.85 && !hit; fx += 0.07) {
+    for (const fy of [0.35, 0.5, 0.65]) {
+      for (let fx = 0.2; fx <= 0.8 && !hit; fx += 0.02) {
         const x = rect.x + rect.w * fx;
         const y = rect.y + rect.h * fy;
         if ((await cursorAt(x, y)) === 'grab') hit = { x, y };
       }
+      if (hit) break;
     }
     check(
       'the pointer can find the pendulum to grab',
@@ -343,30 +329,37 @@ try {
     );
 
     if (hit) {
-      const before = parseFloat(
-        await cdp.eval(`document.querySelector('[data-theta]').textContent`)
-      );
+      const theta = async () =>
+        Math.abs(
+          parseFloat(
+            await cdp.eval(
+              `document.querySelector('[data-plot-value="theta"]').textContent`
+            )
+          )
+        );
+      const before = await theta();
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mousePressed', x: hit.x, y: hit.y, button: 'left', clickCount: 1, buttons: 1,
       });
-      for (let i = 1; i <= 6; i++) {
+      // Sample DURING the drag: the policy recovers in well under a second, so
+      // a before/after comparison can miss the disturbance entirely.
+      let peak = before;
+      for (let i = 1; i <= 8; i++) {
         await cdp.send('Input.dispatchMouseEvent', {
-          type: 'mouseMoved', x: hit.x + i * 15, y: hit.y, button: 'left', buttons: 1,
+          type: 'mouseMoved', x: hit.x + i * 30, y: hit.y - i * 10, button: 'left', buttons: 1,
         });
-        await sleep(90);
+        await sleep(120);
+        peak = Math.max(peak, await theta());
       }
       await cdp.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased', x: hit.x + 90, y: hit.y, button: 'left', clickCount: 1, buttons: 0,
+        type: 'mouseReleased', x: hit.x + 240, y: hit.y - 80, button: 'left', clickCount: 1, buttons: 0,
       });
-      const after = parseFloat(
-        await cdp.eval(`document.querySelector('[data-theta]').textContent`)
-      );
-      // A landed drag moves theta far more than the policy's own balancing
-      // micro-corrections, which stay well under a degree.
+      // A landed drag swings theta far past the policy's own balancing
+      // micro-corrections, which stay within a degree or two.
       check(
         'dragging the pendulum with the pointer disturbs it',
-        Math.abs(after - before) > 2,
-        `theta ${before}° -> ${after}° — is the drag chain intact?`
+        peak > before + 4,
+        `|theta| peaked at ${peak}° from ${before}° — is the drag chain intact?`
       );
     }
   }

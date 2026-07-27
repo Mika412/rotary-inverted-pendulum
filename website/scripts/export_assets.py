@@ -12,7 +12,6 @@ Outputs (all committed to git — see website/.gitignore for why):
     public/models/*.glb    draco-compressed visual meshes, metres, ~58 KB total
     public/sim/model.xml    the generated MJCF, exactly as pendulum_env builds it
     public/sim/scene.json   mesh transforms + provenance for the 3D renderer
-    public/sim/replay.json  a slice of real on-device telemetry
 
 Requires `trimesh` (in the python project) and `npx @gltf-transform/cli`.
 """
@@ -208,80 +207,10 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
     }
 
 
-def export_replay(
-    out_dir: Path, duration_s: float = 30.0, capture: Path | None = None
-) -> dict | None:
-    """Slice real on-device telemetry into a compact replay asset.
-
-    recordings/ is gitignored, so this asset must be committed; without it the
-    landing page has nothing to show before the user opts into the live sim.
-    Pass --capture to point at a capture outside this checkout (recordings only
-    exist in whichever working tree actually ran analyze_onboard.py).
-    """
-    import numpy as np
-
-    # Default is the h16-float 50 Hz champion: the capture whose policy and
-    # control rate match what RLControl.ino + policy_weights.h currently flash
-    # (commit a019a1b, 0.997 balanced over 5 minutes). onboard_champion_5min.npz
-    # is a better-known name but is a 35 Hz capture from the previous era.
-    capture = capture or RL / "recordings" / "onboard_smooth50async-h16float_50hz.npz"
-    if not capture.exists():
-        log(f"WARNING: {capture.name} not found — skipping replay export.")
-        log("  The landing page will start in live-sim mode instead of replay.")
-        return None
-
-    data = np.load(capture)
-    t = data["t_s"]
-    rate = float(data["control_freq_hz"])
-    n = min(len(t), int(duration_s * rate))
-
-    t0 = float(t[0])
-    motor = data["motor_pos_rad"][:n].astype(float)
-    pend = data["pendulum_pos_rad"][:n].astype(float)
-    action = data["action"][:n].astype(float)
-
-    # Quantise to the sensors' own resolution: keeping float64 precision on a
-    # signal the AS5600 only knows to 12 bits would be false precision, and
-    # int16 at these scales is lossless relative to the encoder LSB.
-    payload = {
-        "_note": (
-            "Real telemetry captured from the standalone Nano by analyze_onboard.py. "
-            "Angles are int16, scaled by `scale` radians per count."
-        ),
-        "source": f"recordings/{capture.name}",
-        "controlFreqHz": rate,
-        "samples": n,
-        "durationS": round(float(t[n - 1] - t0), 3),
-        "scale": 1e-4,
-        "motorPos": [int(round(v / 1e-4)) for v in motor],
-        "pendulumPos": [int(round(v / 1e-4)) for v in pend],
-        "action": [int(round(v * 10000)) for v in action],
-        "actionScale": 1e-4,
-    }
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / "replay.json"
-    path.write_text(json.dumps(payload))
-    log(
-        f"replay.json: {n} samples @ {rate:g} Hz "
-        f"({payload['durationS']:.1f} s), {path.stat().st_size / 1024:.0f} KB"
-    )
-    return payload
-
-
 def main() -> None:
     import argparse
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--capture",
-        type=Path,
-        default=None,
-        help="on-device .npz capture to slice for the replay asset "
-        "(default: RL recordings/onboard_champion_5min.npz)",
-    )
-    ap.add_argument(
-        "--replay-duration-s", type=float, default=30.0, help="replay length (default 30)"
-    )
     ap.add_argument("--skip-meshes", action="store_true", help="only refresh sim/ assets")
     args = ap.parse_args()
 
@@ -297,7 +226,6 @@ def main() -> None:
     scene = build_scene(mesh_info)
     (sim / "scene.json").write_text(json.dumps(scene, indent=2) + "\n")
     log(f"scene.json: {len(scene['nodes'])} nodes")
-    export_replay(sim, duration_s=args.replay_duration_s, capture=args.capture)
 
     total = sum(m["bytes"] for m in mesh_info.values())
     log(f"done — {total / 1024:.0f} KB of meshes total")

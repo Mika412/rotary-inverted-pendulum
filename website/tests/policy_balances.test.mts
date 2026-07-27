@@ -178,5 +178,31 @@ check('a pointer grab actually pushes the pendulum, and lets go', () => {
   assert.ok(recovered, 'did not recover after the grab was released');
 });
 
+check('control off lets it fall, control back on catches it', () => {
+  // The demo's on/off switch. coast() must advance physics with the policy
+  // silenced AND keep the observation window fed, or the policy resumes on
+  // frames from before the fall and flails.
+  for (let i = 0; i < 3 * constants.control.frequencyHz; i++) controller.step();
+  assert.ok(
+    Math.abs(controller.step().thetaRad) < 0.2,
+    'precondition: should be balancing before control is switched off'
+  );
+
+  let fell = 0;
+  for (let i = 0; i < 4 * constants.control.frequencyHz; i++) {
+    fell = Math.max(fell, Math.abs(controller.coast().thetaRad));
+  }
+  assert.ok(fell > 2.0, `pendulum only reached ${fell.toFixed(2)} rad with control off`);
+
+  let recovered = false;
+  for (let i = 0; i < 15 * constants.control.frequencyHz; i++) {
+    if (Math.abs(controller.step().thetaRad) < 0.1) {
+      recovered = true;
+      break;
+    }
+  }
+  assert.ok(recovered, 'did not swing back up after control was switched on');
+});
+
 console.log(failures === 0 ? '\nall checks passed' : `\n${failures} check(s) failed`);
 process.exit(failures === 0 ? 0 : 1);
