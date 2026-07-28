@@ -165,8 +165,6 @@ active correction to actually beat passive stabilization in reward.
 
 ## Recipe for picking rate + delta on a new rig
 
-## Recipe for picking rate + delta on a new rig
-
 1. Run sysid (see [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/)). Note `BW_motor`
    and `f_n`.
 2. Compute the rate window: `[5 × f_n, 3 × BW_motor]`. If empty, you
@@ -187,16 +185,6 @@ active correction to actually beat passive stabilization in reward.
    policy learns the rate it was trained at; mismatched deployment
    was the bug we built `async_control.py` to prevent — see
    [`async_control_architecture.md`](/rotary-inverted-pendulum/reference/async-control/).
-
-## Sequence summary
-
-```
-sysid → BW_motor + f_n
-      → rate window [5·f_n, 3·BW_motor]
-      → pick f_ctrl in window (lower = conservative, higher = reactive)
-      → pick max_action_delta_rad such that delta × f_ctrl ≤ ~3.5 rad/s
-      → set those values once; use everywhere (sim, fine-tune, deploy)
-```
 
 ## Velocity filter cutoff — picking it from the rate
 
