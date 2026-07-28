@@ -12,7 +12,18 @@
 
 // Steps come from `src/data/pipeline.ts` so this diagram and the compact strip
 // at the top of every step page cannot disagree about order or numbering.
-import { tetheredSteps as tethered, standaloneSteps as standalone } from '../data/pipeline';
+import {
+  PIPELINE_STEPS,
+  tetheredSteps as tethered,
+  standaloneSteps as standalone,
+} from '../data/pipeline';
+
+/**
+ * Both labels are shared by the two views below, so the wide diagram and the
+ * narrow list cannot end up quoting different acceptance thresholds.
+ */
+const GATE_LABEL = 'balanced ≥ 0.85';
+const GROUP_LABEL = 'only to remove the tether';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const url = (slug: string) => `${base}/${slug}/`;
@@ -70,7 +81,7 @@ const VIEW_H = 300;
         rx="12"
       />
       <text x={X0 + 4} y={ROW2 - 12} class="group-label">
-        only to remove the tether
+        {GROUP_LABEL}
       </text>
     </g>
 
@@ -144,9 +155,43 @@ const VIEW_H = 300;
       marker-end="url(#pipeline-arrow)"
     />
     <text x={x(3) + W / 2 - 10} y={ROW1 + H + 32} class="gate-label" text-anchor="end">
-      balanced ≥ 0.85
+      {GATE_LABEL}
     </text>
   </svg>
+
+  {/*
+    The same seven steps for viewports too narrow for the diagram. Two rows of
+    176px nodes need 34rem; a phone has about 20rem of content column, and
+    scaling the SVG down to fit shrinks its labels past reading size. So the
+    narrow case reflows instead of zooming — one step per row, which is the
+    shape the sequence has anyway.
+
+    Both views are driven by PIPELINE_STEPS, so they can only differ in layout.
+  */}
+  <ol class="pipeline__list">
+    {
+      PIPELINE_STEPS.map((step, i) => (
+        <>
+          {!step.tethered && PIPELINE_STEPS[i - 1]?.tethered && (
+            <li class="pipeline__gate" aria-hidden="true">
+              <span>{GATE_LABEL}</span>
+              <span class="pipeline__group-label">{GROUP_LABEL}</span>
+            </li>
+          )}
+          <li>
+            <a
+              href={url(step.slug)}
+              class:list={['pipeline__row', { 'pipeline__row--optional': !step.tethered }]}
+            >
+              <span class="pipeline__n">{step.n}</span>
+              <span class="pipeline__title">{step.title}</span>
+              <span class="pipeline__sub">{step.sub}</span>
+            </a>
+          </li>
+        </>
+      ))
+    }
+  </ol>
 
   <figcaption>
     Each step is idempotent and can be re-run on its own. Stopping after step 3
@@ -159,7 +204,6 @@ const VIEW_H = 300;
     margin: 1.75rem 0;
   }
 
-  /* Wide content must scroll inside its own box rather than the page body. */
   .pipeline svg {
     display: block;
     width: 100%;
@@ -167,10 +211,94 @@ const VIEW_H = 300;
     height: auto;
   }
 
+  /* One view or the other, never both. Below 40rem the diagram cannot hold its
+     two rows without either overflowing or shrinking its labels past reading
+     size, so the list takes over. No overflow-x here on purpose: a figure you
+     have to scroll sideways to read is not a diagram, it is a puzzle. */
+  .pipeline__list {
+    display: none;
+  }
+
   @media (max-width: 40rem) {
-    .pipeline {
-      overflow-x: auto;
+    .pipeline svg {
+      display: none;
     }
+
+    .pipeline__list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+  }
+
+  .pipeline__list li {
+    margin: 0;
+    padding: 0;
+  }
+
+  .pipeline__row {
+    display: grid;
+    grid-template-columns: 1.5rem 1fr;
+    gap: 0.1rem 0.6rem;
+    padding: 0.5rem 0.7rem;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.5rem;
+    background: var(--sl-color-gray-6);
+    text-decoration: none;
+    transition:
+      border-color 0.15s ease,
+      background 0.15s ease;
+  }
+
+  .pipeline__row:hover,
+  .pipeline__row:focus-visible {
+    border-color: var(--sl-color-accent);
+    background: var(--sl-color-accent-low);
+  }
+
+  /* Steps 4-6 are optional; dashed, matching node--optional in the diagram. */
+  .pipeline__row--optional {
+    border-style: dashed;
+  }
+
+  .pipeline__n {
+    grid-row: span 2;
+    align-self: center;
+    color: var(--sl-color-accent);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pipeline__title {
+    color: var(--sl-color-white);
+    font-weight: 600;
+  }
+
+  .pipeline__sub {
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+  }
+
+  /* The acceptance gate, as a labelled break between the two phases. */
+  .pipeline__gate {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    margin: 0.35rem 0 0.1rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed var(--sl-color-gray-4);
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+    font-style: italic;
+  }
+
+  .pipeline__group-label {
+    font-style: normal;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
   }
 
   .node rect {
