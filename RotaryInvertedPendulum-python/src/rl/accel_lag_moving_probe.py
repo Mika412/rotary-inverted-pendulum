@@ -58,7 +58,7 @@ def probe_step_change(
         s = client.get_state()
         if abs(s.motor_vel_rad_s) < 0.1:
             break
-        client.set_acceleration(-np.sign(-s.motor_vel_rad_s) * 20.0)
+        client.set_acceleration(-np.sign(s.motor_vel_rad_s) * 20.0)
         time.sleep(0.01)
     client.set_acceleration(0.0)
     time.sleep(0.3)
@@ -81,8 +81,8 @@ def probe_step_change(
     while n < n_max:
         s = client.get_state()
         t_us[n] = s.time_us
-        pos[n] = -s.motor_pos_rad
-        vel[n] = -s.motor_vel_rad_s
+        pos[n] = s.motor_pos_rad
+        vel[n] = s.motor_vel_rad_s
         n += 1
         t_rel = (s.time_us - t_us0) * 1e-6
         if t_rel >= baseline_duration_s:
@@ -109,8 +109,8 @@ def probe_step_change(
     while n < n_max:
         s = client.get_state()
         t_us[n] = s.time_us
-        pos[n] = -s.motor_pos_rad
-        vel[n] = -s.motor_vel_rad_s
+        pos[n] = s.motor_pos_rad
+        vel[n] = s.motor_vel_rad_s
         n += 1
         if s.time_us > probe_end_us:
             break
@@ -124,7 +124,7 @@ def probe_step_change(
     brake_mag = max(abs(baseline_accel), abs(step_accel))
     for _ in range(200):
         s = client.get_state()
-        v = -s.motor_vel_rad_s
+        v = s.motor_vel_rad_s
         if abs(v) < 0.1:
             break
         client.set_acceleration(-np.sign(v) * brake_mag)
@@ -134,8 +134,8 @@ def probe_step_change(
     # --- Re-center back near pos0 (gentle PD) ---
     for _ in range(200):
         s = client.get_state()
-        err = pos0 - (-s.motor_pos_rad)
-        v = -s.motor_vel_rad_s
+        err = pos0 - (s.motor_pos_rad)
+        v = s.motor_vel_rad_s
         if abs(err) < 0.05 and abs(v) < 0.2:
             break
         a = 20.0 * err - 8.0 * v

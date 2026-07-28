@@ -147,8 +147,8 @@ def run_real(port: str, baud: int, waveform_fn, duration: float,
             s = client.get_state()
             log_t[i] = s.time_us * 1e-6 - t0
             log_accel[i] = accel
-            log_motor[i] = -s.motor_pos_rad
-            log_pen[i] = -s.pendulum_pos_rad
+            log_motor[i] = s.motor_pos_rad
+            log_pen[i] = s.pendulum_pos_rad
 
             next_tick += period
             sleep_for = next_tick - time.monotonic()

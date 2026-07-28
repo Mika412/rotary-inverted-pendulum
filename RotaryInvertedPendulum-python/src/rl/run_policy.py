@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
         # position (also used by the dry-run loop's logging).
         motor_target = 0.0
         if args.action_mode == "position_delta":
-            motor_target = -client.get_state().motor_pos_rad  # un-flip to sim frame
+            motor_target = client.get_state().motor_pos_rad
 
         if not args.dry_run:
             client.engage_motor()
@@ -305,13 +305,12 @@ def main(argv: list[str] | None = None) -> int:
 
                 s = client.get_state()
 
-                # LowLevelServer flips signs of motor/pendulum positions AND
-                # velocities on output (but not on set_accel input). Un-flip
-                # here so the observation matches the sim convention.
-                motor_pos = -s.motor_pos_rad
-                phi = -s.pendulum_pos_rad
-                motor_vel = -s.motor_vel_rad_s
-                pen_vel = -s.pendulum_vel_rad_s
+                # Firmware frame end-to-end; values feed the observation
+                # as-is.
+                motor_pos = s.motor_pos_rad
+                phi = s.pendulum_pos_rad
+                motor_vel = s.motor_vel_rad_s
+                pen_vel = s.pendulum_vel_rad_s
 
                 frame = make_obs(motor_pos, phi, motor_vel, pen_vel,
                                  prev_action, obs_include_velocities)
@@ -400,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
                     phi_travel += abs(phi - phi_last)
                 phi_last = phi
 
-                # Log this step (sim convention; un-flip already applied above).
+                # Log this step (firmware frame, same as the observation).
                 # The "commanded" quantity is the angular accel (accel-mode) or
                 # the position target (position-delta mode) — logged under the
                 # same array name for downstream tooling compatibility. The

@@ -28,11 +28,6 @@ const long BAUD_RATE = 2000000;
 // MOTOR_MICROSTEPS in pendulum_env.py and MICROSTEPS in RLControl.ino.
 const int MICROSTEPS = 32;
 const long STEPS_PER_REVOLUTION = 200L * MICROSTEPS;
-// Both conversions derive from the constant above, exactly as RLControl.ino
-// does. They used to live in StepperUtils.h against a hardcoded 1600
-// steps/rev, which agreed with the sketch only at MICROSTEPS = 8: at any
-// other value GET_STATE reported a motor position scaled by 1600 while
-// velocity, accel commands and the safety rail all used STEPS_PER_REVOLUTION.
 const float STEPS_PER_RAD = (float)STEPS_PER_REVOLUTION / (2.0f * (float)PI);
 const float RAD_PER_STEP = (2.0f * (float)PI) / (float)STEPS_PER_REVOLUTION;
 
@@ -429,12 +424,8 @@ void sendState()
     float motor_velocity_rad_s, pendulum_velocity_rad_s;
     computeVelocities(&motor_velocity_rad_s, &pendulum_velocity_rad_s);
 
-    // Flip the signs of the motor and pendulum positions / velocities to
-    // match the sim-frame convention the Python clients expect.
-    motor_position_radians    *= -1;
-    pendulum_position_radians *= -1;
-    motor_velocity_rad_s      *= -1;
-    pendulum_velocity_rad_s   *= -1;
+    // Values go out exactly as the firmware measures them (step counter,
+    // AS5600 accumulator) — one frame everywhere, no flips on either side.
 
     // Pack and send the data
     Serial.write((byte *)&current_time, sizeof(current_time));

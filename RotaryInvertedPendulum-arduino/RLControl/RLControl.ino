@@ -36,10 +36,9 @@
  * ENABLE on pin 5 are unconstrained.
  *
  * Frame conventions (match `LowLevelServer` + `run_policy.py`):
- *   - The policy was trained with motor_pos and phi in the Arduino's raw
- *     stepper frame. LowLevelServer flips signs on get_state output and
- *     run_policy.py un-flips on receive — net no-op. So in this standalone
- *     sketch we use the raw frame directly: NO sign flip on read or write.
+ *   - The policy is trained in the Arduino's raw stepper/encoder frame —
+ *     the ONE frame used everywhere: LowLevelServer sends GET_STATE
+ *     unflipped and no host negates. Do not introduce flips anywhere.
  *   - phi = 0 means pendulum hanging down (encoder zeros at engage).
  *   - theta = wrap_pi(phi - pi); theta = 0 means upright.
  *   - motor_pos = 0 at engage (stepper position re-zeroed).
@@ -200,6 +199,12 @@ static float frames[OBS_FRAMES][FRAME_DIM];
 
 // Commanded-velocity integrator (rad/s) — the P-law feedback state.
 static float v_cmd = 0.0f;
+// Velocities as consumed by the policy on the last tick — telemetry only.
+static float tele_motor_vel = 0.0f;
+static float tele_pen_vel = 0.0f;
+// Time spanned by the velocity finite-difference window on the last read.
+// Designed 8 ms; grows when inference blocks the sampler and samples bunch.
+static uint16_t tele_vel_span_us = 0;
 
 // Action-smoothing ring (boxcar of the last ACTION_SMOOTH_WINDOW actions).
 static float a_smooth_ring[ACTION_SMOOTH_WINDOW];
@@ -343,6 +348,7 @@ static void read_measured_state(float* motor_pos, float* phi,
     }
     uint8_t oldest = (uint8_t)((buf_head + SAMPLE_BUFFER_SIZE - VEL_WINDOW) % SAMPLE_BUFFER_SIZE);
     float dt_s = (float)((uint32_t)(time_us_buf[newest] - time_us_buf[oldest])) * 1e-6f;
+    tele_vel_span_us = (uint16_t)((uint32_t)(time_us_buf[newest] - time_us_buf[oldest]));
     if (dt_s <= 0.0f)
     {
         *motor_vel = 0.0f;
@@ -499,6 +505,10 @@ static void control_tick()
     // most recently applied action).
     float theta = wrap_pi(phi - (float)PI);
     push_frame(motor_pos, theta, motor_vel, pen_vel, last_action);
+    // Stash the velocities the policy consumed, so telemetry captures the
+    // full observation and a standalone run can be replayed offline.
+    tele_motor_vel = motor_vel;
+    tele_pen_vel = pen_vel;
 
     // 4. Forward pass on the flattened frame stack (oldest -> newest).
     // frames[][] is contiguous, so it IS the obs vector.
@@ -593,7 +603,7 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     float motor_pos = n_samples ? (float)motor_step_buf[newest] * RAD_PER_STEP
                                 : read_motor_pos_rad();
     float phi = n_samples ? pen_rad_buf[newest] : 0.0f;
-    char buf[80];
+    char buf[120];
     char* p = buf;
     ltoa((long)now_us, p, 10); p += strlen(p); *p++ = ',';
     ltoa((long)(motor_pos * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
@@ -603,7 +613,13 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     utoa(freq_hz, p, 10); p += strlen(p); *p++ = ',';
     utoa(loop_overruns, p, 10); p += strlen(p); *p++ = ',';
     utoa(latency_us, p, 10); p += strlen(p); *p++ = ',';
-    utoa(latency_max_us, p, 10); p += strlen(p);
+    utoa(latency_max_us, p, 10); p += strlen(p); *p++ = ',';
+    // Appended fields (indices 9-11) so older parsers keep working: the
+    // velocities the policy consumed this tick, and the P-law integrator.
+    ltoa((long)(tele_motor_vel * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
+    ltoa((long)(tele_pen_vel * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
+    ltoa((long)(v_cmd * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
+    utoa(tele_vel_span_us, p, 10); p += strlen(p);
     *p = '\0';
     Serial.println(buf);
 }

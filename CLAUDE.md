@@ -143,7 +143,8 @@ Commands are single bytes, some followed by a little-endian 4-byte float:
 - `0x01`: Check ready (echoes `0x01`)
 - `0x02`: Get state — 20-byte reply: `uint32` timestamp µs, then floats for
   motor position, pendulum position, motor velocity, pendulum velocity.
-  Signs are flipped to the sim frame; velocities are windowed finite
+  Values are in the firmware frame — the one frame used everywhere, with no
+  flips on either side of the wire; velocities are windowed finite
   differences, and the timestamp is the sample time, not the reply time.
 - `0x03`: Set **angular acceleration** (rad/s²) — was `CMD_SET_TARGET` in
   position mode; the switch to accel is what made on-device deployment

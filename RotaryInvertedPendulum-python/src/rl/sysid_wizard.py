@@ -176,7 +176,7 @@ def _record_state_stream(
 ) -> dict:
     """Sample state at `sample_hz` for `duration_s`. Returns a dict of arrays.
 
-    Signs are flipped to sim-frame convention (matches `pendulum_env.py`).
+    Values arrive in the firmware frame — the single frame used everywhere.
     """
     n = int(duration_s * sample_hz)
     dt = 1.0 / sample_hz
@@ -191,10 +191,10 @@ def _record_state_stream(
     for i in range(n):
         s = client.get_state()
         t[i] = time.monotonic() - t_start
-        pen[i] = -s.pendulum_pos_rad
-        motor[i] = -s.motor_pos_rad
-        pvel[i] = -s.pendulum_vel_rad_s
-        mvel[i] = -s.motor_vel_rad_s
+        pen[i] = s.pendulum_pos_rad
+        motor[i] = s.motor_pos_rad
+        pvel[i] = s.pendulum_vel_rad_s
+        mvel[i] = s.motor_vel_rad_s
         next_tick += dt
         sleep_for = next_tick - time.monotonic()
         if sleep_for > 0:
@@ -309,8 +309,8 @@ def move_motor_to(
     settle_needed = int(0.3 * control_hz)
     while time.monotonic() - t_start < timeout_s:
         s = client.get_state()
-        motor_pos = -s.motor_pos_rad
-        motor_vel = -s.motor_vel_rad_s
+        motor_pos = s.motor_pos_rad
+        motor_vel = s.motor_vel_rad_s
 
         error = target_pos - motor_pos
         accel = kp * error - kd * motor_vel

@@ -21,7 +21,7 @@ Reset behaviour:
 
 Termination/Truncation:
     - Truncated when `episode_length_s` elapses.
-    - Terminated (with `hard_stop_penalty`) if the un-flipped motor
+    - Terminated (with `hard_stop_penalty`) if the motor
       position |motor_pos| exceeds MOTOR_LIMIT_RAD (the firmware also
       enforces this in hardware, so the policy should never command
       past it; the check here is the policy's "feedback" if it does).
@@ -78,7 +78,8 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
 
     Operates over the LowLevelServer binary protocol. Sign conventions
     match `run_policy.py`: server flips motor and pendulum positions on
-    output, so we un-flip on read. The action is interpreted per
+    output in the firmware frame — the training frame, used everywhere with
+    no flips. The action is interpreted per
     `action_mode`: "accel" (angular acceleration) or "position_delta"
     (per-tick motor-target increment) — must match the mode the sim policy
     was trained with.
@@ -273,9 +274,8 @@ class RealRotaryInvertedPendulumEnv(gym.Env):
 
     def _read_raw_state(self):
         s = self._client.get_state()  # type: ignore[union-attr]
-        # Un-flip server's sign convention to put us in sim frame.
-        return (s.time_us, -s.motor_pos_rad, -s.pendulum_pos_rad,
-                -s.motor_vel_rad_s, -s.pendulum_vel_rad_s)
+        return (s.time_us, s.motor_pos_rad, s.pendulum_pos_rad,
+                s.motor_vel_rad_s, s.pendulum_vel_rad_s)
 
     def _wait_for_pendulum_rest(self, client: LowLevelClient) -> bool:
         """Block until the pendulum has been at rest for REST_DURATION_S.

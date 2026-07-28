@@ -273,6 +273,21 @@ current is unused. What actually matters more than headline amps:
   axially aligned. The AS5600's `AGC` (automatic gain control)
   register reports magnet strength — check it on first power-up;
   out-of-range readings indicate a misaligned or wrong-grade magnet.
+- **The DIR pin hardware-defines which rotation counts positive**
+  (GND = increasing clockwise viewed from the magnet side, VDD = the
+  reverse) and per the datasheet it should not float. The canonical
+  wiring diagram leaves it unwired, so on these builds the direction is
+  whatever the breakout's strap resistors set it to. The stack tolerates
+  either (per-rig tare, mirror-symmetric plant), but two rigs built from
+  the same docs can end up as physical mirrors of each other.
+  **TODO** ([issue #4](https://github.com/ferrolho/rotary-inverted-pendulum/issues/4)):
+  measure DIR's strapping on the reference breakout and wire it
+  explicitly to GND.
+- **5 V operation** ([issue #4](https://github.com/ferrolho/rotary-inverted-pendulum/issues/4)):
+  common AS5600 breakouts use a zero-ohm jumper (typically `R1`) to
+  select 3.3 V; it reportedly must be removed for 5 V supply. **TODO**:
+  verify which jumper the reference module uses and document it — these
+  rigs run the AS5600 from the Nano's 5 V rail.
 
 ## Decoupling — 100 nF ceramic + 22 µF electrolytic
 

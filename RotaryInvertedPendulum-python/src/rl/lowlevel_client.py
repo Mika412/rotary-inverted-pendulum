@@ -17,7 +17,7 @@ RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino:
 Sign convention: LowLevelServer flips the sign of motor and pendulum
 positions AND velocities on output. We pass the raw bytes through;
 callers decide whether to apply additional transforms. The deploy code
-(`run_policy.py`) and the real-env (`real_env.py`) un-flip on read so
+(`run_policy.py`) and the real-env (`real_env.py`) consume them as-is —
 the observation matches the sim convention.
 
 This client is request-driven (one 20-byte read per get_state call).
@@ -52,7 +52,7 @@ _STATE_SIZE = _STATE_STRUCT.size  # 20 bytes
 @dataclass(frozen=True)
 class State:
     time_us: int           # Arduino's micros() when the read was taken
-    motor_pos_rad: float   # signed motor angle, server-flipped sign convention
+    motor_pos_rad: float   # signed motor angle, firmware frame (step counter)
     pendulum_pos_rad: float
     motor_vel_rad_s: float
     pendulum_vel_rad_s: float
@@ -168,9 +168,9 @@ class LowLevelClient:
     def set_target(self, target_rad: float) -> None:
         """Command a new motor position target, in radians (position mode).
 
-        Maps to the firmware's moveTo(). Sign convention matches
-        set_acceleration: sent un-flipped (positions are only flipped on
-        GET_STATE output), so callers pass the sim-frame target directly.
+        Maps to the firmware's moveTo(). Sign convention: the
+        firmware frame, same as get_state and set_acceleration — one frame
+        everywhere.
         No flush — a 5-byte payload per tick never backs up the 2 Mbaud link.
         """
         payload = bytes([CMD_SET_TARGET]) + struct.pack("<f", float(target_rad))

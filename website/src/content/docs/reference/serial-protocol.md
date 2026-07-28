@@ -54,8 +54,9 @@ Two details matter if you are writing a client:
   derivatives — `(newest − oldest)/Δt` across the firmware's 8 ms sampling
   window. The simulation reproduces this exactly, including the quantisation,
   because the resulting noise is something the policy trains against.
-- **Signs are flipped** relative to the raw sensors, to match the simulation
-  frame the Python clients expect.
+- **One frame everywhere**: values are the firmware's own step counter and
+  encoder accumulator, unmodified — the same frame the policies are trained
+  in. Neither side of the wire flips signs.
 
 ### Safety behaviour you cannot override
 

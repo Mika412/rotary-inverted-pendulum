@@ -73,8 +73,8 @@ def probe_one(client: LowLevelClient, accel: float) -> dict:
     while n < n_max:
         s = client.get_state()
         t_us[n] = s.time_us
-        pos[n] = -s.motor_pos_rad
-        vel[n] = -s.motor_vel_rad_s
+        pos[n] = s.motor_pos_rad
+        vel[n] = s.motor_vel_rad_s
         n += 1
         # Stop conditions: duration elapsed (in firmware time) or safety.
         t_rel = (s.time_us - t_us0) * 1e-6
@@ -90,7 +90,7 @@ def probe_one(client: LowLevelClient, accel: float) -> dict:
     brake_accel = -accel
     for _ in range(200):
         s = client.get_state()
-        v = -s.motor_vel_rad_s
+        v = s.motor_vel_rad_s
         if (accel > 0 and v <= 0.05) or (accel < 0 and v >= -0.05):
             break
         client.set_acceleration(brake_accel)
@@ -100,8 +100,8 @@ def probe_one(client: LowLevelClient, accel: float) -> dict:
     # Simple closed-loop nudge: damp velocity, push toward pos0.
     for _ in range(200):
         s = client.get_state()
-        err = pos0 - (-s.motor_pos_rad)
-        v = -s.motor_vel_rad_s
+        err = pos0 - (s.motor_pos_rad)
+        v = s.motor_vel_rad_s
         if abs(err) < 0.05 and abs(v) < 0.2:
             break
         a = 20.0 * err - 8.0 * v

@@ -63,10 +63,10 @@ def record_real(port: str, duration_s: float, sample_hz: float) -> dict:
         for i in range(n):
             s = client.get_state()
             t_log[i] = (time.monotonic() - t_start)
-            motor_log[i] = -s.motor_pos_rad
-            pen_log[i]   = -s.pendulum_pos_rad
-            mvel_log[i]  = -s.motor_vel_rad_s
-            pvel_log[i]  = -s.pendulum_vel_rad_s
+            motor_log[i] = s.motor_pos_rad
+            pen_log[i]   = s.pendulum_pos_rad
+            mvel_log[i]  = s.motor_vel_rad_s
+            pvel_log[i]  = s.pendulum_vel_rad_s
             next_tick += dt
             sleep_for = next_tick - time.monotonic()
             if sleep_for > 0:
