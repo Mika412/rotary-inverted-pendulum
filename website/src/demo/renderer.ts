@@ -140,12 +140,18 @@ export class PendulumRenderer {
    * the body toward the cursor, and the rod's length is the displacement the
    * spring is working against.
    *
-   * Built as a capsule the long way round: a unit-height cylinder scaled along
-   * its own +y, capped by a sphere at each end that takes the inverse scale.
-   * `CapsuleGeometry` would be the obvious choice, but its caps are part of the
-   * same mesh, so stretching it to the drag length squashes them into ellipsoids
-   * — and the length changes every frame you drag, so rebuilding the geometry
-   * instead would mean allocating one per frame.
+   * Two meshes: a unit-height cylinder stretched along its own +y, and a ball at
+   * the pointer end. Only the cylinder is ever scaled, so the ball stays
+   * spherical and the rod's radius is constant whatever the length. The far end
+   * is left flat because it sits against the body it is pulling, where a cap
+   * would not be visible.
+   *
+   * MJCF's `fromto` expresses a capsule like this in one attribute, and
+   * `build_mjcf` uses it for the sim's own capsules — but that is an MJCF
+   * attribute drawn by MuJoCo's visualiser, and here MuJoCo is only the physics;
+   * three.js draws the scene. `CapsuleGeometry` is no help either, since its
+   * caps belong to the same mesh and stretching one to the drag length squashes
+   * them into ellipsoids.
    */
   private readonly dragForce = new Group();
   private readonly dragRod = new Mesh(
@@ -154,11 +160,6 @@ export class PendulumRenderer {
   );
   private readonly dragBall = new Mesh(
     new SphereGeometry(DRAG_ROD_RADIUS * 2.4, 16, 12),
-    new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
-  );
-  /** The capsule's cap at the body end; the ball above serves as the other. */
-  private readonly dragCap = new Mesh(
-    new SphereGeometry(DRAG_ROD_RADIUS, 12, 8),
     new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
   );
   private readonly dragQuat = new Quaternion();
@@ -191,10 +192,8 @@ export class PendulumRenderer {
     this.scene.add(this.root);
     // The rod's own geometry runs along +y, centred; both pieces are placed in
     // the group's local +y so the group only has to be aimed and stretched.
-    this.dragRod.position.set(0, 0.5, 0);
-    this.dragBall.position.set(0, 1, 0);
-    this.dragCap.position.set(0, 0, 0);
-    this.dragForce.add(this.dragRod, this.dragBall, this.dragCap);
+    // Laid out along the group's +y, positioned per drag in setDragArrow.
+    this.dragForce.add(this.dragRod, this.dragBall);
     this.dragForce.visible = false;
     this.scene.add(this.dragForce);
 
@@ -443,10 +442,11 @@ export class PendulumRenderer {
     // vector to the pointer, then stretch only that axis to its length.
     this.dragQuat.setFromUnitVectors(UP_Y, dir.normalize());
     this.dragForce.quaternion.copy(this.dragQuat);
-    this.dragForce.scale.set(1, len, 1);
-    // Undo the stretch on both caps, so they stay round however far you drag.
-    this.dragBall.scale.set(1, 1 / len, 1);
-    this.dragCap.scale.set(1, 1 / len, 1);
+    // The length lives on the rod alone — the group is never scaled, so the ball
+    // needs no inverse scale to stay round.
+    this.dragRod.scale.set(1, len, 1);
+    this.dragRod.position.set(0, len / 2, 0);
+    this.dragBall.position.set(0, len, 0);
     this.dragForce.visible = true;
   }
 
