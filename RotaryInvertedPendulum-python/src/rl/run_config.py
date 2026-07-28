@@ -27,7 +27,12 @@ CONFIG_NAME = "config.json"
 # for a later curriculum stage is a normal thing to want, and aborting on it
 # would just teach people to pass --ignore-config-mismatch, which would then
 # hide the mismatches that DO matter.
-PROVENANCE_ONLY_KEYS = frozenset({"mirror_augment"})
+# `params_path` is provenance for a second reason: it is a filesystem path, so
+# an absolute path recorded on one machine (or a re-run from a different cwd)
+# would false-trip a comparison that is really about which rig's measured
+# friction the sim used. It is inherited downstream rather than enforced.
+PROVENANCE_ONLY_KEYS = frozenset({"mirror_augment", "motor_microsteps",
+                                  "params_path"})
 
 # How many directory levels above the policy file to search for config.json.
 # Covers run_dir/last.zip (1), run_dir/checkpoints/sac_x.zip (2), and

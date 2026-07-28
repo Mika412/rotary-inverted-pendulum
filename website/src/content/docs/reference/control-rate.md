@@ -67,7 +67,7 @@ Two physical numbers, both produced by Phase 0 sysid:
 | **Motor bandwidth** `BW_motor` | `1 / (2π × rise_time_95)` from step response | **16 Hz** (64 ms rise) |
 | **Pendulum natural frequency** `f_n` | `1 / period_s` from free-swing fit | **1.9 Hz** (0.526 s period) |
 
-Both live in `sysid_params.json` after the runbook protocol. Re-derive
+Both live in `sysid_params_<rig>.json` after the runbook protocol. Re-derive
 them whenever the rig changes (new bearings, motor swap, etc.). See
 [`sysid_runbook.md`](/rotary-inverted-pendulum/train/sysid/) for the measurement procedure.
 

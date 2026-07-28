@@ -11,17 +11,22 @@ The wizard splits cleanly into two phases:
                  The only side effects are on disk.
     fit        — pure post-processing. Reads a recordings directory,
                  derives parameters, generates sim-vs-real validation
-                 plots, and writes sysid_params.json. No device required.
+                 plots, and writes the per-rig sysid_params_*.json. No device required.
 
 Splitting the two means re-fitting after a code change (e.g. an
 improved derivation formula) doesn't require re-recording on the rig —
 useful because iterating on math is fast, but rig sessions are slow
 and depend on the operator being present.
 
+Friction is the one quantity measured per rig, so `--out-json` is required
+rather than defaulted: writing to a generic filename is how one rig's
+measurements end up silently describing another.
+
 Usage:
-    python sysid_wizard.py                       # full pipeline (collect+fit+validate)
+    # full pipeline (collect+fit+validate)
+    python sysid_wizard.py --out-json sysid_params_<rig>.json
     python sysid_wizard.py collect               # only record data
-    python sysid_wizard.py fit --in-dir <path>   # only fit existing data
+    python sysid_wizard.py fit --in-dir <path> --out-json sysid_params_<rig>.json
     python sysid_wizard.py validate-motor        # only the motor ±90° sanity sweep
 """
 
@@ -529,11 +534,15 @@ def fit_data(in_dir: Path, out_json: Path) -> dict:
     # Suggested control-rate window. (Without a motor-bandwidth measurement
     # we just print the pendulum half — operator can decide.)
     print(_bold("\n  Control rate suggestion (based on pendulum dynamics alone):"))
+    # Local import: the `fit` path is deliberately device- and MuJoCo-free, and
+    # importing pendulum_env at module scope would pull MuJoCo in (same reason
+    # the env import in run_freeswing_analysis is local).
+    from pendulum_env import CONTROL_FREQ_HZ
     pendulum_period = fit["small_amp_period_s"]
     f_n = 1.0 / pendulum_period
     print(f"    pendulum natural freq f_n ≈ {f_n:.2f} Hz")
     print(f"    minimum useful control rate (5·f_n) ≈ {5*f_n:.1f} Hz")
-    print(_dim("    (current rig deploys at 35 Hz; this run won't change that)"))
+    print(_dim(f"    (the rig deploys at {CONTROL_FREQ_HZ:.0f} Hz; this run won't change that)"))
 
     # Write the JSON. Schema: only friction is per-rig and lives here;
     # mass/COM/I_com come from urdf/model.urdf via pendulum_geometry. The
@@ -612,7 +621,7 @@ def plot_free_swing_compare(in_dir: Path, derived: dict, *, out_dir: Path) -> No
     release_vel = float(real_pvel[rel_idx])
 
     # Sim with the derived params loaded by the env. Note: the env reads
-    # sysid_params.json at construction time, so we rely on `fit_data` having
+    # the sysid params at construction time, so we rely on `fit_data` having
     # just written that file.
     env = RotaryInvertedPendulumEnv(
         control_freq_hz=200.0, domain_randomization=False,
@@ -772,8 +781,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 
     pf = sub.add_parser("fit", help="fit parameters from a collected directory")
     pf.add_argument("--in-dir", required=True, type=Path)
-    pf.add_argument("--out-json", default=Path(__file__).resolve().parent / "sysid_params.json",
-                    type=Path)
+    pf.add_argument("--out-json", required=True, type=Path,
+                    help="where to write the fitted parameters, e.g. "
+                         "sysid_params_tmc2209.json. Required rather than "
+                         "defaulted: friction is per-rig, so writing to a "
+                         "generic filename is how one rig's measurements end "
+                         "up silently describing another.")
 
     pv = sub.add_parser("validate-motor", help="motor ±90° sanity sweep only")
     common_device(pv)
@@ -784,8 +797,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--duration-s", type=float, default=DEFAULT_FREE_SWING_DURATION_S)
     p.add_argument("--sample-hz", type=float, default=100.0)
     p.add_argument("--skip-motor", action="store_true")
-    p.add_argument("--out-json", default=Path(__file__).resolve().parent / "sysid_params.json",
-                    type=Path)
+    p.add_argument("--out-json", required=True, type=Path,
+                   help="where to write the fitted parameters, e.g. "
+                        "sysid_params_tmc2209.json. Required rather than "
+                        "defaulted: friction is per-rig, so writing to a "
+                        "generic filename is how one rig's measurements end "
+                        "up silently describing another.")
 
     return p.parse_args(argv)
 

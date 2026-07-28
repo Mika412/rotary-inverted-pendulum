@@ -82,6 +82,12 @@ def _resolved_config(args: argparse.Namespace) -> dict:
         # less velocity noise than it trained on (benign), while the reverse
         # is what makes a rig-swapped policy misbehave.
         "motor_microsteps": int(MOTOR_MICROSTEPS),
+        # Which rig's measured friction the sim was built from. Recorded so a
+        # checkpoint says which physical rig it was trained for, and so
+        # distill / DAgger / analyze_sim inherit the same rig without the
+        # operator having to remember. Provenance only (see run_config).
+        "params_path": (str(args.params_path)
+                        if args.params_path is not None else None),
         # Provenance only (see run_config.PROVENANCE_ONLY_KEYS): mirror
         # augmentation changes what the buffer holds, not the obs/action
         # layout or the objective, so it is legal to switch between stages.
@@ -119,9 +125,11 @@ def make_env(
     action_smooth_window: int = 4,
     dr_obs_staleness_range_s: tuple[float, float] | None = None,
     obs_staleness_s: float | None = None,
+    params_path: str | Path | None = None,
 ):
     def _thunk():
         env_kwargs = dict(
+            params_path=params_path,
             upright_reset_frac=upright_reset_frac,
             obs_history_len=obs_history_len,
             obs_include_velocities=obs_include_velocities,
@@ -199,6 +207,7 @@ def train(args: argparse.Namespace) -> Path:
     )
     train_env = DummyVecEnv([make_env(
         run_dir,
+        params_path=args.params_path,
         domain_randomization=args.domain_randomization,
         dr_motor_accel_range_rad_s2=dr_accel,
         dr_action_delay_steps_range=dr_delay,
@@ -248,6 +257,7 @@ def train(args: argparse.Namespace) -> Path:
     # sits at the DR midpoint, not the env nominal, so best_model is not
     # chosen by a test the training episodes never saw.
     eval_env = DummyVecEnv([make_env(
+        params_path=args.params_path,
         domain_randomization=False,
         action_delay_steps=eval_delay_steps,
         action_lag_tau_s=eval_lag_tau_s,
@@ -400,6 +410,7 @@ def evaluate(args: argparse.Namespace) -> None:
     # crashes if None reaches it). Match the make_env() pattern.
     env_kwargs = dict(
         render_mode="human",
+        params_path=args.params_path,
         control_freq_hz=args.control_freq,
         action_mode=args.action_mode,
         obs_history_len=args.obs_history_len,
@@ -506,8 +517,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "operating point for this rig — see "
                         "website/src/content/docs/reference/control-rate.md for the principled selection.")
     p.add_argument("--action-mode", choices=("accel", "velocity", "position_delta"),
-                   default="accel",
-                   help="action semantics. 'accel' (default): action → angular "
+                   default="velocity",
+                   help="action semantics. 'accel': action → angular "
                         "acceleration. 'velocity': action → velocity setpoint, "
                         "tracked by a saturating accel P-law (same firmware "
                         "transport as accel; one fewer integrator between "
@@ -558,7 +569,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "horizon (~2.9 s, the canonical 35 Hz setting) "
                         "stays constant across control rates instead of "
                         "silently shrinking at higher Hz.")
-    p.add_argument("--mirror-augment", action="store_true",
+    p.add_argument("--mirror-augment", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="store the mirror image (Ms, -a, r, Ms') of every "
                         "transition alongside it — the plant, the reward and "
                         "the reset distribution are all mirror-symmetric, so "
@@ -593,7 +605,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "the loop entirely. Requires --obs-history-len >= 2 "
                         "(use 4). Must match fine-tuning and deployment "
                         "(recorded in config.json).")
-    p.add_argument("--firmware-obs-model", action="store_true",
+    p.add_argument("--params-path", type=Path, default=None,
+                   help="sysid params file describing the rig this policy is "
+                        "for. Default None → sysid_params_tmc2209.json next to "
+                        "pendulum_env.py. Use a per-rig file (e.g. "
+                        "sysid_params_tmc2209.json) when rigs differ "
+                        "mechanically — bearings and grease change the "
+                        "measured friction, and the value is outside the DR "
+                        "range if the bearing itself is different. Recorded in "
+                        "config.json and inherited by distill / dagger / "
+                        "analyze_sim.")
+    p.add_argument("--firmware-obs-model", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="model the firmware measurement pipeline in sim: "
                         "positions quantised to encoder/step resolution, "
                         "velocities finite-differenced over the firmware's "
@@ -643,9 +666,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "honest balance metrics). Swinging *through* upright "
                         "at speed earns nothing, so spin-through farming is "
                         "unprofitable. Set 0.0 for the legacy reward.")
-    p.add_argument("--reward-stillness-bonus-weight", type=float, default=None,
-                   help="Multiplicative stillness bonus weight. Default None "
-                        "→ 0 (disabled, canonical Quanser reward). When set "
+    p.add_argument("--reward-stillness-bonus-weight", type=float, default=5.0,
+                   help="Multiplicative stillness bonus weight. Default 5.0 "
+                        "(the canonical operating point); pass 0 to disable "
+                        "and recover the plain Quanser reward. When set "
                         ">0, ADDS k · exp(-θ²/σ_θ²) · exp(-α̇²/σ_v²) to the "
                         "reward. The product means a high bonus requires "
                         "BOTH theta and motor_vel near zero simultaneously, "

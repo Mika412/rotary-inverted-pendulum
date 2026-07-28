@@ -59,7 +59,7 @@ the dt-jitter and observation noise are sampled **per step**.
 | Motor joint stiction (`frictionloss`)       | [0.0, 0.005] N·m     | `DR_MOTOR_FRICTIONLOSS_RANGE_N_M = (0.0, 0.005)` | Steppers have detent torque that the position actuator doesn't capture; lower bound includes 0 for backward compat with Phase 2 policies trained without stiction.                                                                                                  |
 
 Nominal values come from
-[`sysid_params.json`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/sysid_params.json),
+[`sysid_params_<rig>.json`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/sysid_params_tmc2209.json),
 written by the Phase 0 sysid pipeline. **Pendulum inertia about its own
 COM** (`PENDULUM_I_COM_SWING_KG_M2` at
 [`pendulum_env.py:71`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L71))

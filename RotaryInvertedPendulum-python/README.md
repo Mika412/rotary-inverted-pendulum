@@ -83,13 +83,13 @@ python sysid_wizard.py fit --in-dir ... # re-fit existing logs (no rig)
 ```
 
 Re-run sysid whenever the rig changes (rebuilds, new bearings, motor envelope
-adjustments, etc.) so `sysid_params.json` stays current and the simulator
+adjustments, etc.) so `sysid_params_<rig>.json` stays current and the simulator
 reflects reality.
 
 ### RL training (Phase 1+)
 
 Trains an SB3 SAC policy against the MuJoCo env parameterised by
-`sysid_params.json`. Single env on CPU is the default; vectorised envs and
+`sysid_params_<rig>.json`. Single env on CPU is the default; vectorised envs and
 GPU are available via flags.
 
 ```bash
@@ -189,7 +189,7 @@ SIGINT.
 src/
   gamepad_control.py        # legacy text-protocol gamepad control
   rl/
-    pendulum_env.py         # Gymnasium env (MuJoCo) parameterised from sysid_params.json
+    pendulum_env.py         # Gymnasium env (MuJoCo) parameterised from sysid_params_<rig>.json
     train_sac.py            # SB3 SAC trainer with eval+checkpoint callbacks
     curriculum_train.sh     # 3-stage curriculum runner (easy -> full DR)
     eval_randomized.py      # N-episode randomized-env stress test (success-rate metric)
@@ -199,7 +199,7 @@ src/
     lowlevel_client.py      # Python client for LowLevelServer.ino
     sysid_wizard.py         # Interactive sysid (collect/fit/validate-motor)
     sysid_core.py           # Sysid math (fits + parameter derivation)
-    sysid_params.json       # Output of sysid_wizard.py (committed)
+    sysid_params_*.json     # Per-rig output of sysid_wizard.py (committed)
     freeswing_probe.py      # Standalone sim-vs-real validator
     sysid_runs/             # Per-session recordings (gitignored)
     runs/                   # Training artifacts (gitignored)

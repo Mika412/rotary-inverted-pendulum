@@ -190,7 +190,7 @@ normalisation doesn't apply here — this stack has no `VecNormalize`.
 
 | method | how | status |
 |---|---|---|
-| **DUP** | store (Ms, −a, r, Ms′) alongside every transition | `--mirror-augment` on `train_sac.py` and `finetune_async.py` |
+| **DUP** | store (Ms, −a, r, Ms′) alongside every transition | `--mirror-augment` on `train_sac.py` and `finetune_async.py` — **default on in both** (`MIRROR_AUGMENT=0` / `--no-mirror-augment` opts out). Deliberately *not* applied in `distill.py`: the champion was distilled without it, and DAgger preserves the teacher's symmetry on its own (0.531 vs 0.536). |
 | **LOSS** | add `w·mean((f(s) + f(Ms))²)` to the loss | `--mirror-loss-weight` on `distill.py` |
 | **NET** | constrain the weights so oddness is structural | not implemented — see the tie-break above |
 | **PHASE** | locomotion-specific | not applicable |
@@ -362,7 +362,7 @@ Then on the rig, where the coverage imbalance is:
 
 ```bash
 python finetune_async.py --policy runs/sym_v1_stage3/best_model.zip \
-    --mirror-augment --episodes 50 ...        # 2 buffer slots per rig step
+    --episodes 50 ...        # mirror on by default: 2 buffer slots per rig step
 python analyze_onboard.py --port <port> --duration-s 300 --log recordings/<name>.npz
 ```
 

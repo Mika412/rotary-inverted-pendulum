@@ -1,5 +1,5 @@
 """Gymnasium environment for the rotary inverted pendulum, parameterised
-from the system-identification fits in sysid_params.json.
+from the system-identification fits in a per-rig sysid_params_*.json.
 
 Geometry (Furuta pendulum):
     - Arm rotates about a vertical axis, driven by a position-controlled
@@ -55,7 +55,11 @@ from reward import RewardWeights, compute_reward
 
 
 HERE = Path(__file__).resolve().parent
-DEFAULT_PARAMS_PATH = HERE / "sysid_params.json"
+# Fallback when no `params_path` is given. Named for the rig it describes
+# rather than a generic `sysid_params.json`, so a multi-rig setup cannot
+# silently train against whichever rig happened to be measured last. Pass
+# `--params-path` for any other rig; see reference/python.md.
+DEFAULT_PARAMS_PATH = HERE / "sysid_params_tmc2209.json"
 
 # Hard-stop on the motor joint. Matches the lid-boss mechanical limit of ±135°,
 # but we clamp the policy at ±125° so the policy never *commands* a stop hit.
@@ -140,6 +144,12 @@ DR_PENDULUM_FRICTION_MULT_RANGE = (0.5, 2.0)
 # 5 rad/s or off-board deploys will saturate in a way sim never showed.
 # (RLControl.ino's own envelope is ~196 rad/s; not the binding limit.)
 MAX_ACTION_DELTA_RAD = 0.10
+
+# The rig's canonical control rate, and the env's default. Anything that wants
+# to *state* the deployment rate should read this rather than restate it —
+# `sysid_wizard.py` hard-coded 35 Hz here and kept printing it long after the
+# stack moved to 50.
+CONTROL_FREQ_HZ = 50.0
 
 MAX_VELOCITY_RAD_S = 3.5
 MAX_ACCEL_RAD_S2 = 150.0   # bumped from 100 after the first accel-mode
@@ -241,7 +251,7 @@ class PendulumParams:
 
     @classmethod
     def load(cls, path: str | Path | None = None) -> "PendulumParams":
-        """Construct from sysid_params.json. Mass / COM / pivot inertia come
+        """Construct from a per-rig sysid_params_*.json. Mass / COM / pivot inertia come
         from the URDF (via `pendulum_geometry`) — those are geometric
         constants of the pendulum body, not per-rig measurements. Only the
         friction terms (which depend on bearings, grease, temperature)
@@ -388,7 +398,7 @@ class RotaryInvertedPendulumEnv(gym.Env):
         self,
         *,
         params_path: str | Path | None = None,
-        control_freq_hz: float = 50.0,  # canonical for this rig — see website/src/content/docs/reference/control-rate.md
+        control_freq_hz: float = CONTROL_FREQ_HZ,  # see website/src/content/docs/reference/control-rate.md
         action_mode: str = "accel",  # "accel" (current) or "position_delta" (original)
         max_accel_rad_s2: float = MAX_ACCEL_RAD_S2,  # accel-mode: action × this = commanded angular accel
         max_velocity_rad_s: float = MAX_VELOCITY_RAD_S,  # accel-mode: velocity saturation cap

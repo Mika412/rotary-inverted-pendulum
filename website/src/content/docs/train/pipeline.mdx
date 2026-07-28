@@ -26,8 +26,11 @@ delay](/rotary-inverted-pendulum/reference/transport-delay/).
 
 **50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action
 smoothing, mirror augmentation, and observation-staleness DR over 2–20 ms.**
-Every default across the Python stack and the sketches is set to this, so a
-bare run of these steps reproduces a champion-grade policy.
+Every entry point — `train_sac.py`, `curriculum_train.sh`, `distill_student.sh`,
+`finetune_async.py`, `run_policy.py` and `RLControl.ino` — is set to this, so a
+bare run of these steps reproduces a champion-grade policy. This is *verified*
+against the champion's `config.json`, not asserted: a bare `train_sac.py` run
+writes a `config.json` identical to the champion's on all 17 shared keys.
 
 The last two are recent and both are *required* to reproduce the current
 champion — it was trained with them, so a run without them is a different
@@ -57,15 +60,19 @@ action is a velocity setpoint (±3.5 rad/s), converted to accel commands
 each tick by a P-law tracking the controller's own commanded-velocity
 integrator (never the quantised measured velocity — that injected a
 ±17 rad/s² dither, removed 2026-07-21), over the same `CMD_SET_ACCEL`
-firmware transport in every deployment. All defaults — the curriculum,
-`train_sac.py` at 50 Hz, `RLControl.ino` — are set for this mode; run
-the commands as written.
+firmware transport in every deployment. `curriculum_train.sh`,
+`finetune_async.py`, `run_policy.py` and `RLControl.ino` are all set for
+this mode; run the commands as written.
 
 Legacy modes remain selectable for comparisons (`--action-mode accel` /
 `position_delta`, see [the transition
-contract](/rotary-inverted-pendulum/reference/transitions/)) but no
-current tooling defaults to them and RLControl.ino no longer speaks
-position-delta.
+contract](/rotary-inverted-pendulum/reference/transitions/)), and
+`RLControl.ino` no longer speaks position-delta.
+
+`train_sac.py`'s own bare defaults are the canonical recipe too, so calling it
+directly no longer trains something different. Each legacy behaviour has an
+explicit opt-out: `--action-mode accel`, `--no-firmware-obs-model`,
+`--no-mirror-augment`, `--reward-stillness-bonus-weight 0`.
 
 ## Prerequisites
 

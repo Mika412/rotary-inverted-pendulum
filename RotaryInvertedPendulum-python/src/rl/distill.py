@@ -125,6 +125,8 @@ def _teacher_sim_rollouts(
     """
     cfg = teacher_config or {}
     env_kwargs = dict(
+        # Inherited from the teacher's config.json — see dagger_distill.make_env.
+        params_path=cfg.get("params_path"),
         control_freq_hz=control_freq_hz,
         episode_length_s=8.0,
         domain_randomization=True,
@@ -177,6 +179,7 @@ def stage_dataset(
     symmetrize_teacher: bool = False,
     mirror_augment: bool = False,
     obs_history_len: int | None = None,
+    params_path: Path | None = None,
 ) -> None:
     """Re-evaluate the teacher's deterministic action over the buffer's observations.
 
@@ -201,6 +204,9 @@ def stage_dataset(
     print(f"[dataset] loading teacher: {teacher_path}")
     model = SAC.load(str(teacher_path), device=device)
     teacher_config = find_run_config(teacher_path)
+    if params_path is not None:
+        teacher_config = dict(teacher_config or {})
+        teacher_config["params_path"] = str(params_path)
     obs_dim = int(model.observation_space.shape[0])
     k_frames = int(
         obs_history_len if obs_history_len is not None
@@ -554,6 +560,9 @@ def main(argv: list[str] | None = None) -> int:
                         "then purely sim rollouts.")
     p.add_argument("--out-dir", required=True, type=Path,
                    help="output directory; dataset.npz and student.pt go here")
+    p.add_argument("--params-path", type=Path, default=None,
+                   help="override the rig sysid file inherited from the "
+                        "teacher's config.json (see train_sac.py --params-path)")
     p.add_argument("--hidden", type=int, default=32,
                    help="student hidden-layer width (32 was the production "
                         "value for async_35hz_v2_extend; 16 underfits)")
@@ -611,6 +620,7 @@ def main(argv: list[str] | None = None) -> int:
             symmetrize_teacher=args.symmetrize_teacher,
             mirror_augment=args.mirror_augment,
             obs_history_len=args.obs_history_len,
+            params_path=args.params_path,
         )
     else:
         print(f"[dataset] cached -> {dataset_path} (use --force to rebuild)")

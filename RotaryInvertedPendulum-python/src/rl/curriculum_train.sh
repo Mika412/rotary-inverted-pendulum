@@ -150,6 +150,10 @@ REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
 # empty to fall back to the env default.
 DR_OBS_STALENESS_MAX="${DR_OBS_STALENESS_MAX-0.020}"
 REWARD_MOTOR_VEL_WEIGHT="${REWARD_MOTOR_VEL_WEIGHT:-}"
+# Per-rig sysid file. Unset → sysid_params_tmc2209.json (the default). Set it
+# when you have more than one rig: bearings and grease differ, and a different
+# bearing lands outside the friction DR range rather than inside it.
+PARAMS_PATH="${PARAMS_PATH:-}"
 
 # Optional flag block: only pass each --reward-* arg if the user set it.
 # Expanded via ${arr[@]+"${arr[@]}"} below — plain "${arr[@]}" on an empty
@@ -158,8 +162,12 @@ EXTRA_REWARD_ARGS=()
 if [ -n "$REWARD_ACTION_RATE_WEIGHT" ]; then
     EXTRA_REWARD_ARGS+=(--reward-action-rate-weight "$REWARD_ACTION_RATE_WEIGHT")
 fi
+# train_sac.py now defaults this to 5.0, so an empty value must pass 0
+# explicitly rather than relying on the flag being absent.
 if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     EXTRA_REWARD_ARGS+=(--reward-stillness-bonus-weight "$REWARD_STILLNESS_BONUS_WEIGHT")
+else
+    EXTRA_REWARD_ARGS+=(--reward-stillness-bonus-weight 0)
 fi
 
 # Action-mode args threaded into every stage so the whole curriculum trains
@@ -180,11 +188,17 @@ fi
 if [ -n "$DROP_VEL_OBS" ]; then
     COMMON_ARGS+=(--drop-velocity-obs)
 fi
+# Both flags are default-ON in train_sac.py, so the opt-out has to be passed
+# explicitly — an absent flag no longer means "off".
 if [ -n "$FIRMWARE_OBS_MODEL" ]; then
     COMMON_ARGS+=(--firmware-obs-model)
+else
+    COMMON_ARGS+=(--no-firmware-obs-model)
 fi
 if [ -n "$MIRROR_AUGMENT" ] && [ "$MIRROR_AUGMENT" != 0 ]; then
     COMMON_ARGS+=(--mirror-augment)
+else
+    COMMON_ARGS+=(--no-mirror-augment)
 fi
 if [ -n "$ACTION_SMOOTH_WINDOW" ]; then
     COMMON_ARGS+=(--action-smooth-window "$ACTION_SMOOTH_WINDOW")
@@ -200,6 +214,9 @@ if [ -n "$REWARD_MOTOR_POS_WEIGHT" ]; then
 fi
 if [ -n "$REWARD_MOTOR_VEL_WEIGHT" ]; then
     COMMON_ARGS+=(--reward-motor-vel-weight "$REWARD_MOTOR_VEL_WEIGHT")
+fi
+if [ -n "$PARAMS_PATH" ]; then
+    COMMON_ARGS+=(--params-path "$PARAMS_PATH")
 fi
 
 run_stage1="${PREFIX}_stage1"
@@ -226,6 +243,11 @@ else
 fi
 if [ -n "$REWARD_STILLNESS_BONUS_WEIGHT" ]; then
     echo "  reward_stillness_bonus_weight: $REWARD_STILLNESS_BONUS_WEIGHT"
+fi
+if [ -n "$PARAMS_PATH" ]; then
+    echo "  rig sysid: $PARAMS_PATH"
+else
+    echo "  rig sysid: sysid_params_tmc2209.json (default)"
 fi
 echo "  control rate: ${CONTROL_FREQ} Hz, max accel: ${MAX_ACCEL_RAD_S2} rad/s²"
 echo "  stage 2 delay: [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks + lag tau [$(awk -v t="$DR_LAG_TAU_MIN_S2" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S2" 'BEGIN{ printf "%.0f", t*1000 }')] ms"

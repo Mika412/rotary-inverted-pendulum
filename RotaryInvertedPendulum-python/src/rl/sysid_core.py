@@ -389,7 +389,7 @@ def write_params_json(
     pendulum_payload: dict | None = None,
     run_meta: dict | None = None,
 ) -> dict:
-    """Write/merge the sysid_params.json the wizard produces.
+    """Write/merge the per-rig sysid_params_*.json the wizard produces.
 
     Preserves the top-level `pendulum` block read by `pendulum_env.py`.
     `run_meta` is informational only (timestamp, source files, fitter

@@ -30,7 +30,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   against the built site).
 
 - **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `website/src/content/docs/train/pipeline.mdx` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `RotaryInvertedPendulum-arduino/LowLevelServer/`, `RotaryInvertedPendulum-arduino/RLControl/`, or `RotaryInvertedPendulum-python/src/rl/`.
-  **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing, mirror augmentation, observation-staleness DR 2–20 ms.** Every default across the Python stack and the sketches is set to this, so a bare end-to-end run of the runbook reproduces the current champion — do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). `website/src/content/docs/reference/control-rate.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:
+  **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing, mirror augmentation, observation-staleness DR 2–20 ms.** Every entry point — `train_sac.py`, `curriculum_train.sh`, `distill_student.sh`, `finetune_async.py`, `run_policy.py`, `RLControl.ino` — is set to this, so a bare end-to-end run reproduces the current champion; a bare `train_sac.py` run writes a `config.json` identical to the champion's on all 17 shared keys. Do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). Legacy behaviours are reachable explicitly: `--action-mode accel`, `--no-firmware-obs-model`, `--no-mirror-augment`, `--reward-stillness-bonus-weight 0`. `website/src/content/docs/reference/control-rate.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:
   - `website/src/content/docs/reference/transitions.md` — the `(s, a, r, s')` transition contract in plain English.
   - `website/src/content/docs/reference/transport-delay.md` — measured action-delay history and the decision log of hardware/firmware changes (including the position → acceleration action-mode switch).
   - `website/src/content/docs/reference/domain-randomization.md` — what is randomized, by how much, and why.
@@ -53,7 +53,7 @@ class. Updating a number in any other place is a bug — the chain is:
 
 - **Per-rig dynamic state** (viscous + Coulomb friction): measured by
   `sysid_wizard.py` from a free-swing recording on the actual hardware,
-  written to `RotaryInvertedPendulum-python/src/rl/sysid_params.json`,
+  written to `RotaryInvertedPendulum-python/src/rl/sysid_params_<rig>.json`,
   loaded into `PendulumParams` alongside the URDF constants. These do
   vary between rebuilds (bearings, grease, temperature) and are the
   only quantities the sysid pipeline measures.

@@ -35,8 +35,17 @@ BC_EPOCHS="${BC_EPOCHS:-800}"
 ROUNDS="${ROUNDS:-5}"
 STEPS_PER_ROUND="${STEPS_PER_ROUND:-40000}"
 SEED="${SEED:-0}"
+# Per-rig sysid file. Unset → inherited from the teacher's config.json, which
+# is normally what you want (the student should be gated against the same rig
+# the teacher was trained for). Set it only to override that inheritance.
+PARAMS_PATH="${PARAMS_PATH:-}"
 
 cd "$(dirname "$0")"
+
+PARAMS_ARGS=()
+if [ -n "$PARAMS_PATH" ]; then
+    PARAMS_ARGS=(--params-path "$PARAMS_PATH")
+fi
 
 RUN_DIR="runs/$RUN"
 TEACHER="$RUN_DIR/best_model.zip"
@@ -80,6 +89,7 @@ else
         --hidden "$HIDDEN" \
         --epochs "$BC_EPOCHS" \
         --seed "$SEED" \
+        ${PARAMS_ARGS[@]+"${PARAMS_ARGS[@]}"} \
         ${FORCE_ARGS[@]+"${FORCE_ARGS[@]}"}
 fi
 
@@ -91,10 +101,12 @@ python dagger_distill.py \
     --transport "$TRANSPORT" \
     --rounds "$ROUNDS" \
     --steps-per-round "$STEPS_PER_ROUND" \
-    --seed "$SEED"
+    --seed "$SEED" \
+    ${PARAMS_ARGS[@]+"${PARAMS_ARGS[@]}"}
 
 echo "=== 3/3 scoring the student in sim ==="
-python analyze_sim.py "$STUDENT" --transport "$TRANSPORT"
+python analyze_sim.py "$STUDENT" --transport "$TRANSPORT" \
+    ${PARAMS_ARGS[@]+"${PARAMS_ARGS[@]}"}
 
 cat <<EOF
 

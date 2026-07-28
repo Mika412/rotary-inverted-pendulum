@@ -46,13 +46,19 @@ python finetune_async.py \
 Architecture detail: [the async control
 runtime](/rotary-inverted-pendulum/reference/async-control/).
 
-Add `--mirror-augment` to store each transition's mirror image too. Rig time
-is the scarce resource and these sessions are lopsided — measured 2.5–4×
-more arrivals at upright from one side than the other — so mirroring doubles
-what each episode covers at no rig cost. [Mirror
+Mirror augmentation is **on by default**, storing each transition's mirror
+image alongside it. Rig time is the scarce resource and these sessions are
+lopsided — measured 2.5–4× more arrivals at upright from one side than the
+other — so mirroring doubles what each episode covers at no rig cost. [Mirror
 symmetry](/rotary-inverted-pendulum/reference/symmetry/) covers what it gives
 up (≤1° of per-rig base-tilt specialisation, less than the sim curriculum
 already randomises over).
+
+`--no-mirror-augment` opts out, for an asymmetric baseline. Prefer not to:
+the champion was fine-tuned with it, and the un-mirrored version of this stage
+is what produced the persistent arm lean that weeks of reward tuning failed to
+fix. If a capture shows `arm lean signed` well off zero and a direction bias,
+check this flag first.
 
 ## Listen to the motor
 

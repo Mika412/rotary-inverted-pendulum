@@ -3,7 +3,7 @@ title: "0. System identification"
 description: "Measuring the friction parameters that pin the simulation to your rig."
 ---
 
-Pinning the dynamics parameters once. Outputs `sysid_params.json`,
+Pinning the dynamics parameters once. Outputs `sysid_params_<rig>.json`,
 which `pendulum_env.py` reads to build the sim. Re-run any time the rig
 changes mechanically (new bearings, rebuilt arm, changed microstepping,
 swapped motor).
@@ -21,7 +21,7 @@ electronics page.
 
 ## The full protocol
 End-to-end protocol for measuring the physical parameters of your
-pendulum and writing a `sysid_params.json` that the RL pipeline consumes.
+pendulum and writing a `sysid_params_<rig>.json` that the RL pipeline consumes.
 
 Sysid runs against the **same** `LowLevelServer.ino` firmware the policy
 deploys against — no firmware swap, no risk of measurement-vs-deployment
@@ -32,7 +32,7 @@ The wizard is split into two phases:
 - **collect** — operator-driven recording on the rig. Writes raw `.npz`
   logs + a `metadata.json` to a timestamped directory.
 - **fit** — pure post-processing. Reads a directory of recordings, derives
-  parameters, writes `sysid_params.json`, and renders sim-vs-real
+  parameters, writes `sysid_params_<rig>.json`, and renders sim-vs-real
   validation plots. No device required; re-runnable as often as you like.
 
 Re-fitting from saved logs is the fast iteration loop when improving the
@@ -56,7 +56,7 @@ rates, firmware logic, or adding new recording steps.
 
 ```bash
 cd RotaryInvertedPendulum-python/src/rl
-python sysid_wizard.py
+python sysid_wizard.py --out-json sysid_params_<rig>.json
 ```
 
 Walks you through, in order:
@@ -77,7 +77,7 @@ Walks you through, in order:
    DRV8825 Vref).
 4. **Fit + plots.** Aggregates the three free-swing recordings, derives
    friction parameters using URDF-defined geometry, writes
-   `sysid_params.json`, generates `freeswing_compare.png` (sim trace
+   `sysid_params_<rig>.json`, generates `freeswing_compare.png` (sim trace
    overlaid on the real recording using the just-derived params) and
    `motor_sweep.png` (motor target vs. actual during the sanity sweep).
 
@@ -93,7 +93,8 @@ The whole thing takes ~10–15 minutes. Output ends up in
 ## Re-fit from existing recordings (no rig needed)
 
 ```bash
-python sysid_wizard.py fit --in-dir sysid_runs/2026-05-20_090000
+python sysid_wizard.py fit --in-dir sysid_runs/2026-05-20_090000 \
+    --out-json sysid_params_<rig>.json
 ```
 
 Use this when iterating on `sysid_core.derive_pendulum_friction` or
@@ -124,8 +125,10 @@ sysid_runs/2026-05-20_HHMMSS/
 └── motor_sweep.png             # motor target vs. firmware-reported position
 ```
 
-`sysid_params.json` (the only file the RL pipeline reads) is written at
-the project root by default.
+The fitted parameters go wherever `--out-json` says. Name the rig: the flag is
+required precisely so one rig's friction cannot silently end up describing
+another. `pendulum_env.py` falls back to `sysid_params_tmc2209.json` when no
+`--params-path` is given.
 
 ## What the math does
 

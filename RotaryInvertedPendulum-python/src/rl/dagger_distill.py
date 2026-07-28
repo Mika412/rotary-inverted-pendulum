@@ -65,6 +65,10 @@ def make_env(cfg: dict, *, dr: bool, transport: str,
              episode_length_s: float = 8.0) -> RotaryInvertedPendulumEnv:
     (delay_range, lag_range), (gate_delay, gate_lag, gate_stale) = TRANSPORTS[transport]
     kwargs = dict(
+        # Which rig's measured friction to build the sim from; inherited from
+        # the teacher's config.json so a student is always imitated and gated
+        # against the same rig the teacher was trained for.
+        params_path=cfg.get("params_path"),
         control_freq_hz=float(cfg.get("control_freq_hz", 50.0)),
         episode_length_s=float(episode_length_s),
         action_mode=str(cfg.get("action_mode", "velocity")),
@@ -156,6 +160,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="distill.py output dir holding student.pt + dataset.npz "
                         "(the BC warm start and the initial aggregate dataset)")
     p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument("--params-path", type=Path, default=None,
+                   help="override the rig sysid file inherited from the "
+                        "teacher's config.json (see train_sac.py --params-path)")
     p.add_argument("--transport", choices=tuple(TRANSPORTS), default="device",
                    help="transport regime of the TARGET DEPLOYMENT (default: "
                         "device — the standalone Nano)")
@@ -170,6 +177,8 @@ def main(argv: list[str] | None = None) -> int:
 
     teacher = SAC.load(str(args.teacher), device="cpu")
     cfg = find_run_config(args.teacher) or {}
+    if args.params_path is not None:
+        cfg["params_path"] = str(args.params_path)
 
     ckpt = torch.load(args.bc_dir / "student.pt", map_location="cpu",
                       weights_only=True)

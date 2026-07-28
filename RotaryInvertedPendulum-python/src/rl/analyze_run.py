@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     # Sysid comparison
-    print("--- vs sysid_params.json motor step fit ---")
+    print("--- vs the rig sysid file's motor step fit ---")
     print(f"  sysid step rise time (95%):     0.064 s   ~tau ≈ 21 ms")
     print(f"  policy-driven tau fit:          {lag.get('tau_s', float('nan'))*1000:.1f} ms")
     print(f"  policy-driven transport delay:  {lag.get('delay_s', float('nan'))*1000:.1f} ms ({lag.get('delay_steps', 0)} steps)")

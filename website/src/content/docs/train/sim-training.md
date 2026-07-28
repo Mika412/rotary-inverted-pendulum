@@ -24,7 +24,7 @@ knobs actually in effect, including whether mirror augmentation and the widened
 staleness DR are on. That header is the only confirmation; `config.json` does
 not record DR ranges.
 
-`curriculum_train.sh` reads `sysid_params.json` and runs three DR stages
+`curriculum_train.sh` reads `sysid_params_<rig>.json` and runs three DR stages
 (no DR → transport-delay ramp → concentrated on the measured rig delay).
 Its defaults ARE the validated production recipe — velocity mode, 50 Hz,
 ±3.5 rad/s, K=4 frame stacking, gSDE, stillness bonus, firmware

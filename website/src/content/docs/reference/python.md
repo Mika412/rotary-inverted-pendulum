@@ -31,7 +31,7 @@ breaking it is a bug:
 | Quantity | Source |
 | --- | --- |
 | Pendulum mass, COM, inertia | Onshape CAD → `urdf/model.urdf` → `pendulum_geometry.py` |
-| Viscous + Coulomb friction | Measured per rig → `sysid_params.json` |
+| Viscous + Coulomb friction | Measured per rig → `sysid_params_<rig>.json`, selected with `--params-path` (see below) |
 | Arm geometry | Constants in `pendulum_env.py` (not yet CAD-validated) |
 | Motor and encoder limits | Constants mirroring the firmware |
 
@@ -42,13 +42,49 @@ true joint. That last detail matters — leaking the simulated servo's tracking
 error into the observation creates an oscillation that exists only in simulation
 and destroys policies that work fine on hardware.
 
+### More than one rig — `--params-path`
+
+Friction is the one quantity measured per rig, so two rigs with different
+bearings need different sysid files. `--out-json` is required, so every
+measurement names the rig it describes:
+
+```bash
+uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_tmc2209.json
+uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_drv8825.json
+```
+
+Then pass `--params-path` when training. **The path is recorded in the run's
+`config.json` and inherited by every downstream stage**, so distillation,
+DAgger and the sim gate all build their model of the same rig the teacher was
+trained for — you set it once, not at every step:
+
+| Stage | How it gets the rig |
+| --- | --- |
+| `train_sac.py` / `curriculum_train.sh` | `--params-path` / `PARAMS_PATH=` — **the one place you set it** |
+| `distill.py`, `dagger_distill.py`, `analyze_sim.py` | inherited from the teacher's `config.json`; `--params-path` overrides |
+| `finetune_async.py` | recorded for provenance only — the rig is the plant, so no sim friction is used, but the following distillation reads it |
+
+Like `motor_microsteps`, it is recorded but **not** enforced by
+`run_config.check_config`: it is a filesystem path, so an absolute path from
+another machine would false-trip a comparison that is really about which rig's
+physics the sim used. A missing file raises rather than silently falling back
+to the default.
+
+Why this matters: the friction DR range is nominal × [0.5, 2.0], which covers
+grease and temperature drift on *one* rig — not a different bearing. Measured
+2026-07-28 across this project's two rigs: viscous friction differed by
+**1.76×** and Coulomb by **1.87×**, i.e. inside that window but at the 84th and
+91st percentile of it. Training one rig against the other's nominal therefore
+sampled its real friction in under a sixth of episodes. Inside the envelope is
+not the same as centred in it, so measure each rig.
+
 ## Scripts by purpose
 
 ### System identification
 
 | Script | Purpose |
 | --- | --- |
-| `sysid_wizard.py` | Guided free-swing measurement, writes `sysid_params.json` |
+| `sysid_wizard.py` | Guided free-swing measurement, writes `sysid_params_<rig>.json` |
 | `sysid_core.py` | Friction derivation and cross-checks against measured period |
 | `freeswing_probe.py` | Raw free-swing capture |
 | `sysid_accel.py`, `accel_lag_moving_probe.py`, `accel_step_probe.py` | Actuator lag and acceleration-response measurement |

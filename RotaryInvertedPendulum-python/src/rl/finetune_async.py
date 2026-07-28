@@ -109,6 +109,16 @@ def _save_artifacts(model: SAC, run_dir: Path, *, suffix: str = "") -> None:
     pol_path = run_dir / (f"last{suffix}.zip" if not suffix else f"checkpoint_{suffix}.zip")
     buf_path = run_dir / (f"replay_buffer{suffix}.pkl" if not suffix else f"replay_buffer_{suffix}.pkl")
     model.save(pol_path)
+    # Never replace collected transitions with an empty buffer. Ctrl-C before
+    # the first episode completes still reaches the SIGINT handler, so reusing
+    # a --run-name and aborting used to silently wipe that run's rig data —
+    # invisibly, because SB3 pre-allocates the arrays so the file size is
+    # unchanged and the printed count comes from the live object, not the file.
+    if model.replay_buffer.size() == 0 and buf_path.exists():
+        print(f"  REFUSING to overwrite {buf_path.name} with an empty buffer "
+              f"(this session collected nothing). Existing file kept.")
+        print(f"  saved policy → {pol_path.name}")
+        return
     model.save_replay_buffer(buf_path)
     print(f"  saved policy → {pol_path.name}, buffer ({model.replay_buffer.size()} transitions) → {buf_path.name}")
 
@@ -234,13 +244,22 @@ def main(argv: list[str] | None = None) -> int:
                         "matches the sim DR_CONTROL_DT_JITTER_FRAC constant — "
                         "sim and fine-tune should agree on the dt distribution. "
                         "Set 0.0 to disable for strict reproducible timing.")
-    p.add_argument("--mirror-augment", action="store_true",
+    p.add_argument("--params-path", type=Path, default=None,
+                   help="sysid file of the rig this session runs on. Nothing "
+                        "here consumes it (the rig is the plant), but it is "
+                        "recorded in the run's config.json so the distill that "
+                        "follows builds its sim against the right rig. Pass "
+                        "the same file the teacher was trained with.")
+    p.add_argument("--mirror-augment", action=argparse.BooleanOptionalAction,
+                   default=True,
                    help="store the mirror image (Ms, -a, r, Ms') of every real "
                         "transition alongside it, doubling what each episode "
                         "of rig time covers. Exact rather than synthetic: the "
                         "plant and the reward are mirror-symmetric. Fixes the "
                         "3-4x left/right coverage imbalance real fine-tune "
-                        "sessions show. See "
+                        "sessions show — the imbalance that showed up as a "
+                        "persistent arm lean. Default ON; --no-mirror-augment "
+                        "for an asymmetric baseline. See "
                         "website/src/content/docs/reference/symmetry.md.")
     p.add_argument("--ignore-config-mismatch", action="store_true",
                    help="downgrade the config.json validation abort to a warning")
@@ -332,6 +351,12 @@ def main(argv: list[str] | None = None) -> int:
     config = dict(find_run_config(args.policy) or {})
     config.update(expected)
     config["mirror_augment"] = bool(args.mirror_augment)  # provenance only
+    # Which physical rig this session ran on. Nothing here consumes it — the
+    # rig IS the plant, so no sim friction is involved — but recording it
+    # keeps the chain unbroken: the distill that follows reads this config and
+    # needs the right rig's sysid to build its sim rollouts and gate.
+    if args.params_path is not None:
+        config["params_path"] = str(args.params_path)
     save_run_config(run_dir, config)
 
     env_kwargs = dict(
