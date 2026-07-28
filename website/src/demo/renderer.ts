@@ -64,6 +64,18 @@ const MATERIALS: Record<string, { color: number; roughness: number; metalness: n
   pendulum: { color: 0xe8503a, roughness: 0.5, metalness: 0.15 },
 };
 
+/** The canvas aspect the camera framing below was tuned against. */
+const DESIGN_ASPECT = 2;
+
+/**
+ * Ceiling on the narrow-canvas pull-back. Holding the horizontal field exactly
+ * constant would back off 2.2x on a portrait canvas, which leaves the rig a
+ * small object in a large empty panel — the rig is taller than it is wide, so
+ * preserving width buys nothing but margin. This is enough to clear the bottom
+ * of the enclosure, which is the part that was being cut.
+ */
+const MAX_FIT_PULLBACK = 1.3;
+
 export class PendulumRenderer {
   private readonly renderer: WebGLRenderer;
   private readonly scene: Scene;
@@ -85,6 +97,14 @@ export class PendulumRenderer {
   private yaw = 0.9;
   private pitch = 0.28;
   private distance = 0.36;
+  /**
+   * Extra pull-back for canvases narrower than DESIGN_ASPECT. `fov` is the
+   * *vertical* field of view, so a narrow canvas keeps the same world height and
+   * simply shows less width — which on a phone crops the enclosure. Backing off
+   * by the shortfall holds the horizontal field constant instead, so the whole
+   * rig stays in frame at any width. Wide canvases get 1, unchanged.
+   */
+  private fitScale = 1;
   private readonly target = { x: 0.01, y: 0, z: 0.105 };
 
   // Drag-to-disturb. The plane is rebuilt at grab time so the pointer maps to
@@ -370,6 +390,7 @@ export class PendulumRenderer {
     const h = Math.max(1, rect.height);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    this.fitScale = Math.min(MAX_FIT_PULLBACK, Math.max(1, DESIGN_ASPECT / this.camera.aspect));
     this.camera.updateProjectionMatrix();
     this.render();
   }
@@ -382,10 +403,11 @@ export class PendulumRenderer {
   render(): void {
     if (this.disposed) return;
     const cp = Math.cos(this.pitch);
+    const d = this.distance * this.fitScale;
     this.camera.position.set(
-      this.target.x + this.distance * cp * Math.cos(this.yaw),
-      this.target.y + this.distance * cp * Math.sin(this.yaw),
-      this.target.z + this.distance * Math.sin(this.pitch)
+      this.target.x + d * cp * Math.cos(this.yaw),
+      this.target.y + d * cp * Math.sin(this.yaw),
+      this.target.z + d * Math.sin(this.pitch)
     );
     this.camera.lookAt(this.target.x, this.target.y, this.target.z);
     this.renderer.render(this.scene, this.camera);

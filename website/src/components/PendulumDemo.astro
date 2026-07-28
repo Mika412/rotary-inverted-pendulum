@@ -125,6 +125,14 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
 
   .demo__stage {
     position: relative;
+    /* A definite height, not just a floor. `min-height` alone leaves the height
+       indefinite, so the canvas's `height: 100%` below resolved to auto and it
+       fell back to the 2:1 intrinsic ratio of its width/height attributes. On a
+       wide viewport that happened to exceed the floor and looked correct; on a
+       narrow one the canvas ended up 241 px inside a 384 px stage, rendering the
+       rig into the top two-thirds with dead space beneath — and clipping it
+       against a canvas edge the visitor cannot see when they zoom in. */
+    aspect-ratio: 2 / 1;
     min-height: 24rem;
     border-radius: 0.75rem;
     overflow: hidden;
@@ -139,6 +147,11 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
   }
 
   .demo__stage canvas {
+    /* Out of flow and pinned to every edge, so the drawing surface is exactly
+       the panel the visitor sees whatever wins the height above — the intrinsic
+       ratio can never take over again. */
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
