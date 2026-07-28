@@ -1,0 +1,20 @@
+---
+/**
+ * Starlight's `PageTitle` override, used only to mount `PipelineNav` above the
+ * page heading on every route.
+ *
+ * Overriding a component here rather than importing the strip into seven
+ * separate pages means a new pipeline step needs one entry in
+ * `src/data/pipeline.ts` and nothing else. The strip decides for itself whether
+ * the current route is a step, so this stays a no-op everywhere else.
+ *
+ * The heading itself is delegated to Starlight's own component: reimplementing
+ * it would fork the `PAGE_TITLE_ID` anchor that the skip-link and the table of
+ * contents both depend on.
+ */
+import Default from '@astrojs/starlight/components/PageTitle.astro';
+import PipelineNav from './PipelineNav.astro';
+---
+
+<PipelineNav />
+<Default><slot /></Default>

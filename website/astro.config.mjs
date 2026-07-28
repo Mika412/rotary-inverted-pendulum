@@ -35,6 +35,11 @@ export default defineConfig({
       // decoder is self-hosted. The site must work offline and without
       // third-party requests.
       customCss: ['./src/styles/custom.css', 'katex/dist/katex.min.css'],
+      components: {
+        // Wraps Starlight's own PageTitle to put the pipeline step strip above
+        // the heading. The strip renders only on pipeline-step routes.
+        PageTitle: './src/components/PageTitle.astro',
+      },
       lastUpdated: true,
       sidebar: [
         {

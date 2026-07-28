@@ -10,25 +10,9 @@
  * Colours come from Starlight's theme tokens, so it follows light/dark.
  */
 
-interface Step {
-  n: string;
-  title: string;
-  sub: string;
-  href: string;
-}
-
-const tethered: Step[] = [
-  { n: '0', title: 'sysid', sub: 'measure the rig', href: 'train/sysid' },
-  { n: '1', title: 'train in sim', sub: 'curriculum, ~25 min', href: 'train/sim-training' },
-  { n: '2', title: 'fine-tune', sub: 'on the real rig', href: 'train/fine-tune' },
-  { n: '3', title: 'test teacher', sub: 'tethered', href: 'train/test-teacher' },
-];
-
-const standalone: Step[] = [
-  { n: '4', title: 'distill', sub: 'shrink the student', href: 'train/distill' },
-  { n: '5', title: 'test student', sub: 'tethered, optional', href: 'train/test-student' },
-  { n: '6', title: 'flash + score', sub: 'standalone on the Nano', href: 'train/flash' },
-];
+// Steps come from `src/data/pipeline.ts` so this diagram and the compact strip
+// at the top of every step page cannot disagree about order or numbering.
+import { tetheredSteps as tethered, standaloneSteps as standalone } from '../data/pipeline';
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, '');
 const url = (slug: string) => `${base}/${slug}/`;
@@ -93,7 +77,7 @@ const VIEW_H = 300;
     {/* Row 1: the tethered pipeline. */}
     {
       tethered.map((step, i) => (
-        <a href={url(step.href)} class="node">
+        <a href={url(step.slug)} class="node">
           <rect x={x(i)} y={ROW1} width={W} height={H} rx="10" />
           <text x={x(i) + 14} y={ROW1 + 28} class="num">
             {step.n}
@@ -123,7 +107,7 @@ const VIEW_H = 300;
     {/* Row 2: the tether-removal pipeline. */}
     {
       standalone.map((step, i) => (
-        <a href={url(step.href)} class="node node--optional">
+        <a href={url(step.slug)} class="node node--optional">
           <rect x={x(i)} y={ROW2} width={W} height={H} rx="10" />
           <text x={x(i) + 14} y={ROW2 + 28} class="num">
             {step.n}
