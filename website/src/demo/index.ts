@@ -22,7 +22,7 @@ const C = constants as unknown as Constants;
  *  information — the traces carry the fast detail. */
 const READOUT_HZ = 5;
 
-function el<T extends HTMLElement>(root: HTMLElement, sel: string): T {
+function el<T extends HTMLElement>(root: ParentNode, sel: string): T {
   const found = root.querySelector<T>(sel);
   if (!found) throw new Error(`demo: missing element ${sel}`);
   return found;
@@ -41,8 +41,11 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
   // velocities autoscale, because their range depends on how hard the policy is
   // working. Every tile shades the K-frame stack it is currently reading.
   const K = C.control.obsFrames;
+  // The tiles are not inside `root`: the stage sits in the hero and the tiles
+  // full-width below it, so they are two separate subtrees. There is one demo per
+  // page, so resolving them from the document is unambiguous.
   const spark = (key: string, opts: Record<string, number>) =>
-    new Sparkline(el<HTMLCanvasElement>(root, `[data-plot="${key}"]`), {
+    new Sparkline(el<HTMLCanvasElement>(document, `[data-plot="${key}"]`), {
       ...opts,
       highlightLast: K,
     });
@@ -61,12 +64,12 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
     action: spark('action', { min: -1, max: 1, zero: 0 }),
   };
   const values = {
-    motorPos: el(root, '[data-plot-value="motorPos"]'),
-    sinTheta: el(root, '[data-plot-value="sinTheta"]'),
-    cosTheta: el(root, '[data-plot-value="cosTheta"]'),
-    motorVel: el(root, '[data-plot-value="motorVel"]'),
-    penVel: el(root, '[data-plot-value="penVel"]'),
-    action: el(root, '[data-plot-value="action"]'),
+    motorPos: el(document, '[data-plot-value="motorPos"]'),
+    sinTheta: el(document, '[data-plot-value="sinTheta"]'),
+    cosTheta: el(document, '[data-plot-value="cosTheta"]'),
+    motorVel: el(document, '[data-plot-value="motorVel"]'),
+    penVel: el(document, '[data-plot-value="penVel"]'),
+    action: el(document, '[data-plot-value="action"]'),
   };
 
   const baseUrl = root.dataset.baseUrl ?? '/';

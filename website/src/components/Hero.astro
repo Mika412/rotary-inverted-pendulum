@@ -1,0 +1,149 @@
+---
+/**
+ * Starlight's splash hero, with the live demo's 3D stage in the image slot.
+ *
+ * Starlight's own Hero lays out `7fr 4fr` at wide viewports and puts a
+ * `hero.image` in the second column. This page has no hero image, so that column
+ * rendered as a third of the hero left blank — while the most persuasive thing on
+ * the site, a physics engine running the flashed weights, sat below the fold.
+ * Putting the stage there fills the space with the demo instead of a decoration.
+ *
+ * Deliberately reuses Starlight's class names (`hero`, `stack`, `copy`,
+ * `actions`, `tagline`, `hero-html`) so its own styles still apply and this file
+ * only has to express the differences. Content still comes from the `hero`
+ * frontmatter, so the page keeps one source of truth for its title and actions.
+ *
+ * Not carried over from the original: the draft-content notice, since this
+ * project has no draft pages. Add it back if that changes.
+ */
+import { LinkButton } from '@astrojs/starlight/components';
+import PendulumDemo from './PendulumDemo.astro';
+
+/** Starlight's own value; the skip link and the "back to top" anchor target it. */
+const PAGE_TITLE_ID = '_top';
+
+const { data } = Astro.locals.starlightRoute.entry;
+const { title = data.title, tagline, actions = [] } = data.hero || {};
+---
+
+<div class="hero">
+  <div class="sl-flex stack">
+    <div class="sl-flex copy">
+      <h1 id={PAGE_TITLE_ID} data-page-title set:html={title} />
+      {tagline && <div class="tagline" set:html={tagline} />}
+    </div>
+    {
+      actions.length > 0 && (
+        <div class="sl-flex actions">
+          {actions.map(
+            ({ attrs: { class: className, ...attrs } = {}, icon, link: href, text, variant }) => (
+              <LinkButton {href} {variant} icon={icon?.name} class:list={[className]} {...attrs}>
+                {text}
+                {icon?.html && <Fragment set:html={icon.html} />}
+              </LinkButton>
+            )
+          )}
+        </div>
+      )
+    }
+  </div>
+  <div class="hero-html sl-flex">
+    <PendulumDemo part="stage" />
+  </div>
+</div>
+
+<style>
+  /* Starlight's hero layout, copied from its own Hero.astro rather than
+     inherited. Those rules live in that component's scoped <style>, so replacing
+     the component drops every one of them — without this block the hero renders
+     as an unstyled single column. Values are Starlight's; the four deviations
+     are marked DIFF. Worth re-checking on a Starlight major upgrade. */
+  .hero {
+    display: grid;
+    grid-template-columns: 100%;
+    align-items: center;
+    gap: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  /* DIFF: Starlight sizes this slot for a 20–25rem image and centres it. The
+     stage wants its whole column. `display: block` also overrides the `sl-flex`
+     on the same element, and has to: as a flex container its only child is the
+     stage, whose canvas is absolutely positioned and contributes no intrinsic
+     width, so the stage flexed to zero and the canvas rendered 0 px wide. */
+  /* DIFF: no `order` override. Starlight puts the image first in the DOM and
+     flips it with `order: 2`; here the copy comes first in source instead, so a
+     screen reader and the tab order reach the h1 before the canvas, and the grid
+     still lays out copy-then-stage from source order alone. */
+  .hero > .hero-html {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin-inline: 0;
+  }
+
+  /* The stage's own block margins are for when it sits in the page body; in the
+     hero the grid does the spacing. */
+  .hero > .hero-html :global(.demo) {
+    margin-block: 0;
+  }
+
+  .stack {
+    flex-direction: column;
+    gap: clamp(1.5rem, calc(1.5rem + 1vw), 2rem);
+    text-align: center;
+  }
+
+  .copy {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .copy > * {
+    max-width: 50ch;
+  }
+
+  h1 {
+    font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl));
+    line-height: var(--sl-line-height-headings);
+    font-weight: 600;
+    color: var(--sl-color-white);
+  }
+
+  .tagline {
+    font-size: clamp(var(--sl-text-base), calc(0.0625rem + 2vw), var(--sl-text-xl));
+    color: var(--sl-color-gray-2);
+  }
+
+  .actions {
+    gap: 1rem 2rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  @media (min-width: 50rem) {
+    .hero {
+      /* DIFF: Starlight uses 7fr 4fr for a decorative image. The stage is the
+         point here, and the copy is capped at 50ch anyway, so width beyond that
+         is only slack. */
+      grid-template-columns: 5fr 6fr;
+      gap: 3%;
+      /* DIFF: Starlight ramps to 10rem, which left ~116 px of nothing above the
+         title on a tall window and pushed the demo below the fold. */
+      padding-block: clamp(1.5rem, calc(1rem + 4vmin), 4rem);
+    }
+
+    .stack {
+      text-align: start;
+    }
+
+    .copy {
+      align-items: flex-start;
+    }
+
+    .actions {
+      justify-content: flex-start;
+    }
+  }
+</style>

@@ -39,6 +39,9 @@ export default defineConfig({
         // Wraps Starlight's own PageTitle to put the pipeline step strip above
         // the heading. The strip renders only on pipeline-step routes.
         PageTitle: './src/components/PageTitle.astro',
+        // Puts the live demo's 3D stage in the splash hero's image column,
+        // which would otherwise render empty. See the file for why.
+        Hero: './src/components/Hero.astro',
       },
       lastUpdated: true,
       sidebar: [

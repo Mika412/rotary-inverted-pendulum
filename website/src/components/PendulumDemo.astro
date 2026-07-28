@@ -9,6 +9,21 @@
 import constants from '../generated/constants.json';
 import { WINDOW as SPARK_WINDOW } from '../demo/sparkline.ts';
 
+interface Props {
+  /**
+   * Which half to render. The 3D stage goes in the page hero, where it fills the
+   * column Starlight reserves for a hero image; the plot tiles sit below it at
+   * full width, which is what lets all six share one row.
+   *
+   * Both halves come from this one component on purpose: Astro scopes styles per
+   * component, so a split into two files would mean two copies of the same
+   * stylesheet, and a tile could then be restyled without its stage.
+   */
+  part?: 'stage' | 'plots';
+}
+
+const { part = 'stage' } = Astro.props;
+
 const { control, policy } = constants;
 const base = import.meta.env.BASE_URL.endsWith('/')
   ? import.meta.env.BASE_URL
@@ -39,6 +54,7 @@ const historyS = SPARK_WINDOW / control.frequencyHz;
 const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
 ---
 
+{part === 'stage' && (
 <div class="demo" data-demo data-base-url={base}>
   <div class="demo__stage">
     <canvas data-canvas aria-label="3D view of the rotary inverted pendulum"></canvas>
@@ -68,6 +84,11 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
     </noscript>
   </div>
 
+</div>
+)}
+
+{part === 'plots' && (
+<div class="demo">
   <div class="demo__plots">
     {
       plots.map((p) => (
@@ -100,6 +121,7 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
     weights the Arduino is flashed with.
   </p>
 </div>
+)}
 
 <script>
   import { mountDemo } from '../demo/index.ts';
@@ -119,7 +141,10 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    margin-block: 2rem;
+    /* Tighter above than below: the only half that sits in the page body is the
+       tiles, and they read as belonging to the stage in the hero above rather
+       than as a new section. The hero's own bottom padding supplies the rest. */
+    margin-block: 0.5rem 2rem;
     container-type: inline-size;
   }
 

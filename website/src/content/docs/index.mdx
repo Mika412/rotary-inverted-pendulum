@@ -25,7 +25,8 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 import PendulumDemo from '../../components/PendulumDemo.astro';
 import constants from '../../generated/constants.json';
 
-<PendulumDemo />
+{/* The stage is rendered by the hero above, from src/components/Hero.astro. */}
+<PendulumDemo part="plots" />
 
 The panel above is not an animation. It loads the physics engine into your
 browser and runs the exact weights that are flashed on the Nano — the same
