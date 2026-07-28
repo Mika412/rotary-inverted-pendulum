@@ -246,12 +246,23 @@ try {
     `document.querySelector('[data-canvas]').scrollIntoView({ block: 'center' })`
   );
 
+  // The panel plots the network's own channels, so there is no angle readout to
+  // scrape any more. `cos θ` gives it back: acos maps [1, -1] onto [0°, 180°],
+  // continuously and unsigned. Every threshold below is the one this test used
+  // when it read a signed degrees tile — the quantity is the same, so they
+  // transfer unchanged.
+  const COS_TILE = '[data-plot-value="cosTheta"]';
+  const uprightDeg = async () => {
+    const raw = await cdp.eval(`document.querySelector('${COS_TILE}')?.textContent ?? ''`);
+    const c = parseFloat(raw);
+    if (!Number.isFinite(c)) return NaN;
+    return (Math.acos(Math.max(-1, Math.min(1, c))) * 180) / Math.PI;
+  };
+
   const liveDeadline = Date.now() + 60000;
   let liveOk = false;
   while (Date.now() < liveDeadline) {
-    const v = await cdp.eval(
-      `document.querySelector('[data-plot-value="theta"]')?.textContent ?? ''`
-    );
+    const v = await cdp.eval(`document.querySelector('${COS_TILE}')?.textContent ?? ''`);
     if (v && v !== '—') {
       liveOk = true;
       break;
@@ -263,21 +274,14 @@ try {
   if (liveOk) {
     // Give the policy time to swing up (measured ~1.7 s of simulated time).
     await sleep(8000);
-    const live = await cdp.eval(`
-      (() => {
-        const root = document.querySelector('[data-demo]');
-        const get = (s) => root.querySelector(s)?.textContent?.trim() ?? '';
-        return {
-          theta: get('[data-plot-value="theta"]'),
-          balanced: get('[data-plot-value="balanced"]'),
-        };
-      })()
-    `);
-    const thetaDeg = Math.abs(parseFloat(live.theta));
+    const thetaDeg = await uprightDeg();
+    const action = await cdp.eval(
+      `document.querySelector('[data-plot-value="action"]')?.textContent ?? ''`
+    );
     check(
       'the live policy gets the pendulum upright',
       Number.isFinite(thetaDeg) && thetaDeg < 25,
-      `|theta| = ${live.theta}, balanced = ${live.balanced}`
+      `angle from upright = ${thetaDeg.toFixed(1)}° (from cos θ), action = ${action}`
     );
 
     // Drag the pendulum with REAL pointer events. Nothing else exercises this
@@ -329,15 +333,7 @@ try {
     );
 
     if (hit) {
-      const theta = async () =>
-        Math.abs(
-          parseFloat(
-            await cdp.eval(
-              `document.querySelector('[data-plot-value="theta"]').textContent`
-            )
-          )
-        );
-      const before = await theta();
+      const before = await uprightDeg();
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mousePressed', x: hit.x, y: hit.y, button: 'left', clickCount: 1, buttons: 1,
       });
@@ -349,17 +345,18 @@ try {
           type: 'mouseMoved', x: hit.x + i * 30, y: hit.y - i * 10, button: 'left', buttons: 1,
         });
         await sleep(120);
-        peak = Math.max(peak, await theta());
+        peak = Math.max(peak, await uprightDeg());
       }
       await cdp.send('Input.dispatchMouseEvent', {
         type: 'mouseReleased', x: hit.x + 240, y: hit.y - 80, button: 'left', clickCount: 1, buttons: 0,
       });
-      // A landed drag swings theta far past the policy's own balancing
+      // A landed drag swings the pendulum far past the policy's own balancing
       // micro-corrections, which stay within a degree or two.
       check(
         'dragging the pendulum with the pointer disturbs it',
         peak > before + 4,
-        `|theta| peaked at ${peak}° from ${before}° — is the drag chain intact?`
+        `angle from upright peaked at ${peak.toFixed(1)}° from ${before.toFixed(1)}° ` +
+          `— is the drag chain intact?`
       );
     }
   }

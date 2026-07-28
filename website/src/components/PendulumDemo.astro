@@ -7,6 +7,7 @@
  * so the page is never a blank box waiting on JavaScript.
  */
 import constants from '../generated/constants.json';
+import { WINDOW as SPARK_WINDOW } from '../demo/sparkline.ts';
 
 const { control, policy } = constants;
 const base = import.meta.env.BASE_URL.endsWith('/')
@@ -15,12 +16,27 @@ const base = import.meta.env.BASE_URL.endsWith('/')
 
 // One entry per strip chart. `key` is what the client keys its Sparkline map
 // on, so the markup and the script cannot drift apart silently.
+//
+// These are the network's own channels, not derived scores. The first five are
+// literally its input frame; the last is its output. Two earlier tiles are
+// gone on purpose: "balanced fraction" and "upright for" scored the demo rather
+// than showing the controller, and "angle from upright" is discontinuous — it
+// jumps by 360° through the bottom of the swing, which is exactly why the
+// network is fed sin and cos instead of the angle itself.
+// Labels are short because all six share one row — about 160 px of canvas each.
 const plots = [
-  { key: 'theta', label: 'Angle from upright' },
-  { key: 'action', label: 'Action' },
-  { key: 'balanced', label: 'Balanced fraction' },
-  { key: 'streak', label: 'Upright for' },
+  { key: 'motorPos', label: 'Motor pos', unit: 'rad', role: 'in' },
+  { key: 'sinTheta', label: 'sin θ', unit: '', role: 'in' },
+  { key: 'cosTheta', label: 'cos θ', unit: '', role: 'in' },
+  { key: 'motorVel', label: 'Motor vel', unit: 'rad/s', role: 'in' },
+  { key: 'penVel', label: 'Pend vel', unit: 'rad/s', role: 'in' },
+  { key: 'action', label: 'Action', unit: 'out', role: 'out' },
 ];
+
+// Derived, never restated: the trace length is a property of the Sparkline, and
+// the stack duration falls out of the rate.
+const historyS = SPARK_WINDOW / control.frequencyHz;
+const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
 ---
 
 <div class="demo" data-demo data-base-url={base}>
@@ -55,9 +71,12 @@ const plots = [
   <div class="demo__plots">
     {
       plots.map((p) => (
-        <figure class="demo__plot">
+        <figure class:list={['demo__plot', { 'demo__plot--out': p.role === 'out' }]}>
           <figcaption>
-            <span>{p.label}</span>
+            <span>
+              {p.label}
+              {p.unit && <i>{p.unit}</i>}
+            </span>
             <b data-plot-value={p.key}>—</b>
           </figcaption>
           <canvas data-plot={p.key} aria-hidden="true"></canvas>
@@ -65,6 +84,15 @@ const plots = [
       ))
     }
   </div>
+
+  <p class="demo__legend">
+    The five inputs the {policy.paramCount}-parameter network reads, and the one
+    action it writes — {control.frequencyHz} times a second. Each trace is{' '}
+    {historyS.toFixed(1)} s of history; the{' '}
+    <span class="demo__legend-swatch" aria-hidden="true"></span> shaded sliver on
+    the right is the {control.obsFrames}-frame stack it is reading <em>now</em>{' '}
+    ({stackMs} ms). Everything left of it the policy has already forgotten.
+  </p>
 
   <p class="demo__footnote">
     <strong>{policy.architecture}</strong> · {policy.paramCount} parameters
@@ -232,8 +260,18 @@ const plots = [
 
   .demo__plots {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* One row: the whole input frame plus the output, left to right in the order
+       the network sees them. See the WINDOW note in sparkline.ts — the column
+       count and the retained sample count are chosen together, so that the
+       K-frame highlight keeps its width. */
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 0.5rem;
+  }
+
+  @container (max-width: 60rem) {
+    .demo__plots {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
 
   @container (max-width: 34rem) {
@@ -259,6 +297,14 @@ const plots = [
     color: var(--sl-color-gray-3);
   }
 
+  /* A label that outgrows its tile truncates rather than pushing the value out. */
+  .demo__plot figcaption span {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
   .demo__plot figcaption b {
     color: var(--sl-color-white);
     font-variant-numeric: tabular-nums;
@@ -274,6 +320,38 @@ const plots = [
        baseline. Setting them here keeps the chart on the site's theme. */
     color: var(--sl-color-accent-high);
     --spark-grid: var(--sl-color-gray-5);
+    /* The stacked-frame band. Recessive on purpose: it is annotation, not data,
+       and it sits behind the trace. */
+    --spark-window: var(--sl-color-accent-low);
+  }
+
+  /* The output tile carries the same trace colour as the inputs — identity here
+     comes from the label and the position, not from a second hue. Its border is
+     what marks it as the other side of the network. */
+  .demo__plot--out {
+    border-color: var(--sl-color-accent);
+  }
+
+  .demo__plot figcaption i {
+    margin-left: 0.3em;
+    font-style: normal;
+    color: var(--sl-color-gray-4);
+  }
+
+  .demo__legend {
+    margin: 0.6rem 0 0;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+
+  .demo__legend-swatch {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    vertical-align: -0.1em;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.15em;
+    background: var(--sl-color-accent-low);
   }
 
   .demo__footnote {

@@ -35,33 +35,38 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
   const toggle = el<HTMLInputElement>(root, '[data-control-toggle]');
   const toggleLabel = el(root, '[data-control-label]');
 
-  // Ranges are fixed where the quantity has a natural one, so a trace means
-  // the same thing from one glance to the next. Angle autoscales because it
-  // spans a couple of degrees while balancing and ±180° when it falls.
+  // Ranges are fixed where the quantity has a natural one, so a trace means the
+  // same thing from one glance to the next: sin, cos and the action are bounded
+  // by construction, and the motor is bounded by its own safety rails. The two
+  // velocities autoscale, because their range depends on how hard the policy is
+  // working. Every tile shades the K-frame stack it is currently reading.
+  const K = C.control.obsFrames;
+  const spark = (key: string, opts: Record<string, number>) =>
+    new Sparkline(el<HTMLCanvasElement>(root, `[data-plot="${key}"]`), {
+      ...opts,
+      highlightLast: K,
+    });
+
   const plots = {
-    theta: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="theta"]'), {
-      minSpan: 10,
-      zero: 0,
-    }),
-    action: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="action"]'), {
-      min: -1,
-      max: 1,
-      zero: 0,
-    }),
-    balanced: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="balanced"]'), {
-      min: 0,
-      max: 1,
-    }),
-    streak: new Sparkline(el<HTMLCanvasElement>(root, '[data-plot="streak"]'), {
-      min: 0,
-      minSpan: 5,
-    }),
+    // Autoscaled with a floor, not pinned to the +-125 deg safety rails: the
+    // policy holds the arm within a few hundredths of a radian while balancing,
+    // so a rail-to-rail scale draws a flat line and hides the hunting that is
+    // the whole point. The floor stops that noise filling the tile, and the
+    // scale opens up on its own during a swing-up or a rail excursion.
+    motorPos: spark('motorPos', { minSpan: 0.4, zero: 0 }),
+    sinTheta: spark('sinTheta', { min: -1, max: 1, zero: 0 }),
+    cosTheta: spark('cosTheta', { min: -1, max: 1, zero: 0 }),
+    motorVel: spark('motorVel', { minSpan: 2, zero: 0 }),
+    penVel: spark('penVel', { minSpan: 4, zero: 0 }),
+    action: spark('action', { min: -1, max: 1, zero: 0 }),
   };
   const values = {
-    theta: el(root, '[data-plot-value="theta"]'),
+    motorPos: el(root, '[data-plot-value="motorPos"]'),
+    sinTheta: el(root, '[data-plot-value="sinTheta"]'),
+    cosTheta: el(root, '[data-plot-value="cosTheta"]'),
+    motorVel: el(root, '[data-plot-value="motorVel"]'),
+    penVel: el(root, '[data-plot-value="penVel"]'),
     action: el(root, '[data-plot-value="action"]'),
-    balanced: el(root, '[data-plot-value="balanced"]'),
-    streak: el(root, '[data-plot-value="streak"]'),
   };
 
   const baseUrl = root.dataset.baseUrl ?? '/';
@@ -178,6 +183,17 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
       let state = null;
       while (accumulator >= period && ticks < MAX_TICKS_PER_FRAME) {
         state = toggle.checked ? controller.step() : controller.coast();
+        // One sample per tick, inside the loop. Pushing once per animation
+        // frame instead resamples the signal at the display's refresh rate,
+        // which drops or duplicates ticks and would make the shaded K-frame
+        // window mean "the last few repaints" rather than the policy's input.
+        const o = state.obs;
+        plots.motorPos.push(o.motorPos);
+        plots.sinTheta.push(o.sinTheta);
+        plots.cosTheta.push(o.cosTheta);
+        plots.motorVel.push(o.motorVel);
+        plots.penVel.push(o.penVel);
+        plots.action.push(state.action);
         accumulator -= period;
         ticks++;
       }
@@ -189,19 +205,15 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
         // with the body, so a stale arrow would detach from it while swinging.
         renderer.setDragArrow(controller.grabArrow());
 
-        const m = controller.metrics;
-        const thetaDeg = state.thetaRad * (180 / Math.PI);
-        plots.theta.push(thetaDeg);
-        plots.action.push(state.action);
-        plots.balanced.push(m.balancedFraction);
-        plots.streak.push(m.currentStreakS);
-
         if (nowMs - lastReadoutMs > 1000 / READOUT_HZ) {
           lastReadoutMs = nowMs;
-          values.theta.textContent = `${thetaDeg.toFixed(1)}°`;
+          const o = state.obs;
+          values.motorPos.textContent = o.motorPos.toFixed(2);
+          values.sinTheta.textContent = o.sinTheta.toFixed(3);
+          values.cosTheta.textContent = o.cosTheta.toFixed(3);
+          values.motorVel.textContent = o.motorVel.toFixed(2);
+          values.penVel.textContent = o.penVel.toFixed(2);
           values.action.textContent = state.action.toFixed(2);
-          values.balanced.textContent = m.balancedFraction.toFixed(3);
-          values.streak.textContent = `${m.currentStreakS.toFixed(1)} s`;
         }
       }
       for (const p of Object.values(plots)) p.draw();

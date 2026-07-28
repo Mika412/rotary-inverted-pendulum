@@ -56,6 +56,21 @@ export interface SimState {
   thetaRad: number;
   /** Raw policy output this tick, in [-1, 1]. */
   action: number;
+  /**
+   * The newest observation frame — the numbers the network actually read this
+   * tick, straight out of the K-frame stack rather than re-derived here. The
+   * panel plots these, so what a visitor sees is the policy's input, not a
+   * cousin of it. `prevAction` is the action from the tick before, which is why
+   * it is part of the observation at all.
+   */
+  obs: {
+    motorPos: number;
+    sinTheta: number;
+    cosTheta: number;
+    motorVel: number;
+    penVel: number;
+    prevAction: number;
+  };
   /** Commanded-velocity integrator state (rad/s). */
   vCmdRadS: number;
   balanced: boolean;
@@ -374,6 +389,25 @@ export class PendulumController {
     if (frameDim > 5) f[offset + 5] = prevAction;
   }
 
+  /**
+   * The newest frame in the stack, as named fields. Reads the same memory the
+   * policy is handed, so a change to `writeFrame`'s layout cannot leave the
+   * panel quietly plotting the wrong channel.
+   */
+  private newestFrame(): SimState['obs'] {
+    const { obsFrames, frameDim } = this.c.control;
+    const o = (obsFrames - 1) * frameDim;
+    const f = this.frames;
+    return {
+      motorPos: f[o + 0],
+      sinTheta: f[o + 1],
+      cosTheta: f[o + 2],
+      motorVel: f[o + 3],
+      penVel: f[o + 4],
+      prevAction: frameDim > 5 ? f[o + 5] : 0,
+    };
+  }
+
   /** On reset the history is seeded with K copies of the initial frame. */
   private seedFrames(): void {
     const { obsFrames, frameDim } = this.c.control;
@@ -439,6 +473,7 @@ export class PendulumController {
       pendulumPosRad: this.data.qpos[1],
       thetaRad: theta,
       action: 0,
+      obs: this.newestFrame(),
       vCmdRadS: 0,
       balanced: false,
       tickCount: this.nTicks,
@@ -518,6 +553,7 @@ export class PendulumController {
       pendulumPosRad: this.data.qpos[1],
       thetaRad: theta,
       action,
+      obs: this.newestFrame(),
       vCmdRadS: this.vCmd,
       balanced,
       tickCount: this.nTicks,

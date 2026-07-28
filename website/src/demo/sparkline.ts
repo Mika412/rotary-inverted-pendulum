@@ -10,8 +10,16 @@
  * jank profile.
  */
 
-/** Samples retained. At 50 Hz this is a ~6 s window. */
-const WINDOW = 300;
+/**
+ * Samples retained; one sample per control tick, so at 50 Hz this is a 1.5 s
+ * window — a little longer than one swing-up.
+ *
+ * Tied to the tile width on purpose. All six tiles sit in one row, which makes
+ * each about 160 px of canvas, and holding roughly two pixels per sample is
+ * what keeps the K-frame highlight a visible sliver rather than a hairline.
+ * Widening the row (fewer tiles per row) wants this raised in proportion.
+ */
+export const WINDOW = 75;
 
 export interface SparklineOptions {
   /** Fixed y-range. Omit either bound to autoscale it from the window. */
@@ -22,6 +30,14 @@ export interface SparklineOptions {
   minSpan?: number;
   /** Draw a baseline at this value when it is inside the range. */
   zero?: number;
+  /**
+   * Shade the most recent N samples. Used to show the K stacked frames the
+   * network is actually reading: everything left of the band is history the
+   * policy has already forgotten. Drawn at its true width — 4 of 150 samples
+   * is a narrow band, and widening it for visibility would be a lie — with a
+   * rule on its leading edge so it stays findable.
+   */
+  highlightLast?: number;
 }
 
 export class Sparkline {
@@ -115,6 +131,24 @@ export class Sparkline {
     // right edge while the window fills, instead of the whole plot stretching.
     const step = w / (WINDOW - 1);
     const x0 = w - (vals.length - 1) * step;
+
+    // The stacked-frame window, behind the trace so it never hides data.
+    const k = this.opts.highlightLast ?? 0;
+    if (k > 0 && vals.length >= 2) {
+      const bandW = Math.min(w, (k - 1) * step);
+      const bandX = w - bandW;
+      const fill = style.getPropertyValue('--spark-window').trim();
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fillRect(bandX, 0, bandW, h);
+      }
+      ctx.strokeStyle = grid;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(bandX, 0);
+      ctx.lineTo(bandX, h);
+      ctx.stroke();
+    }
     ctx.strokeStyle = line;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
