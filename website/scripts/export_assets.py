@@ -154,6 +154,9 @@ def export_mjcf(out_dir: Path) -> str:
 ARM_PIVOT_Z_M = 0.014
 PENDULUM_MESH_RPY = (0.0, 0.0, math.pi / 2)
 
+# The enclosure's yaw. See the `base` node in build_scene for why it is not zero.
+ENCLOSURE_YAW_RAD = [0.0, 0.0, math.pi / 2]
+
 
 def build_scene(mesh_info: dict[str, dict]) -> dict:
     """Visual transform chain for the renderer.
@@ -189,8 +192,25 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
         "baseTopZ": base_top_z,
         "nodes": {
             # The enclosure is static; the arm plane sits on top of it.
-            "base": {"mesh": "base", "parent": None, "position": [0, 0, 0]},
-            "lid": {"mesh": "lid", "parent": None, "position": [0, 0, base_top_z]},
+            #
+            # Yawed a quarter turn because the URDF puts the arm at
+            # rpy="0 0 -pi/2" relative to the base, and this scene has the arm
+            # at zero — so the same offset has to live on the enclosure instead,
+            # with the opposite sign. Without it the box is a quarter turn out
+            # from the model: the arm sweeps across the wrong face, and the USB
+            # port and buttons point the wrong way.
+            "base": {
+                "mesh": "base",
+                "parent": None,
+                "position": [0, 0, 0],
+                "meshRotationRad": ENCLOSURE_YAW_RAD,
+            },
+            "lid": {
+                "mesh": "lid",
+                "parent": None,
+                "position": [0, 0, base_top_z],
+                "meshRotationRad": ENCLOSURE_YAW_RAD,
+            },
             # Rotates about +z by the motor angle. The motor bore is already at
             # the mesh origin, so no mesh offset is needed.
             "arm": {

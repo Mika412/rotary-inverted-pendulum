@@ -8,16 +8,19 @@
 
 import {
   AmbientLight,
-  ArrowHelper,
   Color,
+  CylinderGeometry,
   DirectionalLight,
   Group,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   Plane,
+  Quaternion,
   Raycaster,
   Scene,
+  SphereGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -45,8 +48,9 @@ export interface SceneManifest {
       position: [number, number, number];
       /** Shifts the mesh inside its joint group so its bore sits on the pivot. */
       meshOffset?: [number, number, number];
-      /** Turns the mesh inside its joint group so the part's own pivot axis
-       *  lands on that group's hinge. Intrinsic XYZ, radians. */
+      /** Turns the mesh inside its group: either to land a part's own pivot axis
+       *  on that group's hinge, or to orient a static part. Intrinsic XYZ,
+       *  radians. */
       meshRotationRad?: [number, number, number];
       rotationAxis?: 'x' | 'y' | 'z';
       joint?: 'motor' | 'pendulum';
@@ -63,6 +67,13 @@ const MATERIALS: Record<string, { color: number; roughness: number; metalness: n
   arm: { color: 0x4a90d9, roughness: 0.6, metalness: 0.1 },
   pendulum: { color: 0xe8503a, roughness: 0.5, metalness: 0.15 },
 };
+
+/** Radius of the drag rod, in metres — the rig's base is 87 mm across. */
+const DRAG_ROD_RADIUS = 0.002;
+/** MuJoCo's own drag connector is a saturated red; matching it is the point. */
+const DRAG_COLOR = 0xdd2222;
+/** The axis the drag rod's geometry is laid out along. */
+const UP_Y = new Vector3(0, 1, 0);
 
 /** The canvas aspect the camera framing below was tuned against. */
 const DESIGN_ASPECT = 2;
@@ -117,14 +128,27 @@ export class PendulumRenderer {
   private readonly ndc = new Vector2();
   private readonly scratch = new Vector3();
   private readonly scratch2 = new Vector3();
-  /** The drag arrow, as in zalo's mujoco_wasm demo: you should be able to see
-   *  the force you are applying, not just its effect. */
-  private readonly dragArrow = new ArrowHelper(
-    new Vector3(0, 1, 0),
-    new Vector3(),
-    0.05,
-    0xff5533
+  /**
+   * The applied force, drawn the way MuJoCo's own viewer draws it: a rod from
+   * the held point on the body out to the pointer, with a ball at the pointer
+   * end. An arrowhead was the earlier choice, but a cone reads as a *direction*
+   * when what this actually shows is a connection — you are dragging a point on
+   * the body toward the cursor, and the rod's length is the displacement the
+   * spring is working against.
+   *
+   * The rod is a unit-height cylinder scaled along its own +y, so only the
+   * length changes; a capsule would distort its caps under that scale.
+   */
+  private readonly dragForce = new Group();
+  private readonly dragRod = new Mesh(
+    new CylinderGeometry(DRAG_ROD_RADIUS, DRAG_ROD_RADIUS, 1, 12),
+    new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
   );
+  private readonly dragBall = new Mesh(
+    new SphereGeometry(DRAG_ROD_RADIUS * 2.4, 16, 12),
+    new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
+  );
+  private readonly dragQuat = new Quaternion();
   /** Set by the demo to claim a drag that starts on a grabbable body. */
   private grabDelegate: RendererGrabDelegate | null = null;
 
@@ -143,12 +167,13 @@ export class PendulumRenderer {
     // Z-up, matching the MJCF and the URDF.
     this.camera.up.set(0, 0, 1);
     this.scene.add(this.root);
-    this.dragArrow.visible = false;
-    for (const m of [this.dragArrow.line.material, this.dragArrow.cone.material]) {
-      (m as { transparent: boolean; opacity: number }).transparent = true;
-      (m as { transparent: boolean; opacity: number }).opacity = 0.85;
-    }
-    this.scene.add(this.dragArrow);
+    // The rod's own geometry runs along +y, centred; both pieces are placed in
+    // the group's local +y so the group only has to be aimed and stretched.
+    this.dragRod.position.set(0, 0.5, 0);
+    this.dragBall.position.set(0, 1, 0);
+    this.dragForce.add(this.dragRod, this.dragBall);
+    this.dragForce.visible = false;
+    this.scene.add(this.dragForce);
 
     this.scene.add(new AmbientLight(0xffffff, 0.55));
     const key = new DirectionalLight(0xffffff, 2.1);
@@ -360,28 +385,33 @@ export class PendulumRenderer {
   }
 
   /**
-   * Draw the force being applied: tail at the held point on the pendulum, head
-   * at the pointer. Hidden when `ends` is null.
+   * Draw the force being applied: rod from the held point on the pendulum out to
+   * the pointer, ball at the pointer end. Hidden when `ends` is null.
    */
   setDragArrow(
     ends: { from: [number, number, number]; to: [number, number, number] } | null
   ): void {
     if (!ends) {
-      this.dragArrow.visible = false;
+      this.dragForce.visible = false;
       return;
     }
     const tail = this.scratch.set(...ends.from);
     const dir = this.scratch2.set(...ends.to).sub(tail);
     const len = dir.length();
-    // Below a pixel or two the cone renders as noise at the grab point.
-    if (len < 1e-3) {
-      this.dragArrow.visible = false;
+    // Shorter than the ball itself, the rod is just a smear at the grab point.
+    if (len < DRAG_ROD_RADIUS * 2) {
+      this.dragForce.visible = false;
       return;
     }
-    this.dragArrow.position.copy(tail);
-    this.dragArrow.setDirection(dir.normalize());
-    this.dragArrow.setLength(len, Math.min(0.02, len * 0.35), 0.008);
-    this.dragArrow.visible = true;
+    this.dragForce.position.copy(tail);
+    // Aim the group's +y — the axis both pieces are laid out along — down the
+    // vector to the pointer, then stretch only that axis to its length.
+    this.dragQuat.setFromUnitVectors(UP_Y, dir.normalize());
+    this.dragForce.quaternion.copy(this.dragQuat);
+    this.dragForce.scale.set(1, len, 1);
+    // Undo the stretch on the ball, so it stays round however far you drag.
+    this.dragBall.scale.set(1, 1 / len, 1);
+    this.dragForce.visible = true;
   }
 
   resize(): void {
