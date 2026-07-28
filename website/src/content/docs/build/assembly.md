@@ -68,8 +68,9 @@ software limits sit symmetrically.
 
 ## 5. Pendulum onto the arm
 
-The pendulum swings freely on a bearing at the arm tip, about an axis
-perpendicular to the arm.
+The pendulum swings freely on a bearing at the arm tip, about an axis running
+*along* the arm — so it swings in the vertical plane perpendicular to the arm,
+which is what lets the arm's rotation drive it.
 
 **TODO:** bearing part and seat fit, shaft retention, and how much free play is
 acceptable. Note the goal: the pendulum should swing for a long time when

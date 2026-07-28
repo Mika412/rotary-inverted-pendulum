@@ -42,10 +42,10 @@
         0.0,
         0.014
       ],
-      "meshOffset": [
-        -0.0,
-        -0.006,
-        -0.0
+      "meshRotationRad": [
+        0.0,
+        0.0,
+        1.5707963267948966
       ],
       "rotationAxis": "x",
       "joint": "pendulum",

@@ -62,17 +62,48 @@ motor torque as the control input, converted to commands the stepper can take.
 `LibSerialPort`, `RigidBodyDynamics`, `ForwardDiff`, `MeshCat` +
 `MeshCatMechanisms`, `Joysticks`, `Plots`.
 
-## Known issue: the URDF's visual meshes
+## The URDF's visual meshes
 
-`urdf/model.urdf` references `.dae` files for all three links, but
-`meshes/pendulum.dae` does not exist in the repository — only `pendulum.stl`
-does. Anything that loads the URDF's *visual* geometry (MeshCat) will fail to
-resolve it. The dynamics do not care, since they use the inertial properties, so
-this went unnoticed.
+`urdf/model.urdf` takes its visual geometry from the printable STLs, one file
+per part, scaled from millimetres. That is deliberate: the `.dae` exports it
+used to reference were a different CAD revision from the STLs beside them, and
+`meshes/pendulum.dae` was missing outright, so MeshCat could not resolve the
+pendulum at all. Sharing one file per part with the printable geometry and the
+documentation site's glTF export removes the whole class of problem. Link
+colours come from `<material>` elements in the URDF, since STL carries none.
 
-There is a second inconsistency in the same file worth knowing about if you ever
-render from the URDF: the `arm_to_pendulum` joint origin has no x-offset, while
-the pendulum's inertial origin sits at `x = 0.062`. Because the swing axis *is*
-x, the offset has no dynamic effect — but it means the URDF places the pendulum's
-visual geometry 62 mm from where the arm tip actually is. The documentation
-site's 3D demo derives its transforms from the MuJoCo model for this reason.
+Each mesh is authored with its bearing axis through the mesh origin, so no
+`<visual>` translation is needed — but the parts do not agree on *which* axis
+that is. The arm pivots about its mesh +z (the motor bore); the pendulum pivots
+about its mesh +y (an 8.1 mm boss matching the 608 bearing's bore), because it
+is a flat plate that swings in its own plane. The pendulum therefore carries a
+`<visual>` rotation to bring its axis onto the joint's. Both the URDF and the
+3D demo previously treated the pendulum's mesh **x** as the hinge and papered
+over the result with a 6 mm translation, which rendered the plate edge-on —
+spanning ±16 mm *along* the arm with the 2p coin facing down it. A rod is
+symmetric about its own length, so nothing caught it; the fix is pinned now by
+two assertions in `tests/scene_geometry.test.mts` that fail on the old
+treatment.
+
+## Where the arm's reach lives
+
+The URDF's `arm_to_pendulum` origin carries the arm's reach (`x = 0.062`), and
+the pendulum link's inertial origin is the 51 mm drop below that pivot. This
+matters if you read the file: it used to be the other way round — the joint sat
+on the motor axis and the whole 62 mm was folded into the pendulum's COM offset.
+Since the swing axis *is* x, only `sqrt(y² + z²)` of that offset reaches the
+dynamics, so the mistake was invisible to `RigidBodyDynamics` and to
+`pendulum_geometry.PENDULUM_COM_M` alike — but it put the pendulum's *visual*
+geometry on the motor axis, and gave MPC a pivot with no reach.
+
+Two numbers here are still open, pending a CAD check:
+
+- The reach itself. The URDF says 62 mm, `pendulum_env.ARM_LENGTH_M` says 65 mm,
+  and the arm mesh ends at 60 mm with the pendulum's hub cantilevered outboard.
+  This is the one geometric number that materially affects control authority.
+- `base_to_arm`'s `z = 0.075`, against the 70 mm top face of `base.stl` that the
+  3D demo uses for the same plane.
+
+The arm link's `<inertial>` is also CAD-derived but is not what the training
+plant uses; `pendulum_env.py` keeps its own `ARM_*` constants. See the header
+comment in the URDF.

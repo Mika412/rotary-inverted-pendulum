@@ -58,9 +58,19 @@ class. Updating a number in any other place is a bug — the chain is:
   vary between rebuilds (bearings, grease, temperature) and are the
   only quantities the sysid pipeline measures.
 
-- **Arm geometry** (length, mass, COM): currently hard-coded constants
-  in `pendulum_env.py` (`ARM_*`). When CAD-validated, will follow the
-  pendulum pattern — read from the `arm` link in `urdf/model.urdf`.
+- **Arm geometry** (length, mass, COM): hard-coded constants in
+  `pendulum_env.py` (`ARM_*`). `urdf/model.urdf`'s `arm` link *does*
+  carry a CAD inertial, but nothing reads it and the two disagree (~6.1e-5
+  vs ~4.7e-5 kg·m² about the motor axis; 62 mm vs 65 mm reach). Switching
+  the env over to the URDF changes the training plant, so treat it as a
+  plant change — not a refactor — and re-validate the champion.
+
+- **Visual geometry**: the printable STLs in `meshes/`, authored in
+  millimetres. `urdf/model.urdf` references them with `scale="0.001 …"`,
+  and `website/scripts/export_assets.py` decimates the same files into
+  glTF for the 3D demo. One file per part, so the URDF, the printed part
+  and the website cannot end up on different CAD revisions — which is
+  exactly what the now-deleted `.dae` exports did.
 
 - **Hardware/firmware constants** (motor max accel, AS5600 resolution,
   hard-stop limits): module constants in `pendulum_env.py`, with the
