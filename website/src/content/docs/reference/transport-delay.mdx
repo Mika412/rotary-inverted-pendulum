@@ -2,6 +2,9 @@
 title: "Transport delay"
 description: "Measured action-delay history and the decision log behind the hardware and firmware changes."
 ---
+
+import TransportDelayDiagram from '../../../components/TransportDelayDiagram.astro';
+
 This rig used to have ~50 ms of laptop-to-motor transport delay. It's
 now ~14 ms. The path there was three fixes, each attacking a different
 layer of the pipeline. None of the three was about "delay" *per se*;
@@ -9,22 +12,10 @@ they targeted other problems and the delay drop was the by-product.
 
 ## The pipeline
 
-```
-policy(obs) -> action  ┐
-                       │  (1) USB serial          ~1–5 ms
-                       ▼
-                   Arduino loop  -- (2) Cmd dispatch
-                                 -- (3) Stepper driver / ISR
-                                 -- (4) Motor mechanical response
-                       │
-                       ▼
-                  AS5600 encoder -- (5) I²C read       ~5 ms
-                       │
-                       ▼
-                 policy obs(t+1)
-```
+<TransportDelayDiagram />
 
-Total round-trip transport delay = (1) + (2) + (3) + (4) + (5).
+The five stages are referred to by number throughout the rest of this page —
+the fixes below are each labelled with the layer they target.
 
 ## The three fixes (in chronological order)
 

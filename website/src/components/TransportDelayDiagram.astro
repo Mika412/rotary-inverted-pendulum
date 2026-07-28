@@ -1,0 +1,214 @@
+---
+/**
+ * The action pipeline, as a closed loop.
+ *
+ * Hand-authored SVG, following `PipelineDiagram.astro`: no dependency, no
+ * client JavaScript, and it follows Starlight's light/dark theme tokens.
+ *
+ * Two things the ASCII version it replaces could not do:
+ *   - show that this is a *round trip*. The text version ran top to bottom and
+ *     ended at `policy obs(t+1)`, so the sentence "total = (1)+(2)+(3)+(4)+(5)"
+ *     had to say out loud what the picture should have made obvious.
+ *   - distinguish the two topologies. The stages are the same, but the
+ *     deployed rig runs the policy ON the Nano, where stage (1) is a 12.93 ms
+ *     forward pass and there is no USB hop in the loop at all.
+ *
+ * The (1)–(5) stage numbering is deliberate and must be kept in sync with the
+ * "three fixes" table on the page, which refers to stages by number.
+ */
+
+interface Node {
+  title: string;
+  sub: string;
+}
+
+const nodes: Node[] = [
+  { title: 'policy → action', sub: 'laptop, or the Nano' },
+  { title: 'Arduino loop', sub: '(2) command dispatch' },
+  { title: 'Stepper + motor', sub: '(4) mech. response' },
+  { title: 'AS5600 encoder', sub: '12-bit angle' },
+];
+
+/** Labels on the forward hops between nodes. */
+const hops = ['(1) USB serial · ~1–5 ms', '(3) driver / ISR', 'plant'];
+
+// Geometry. One place to change spacing; everything else is derived.
+const W = 148;
+const H = 66;
+const GAP = 36;
+const X0 = 10;
+const ROW = 58;
+const RETURN_Y = 176;
+const x = (i: number) => X0 + i * (W + GAP);
+const VIEW_W = X0 * 2 + nodes.length * W + (nodes.length - 1) * GAP;
+const VIEW_H = 232;
+---
+
+<figure class="delay">
+  <svg
+    viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
+    role="img"
+    aria-labelledby="delay-title delay-desc"
+    preserveAspectRatio="xMidYMid meet"
+  >
+    <title id="delay-title">The action pipeline, as a closed loop</title>
+    <desc id="delay-desc">
+      A round trip in five stages. The policy produces an action, which reaches
+      the Arduino over USB serial in roughly one to five milliseconds — stage
+      one — unless the policy is running on the Nano itself, in which case stage
+      one is a 12.93 millisecond on-device forward pass and no USB link is
+      involved. The Arduino dispatches the command, stage two; the stepper
+      driver and its interrupt routine turn it into pulses, stage three; the
+      motor responds mechanically, stage four; and the resulting pendulum angle
+      is read back over I²C in about five milliseconds, stage five, closing the
+      loop at the policy's next observation. The total transport delay is the
+      sum of all five.
+    </desc>
+
+    <defs>
+      <marker
+        id="delay-arrow"
+        viewBox="0 0 10 10"
+        refX="9"
+        refY="5"
+        markerWidth="6"
+        markerHeight="6"
+        orient="auto-start-reverse"
+      >
+        <path d="M 0 0 L 10 5 L 0 10 z" class="arrowhead" />
+      </marker>
+    </defs>
+
+    {
+      nodes.map((n, i) => (
+        <g class={`node${i === 0 ? ' node--policy' : ''}`}>
+          <rect x={x(i)} y={ROW} width={W} height={H} rx="10" />
+          <text x={x(i) + W / 2} y={ROW + 27} class="title">
+            {n.title}
+          </text>
+          <text x={x(i) + W / 2} y={ROW + 48} class="sub">
+            {n.sub}
+          </text>
+        </g>
+      ))
+    }
+
+    {/* Forward hops. */}
+    {
+      hops.map((label, i) => (
+        <g>
+          <line
+            x1={x(i) + W}
+            y1={ROW + H / 2}
+            x2={x(i + 1) - 6}
+            y2={ROW + H / 2}
+            class="link"
+            marker-end="url(#delay-arrow)"
+          />
+          <text x={x(i) + W + GAP / 2} y={ROW - 12} class="hop">
+            {label}
+          </text>
+        </g>
+      ))
+    }
+
+    {/* The return leg, which is what makes it a round trip. */}
+    <path
+      d={`M ${x(3) + W / 2} ${ROW + H} V ${RETURN_Y} H ${x(0) + W / 2} V ${ROW + H + 6}`}
+      class="link link--return"
+      marker-end="url(#delay-arrow)"
+    />
+    <text x={(x(0) + x(3) + W) / 2} y={RETURN_Y - 10} class="hop hop--return">
+      (5) I²C read · ~5 ms — closes the loop at obs(t+1)
+    </text>
+
+    {/* What the deployed rig actually does. */}
+    <text x={x(0) + W / 2} y={ROW - 30} class="callout">standalone: 12.93 ms here</text>
+  </svg>
+  <figcaption>
+    Total transport delay is (1) + (2) + (3) + (4) + (5). Flashed and running
+    standalone, stage (1) is not a serial hop at all but the policy's own
+    forward pass on the Nano — 12.93 ms of the 15.64 ms mean sample-to-command
+    latency measured on this rig.
+  </figcaption>
+</figure>
+
+<style>
+  .delay {
+    margin: 1.75rem 0;
+  }
+
+  /* Wide content must scroll inside its own box rather than the page body. */
+  .delay svg {
+    display: block;
+    width: 100%;
+    min-width: 32rem;
+    height: auto;
+  }
+
+  @media (max-width: 40rem) {
+    .delay {
+      overflow-x: auto;
+    }
+  }
+
+  .node rect {
+    fill: var(--sl-color-gray-6);
+    stroke: var(--sl-color-gray-5);
+    stroke-width: 1.5;
+  }
+
+  .node--policy rect {
+    stroke: var(--sl-color-accent);
+  }
+
+  .title {
+    fill: var(--sl-color-white);
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-anchor: middle;
+  }
+
+  .sub {
+    fill: var(--sl-color-gray-3);
+    font-size: 0.7rem;
+    text-anchor: middle;
+  }
+
+  .link {
+    stroke: var(--sl-color-gray-4);
+    stroke-width: 1.75;
+    fill: none;
+  }
+
+  .link--return {
+    stroke: var(--sl-color-accent);
+  }
+
+  .arrowhead {
+    fill: var(--sl-color-gray-4);
+  }
+
+  .hop {
+    fill: var(--sl-color-gray-3);
+    font-size: 0.68rem;
+    text-anchor: middle;
+  }
+
+  .hop--return {
+    fill: var(--sl-color-accent);
+  }
+
+  .callout {
+    fill: var(--sl-color-accent);
+    font-size: 0.68rem;
+    font-weight: 600;
+    text-anchor: middle;
+  }
+
+  .delay figcaption {
+    margin-top: 0.6rem;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>
