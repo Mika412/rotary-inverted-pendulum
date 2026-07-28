@@ -590,9 +590,30 @@ static void handle_serial()
     }
 }
 
+// Telemetry is drained a few bytes per loop() pass, writing only what the
+// UART TX buffer accepts — a full-line Serial.println here would BLOCK once
+// the line outgrew the 64-byte TX buffer, and that ~0.6 ms/tick stall
+// measurably degrades balance (A/B: 1.000 -> 0.930 on the same policy).
+static char tx_line[128];
+static uint8_t tx_len = 0;
+static uint8_t tx_pos = 0;
+
+static void service_telemetry()
+{
+    while (tx_pos < tx_len)
+    {
+        int room = Serial.availableForWrite();
+        if (room <= 0) return;
+        uint8_t n = (uint8_t)min(room, (int)(tx_len - tx_pos));
+        Serial.write((const uint8_t*)&tx_line[tx_pos], n);
+        tx_pos += n;
+    }
+}
+
 static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
 {
     if (!print_enabled) return;
+    if (tx_pos < tx_len) return;  // previous line still draining: skip this tick
     // CSV: t_us, motor_pos_rad*1000, phi_rad*1000, action*1000, state, freq_hz,
     //      overruns, latency_us, latency_max_us
     // Integer transmission avoids the ~500 µs Serial.print(float) cost.
@@ -603,8 +624,7 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     float motor_pos = n_samples ? (float)motor_step_buf[newest] * RAD_PER_STEP
                                 : read_motor_pos_rad();
     float phi = n_samples ? pen_rad_buf[newest] : 0.0f;
-    char buf[120];
-    char* p = buf;
+    char* p = tx_line;
     ltoa((long)now_us, p, 10); p += strlen(p); *p++ = ',';
     ltoa((long)(motor_pos * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     ltoa((long)(phi * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
@@ -620,8 +640,10 @@ static void print_telemetry(unsigned long now_us, unsigned int freq_hz)
     ltoa((long)(tele_pen_vel * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     ltoa((long)(v_cmd * 1000.0f), p, 10); p += strlen(p); *p++ = ',';
     utoa(tele_vel_span_us, p, 10); p += strlen(p);
-    *p = '\0';
-    Serial.println(buf);
+    *p++ = '\n';
+    tx_len = (uint8_t)(p - tx_line);
+    tx_pos = 0;
+    service_telemetry();  // send what fits now; loop() drains the rest
 }
 
 // =============================================================================
@@ -728,8 +750,10 @@ void setup()
 void loop()
 {
     // FastAccelStepper drives stepping from a Timer1 ISR; between control
-    // ticks the loop services the 500 Hz measurement sampler.
+    // ticks the loop services the 500 Hz measurement sampler and drains any
+    // pending telemetry into the UART buffer without blocking.
     update_sample_buffer();
+    service_telemetry();
 
     unsigned long now_us = micros();
     unsigned long elapsed_us = now_us - prev_time_us;
