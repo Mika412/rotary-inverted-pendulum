@@ -52,6 +52,10 @@ export interface SceneManifest {
        *  on that group's hinge, or to orient a static part. Intrinsic XYZ,
        *  radians. */
       meshRotationRad?: [number, number, number];
+      /** How far this body's visual frame sits from its physics twin. Set on
+       *  grabbable bodies so pointer hits can be handed to MuJoCo in its own
+       *  coordinates. See build_scene in scripts/export_assets.py. */
+      physicsOffsetM?: [number, number, number];
       rotationAxis?: 'x' | 'y' | 'z';
       joint?: 'motor' | 'pendulum';
       angleOffsetRad?: number;
@@ -69,7 +73,7 @@ const MATERIALS: Record<string, { color: number; roughness: number; metalness: n
 };
 
 /** Radius of the drag rod, in metres — the rig's base is 87 mm across. */
-const DRAG_ROD_RADIUS = 0.002;
+const DRAG_ROD_RADIUS = 0.0016;
 /** MuJoCo's own drag connector is a saturated red; matching it is the point. */
 const DRAG_COLOR = 0xdd2222;
 /** The axis the drag rod's geometry is laid out along. */
@@ -136,8 +140,12 @@ export class PendulumRenderer {
    * the body toward the cursor, and the rod's length is the displacement the
    * spring is working against.
    *
-   * The rod is a unit-height cylinder scaled along its own +y, so only the
-   * length changes; a capsule would distort its caps under that scale.
+   * Built as a capsule the long way round: a unit-height cylinder scaled along
+   * its own +y, capped by a sphere at each end that takes the inverse scale.
+   * `CapsuleGeometry` would be the obvious choice, but its caps are part of the
+   * same mesh, so stretching it to the drag length squashes them into ellipsoids
+   * — and the length changes every frame you drag, so rebuilding the geometry
+   * instead would mean allocating one per frame.
    */
   private readonly dragForce = new Group();
   private readonly dragRod = new Mesh(
@@ -148,9 +156,23 @@ export class PendulumRenderer {
     new SphereGeometry(DRAG_ROD_RADIUS * 2.4, 16, 12),
     new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
   );
+  /** The capsule's cap at the body end; the ball above serves as the other. */
+  private readonly dragCap = new Mesh(
+    new SphereGeometry(DRAG_ROD_RADIUS, 12, 8),
+    new MeshBasicMaterial({ color: DRAG_COLOR, transparent: true, opacity: 0.9 })
+  );
   private readonly dragQuat = new Quaternion();
   /** Set by the demo to claim a drag that starts on a grabbable body. */
   private grabDelegate: RendererGrabDelegate | null = null;
+  /**
+   * Visual-minus-physics offset for the grabbable body. The MJCF has no
+   * enclosure, so its bodies sit 84 mm below the meshes the pointer actually
+   * hits. Without correcting for it, the point handed to `grab()` is not on the
+   * body at all: MuJoCo stores it as a body-frame offset, which then swings
+   * through empty space as the pendulum rotates — and applies the drag force at
+   * the wrong lever arm.
+   */
+  private readonly grabOffset = new Vector3();
 
   constructor(private readonly canvas: HTMLCanvasElement, baseUrl: string) {
     this.renderer = new WebGLRenderer({
@@ -171,7 +193,8 @@ export class PendulumRenderer {
     // the group's local +y so the group only has to be aimed and stretched.
     this.dragRod.position.set(0, 0.5, 0);
     this.dragBall.position.set(0, 1, 0);
-    this.dragForce.add(this.dragRod, this.dragBall);
+    this.dragCap.position.set(0, 0, 0);
+    this.dragForce.add(this.dragRod, this.dragBall, this.dragCap);
     this.dragForce.visible = false;
     this.scene.add(this.dragForce);
 
@@ -239,7 +262,10 @@ export class PendulumRenderer {
         if (node.meshOffset) asset.scene.position.set(...node.meshOffset);
         if (node.meshRotationRad) asset.scene.rotation.set(...node.meshRotationRad);
         groups.get(name)!.add(asset.scene);
-        if (name === 'pendulum') this.grabGroup = groups.get(name)!;
+        if (name === 'pendulum') {
+          this.grabGroup = groups.get(name)!;
+          if (node.physicsOffsetM) this.grabOffset.set(...node.physicsOffsetM);
+        }
       })
     );
 
@@ -358,9 +384,13 @@ export class PendulumRenderer {
    * everywhere else.
    */
   /**
-   * Hit-test the pendulum. Returns the world-space hit point, or null if the
-   * pointer missed — which is what lets the same gesture orbit the camera
-   * everywhere else.
+   * Hit-test the pendulum. Returns the hit point in *physics* coordinates, or
+   * null if the pointer missed — which is what lets the same gesture orbit the
+   * camera everywhere else.
+   *
+   * Everything this class hands the grab delegate is in MuJoCo's frame, and
+   * everything it is handed back is too, so the controller never has to know the
+   * renderer stands the rig on an enclosure the physics model does not have.
    */
   pickPendulum(clientX: number, clientY: number): [number, number, number] | null {
     if (!this.grabGroup) return null;
@@ -374,14 +404,19 @@ export class PendulumRenderer {
       this.camera.getWorldDirection(this.scratch).clone().negate(),
       p
     );
-    return [p.x, p.y, p.z];
+    return this.toPhysics(p);
+  }
+
+  /** Visual world point -> physics world point. */
+  private toPhysics(p: Vector3): [number, number, number] {
+    return [p.x - this.grabOffset.x, p.y - this.grabOffset.y, p.z - this.grabOffset.z];
   }
 
   /** Where the pointer now sits on the plane frozen at grab time. */
   pointerOnDragPlane(clientX: number, clientY: number): [number, number, number] | null {
     this.raycaster.setFromCamera(this.toNdc(clientX, clientY), this.camera);
     const hit = this.raycaster.ray.intersectPlane(this.dragPlane, this.scratch);
-    return hit ? [hit.x, hit.y, hit.z] : null;
+    return hit ? this.toPhysics(hit) : null;
   }
 
   /**
@@ -395,8 +430,8 @@ export class PendulumRenderer {
       this.dragForce.visible = false;
       return;
     }
-    const tail = this.scratch.set(...ends.from);
-    const dir = this.scratch2.set(...ends.to).sub(tail);
+    const tail = this.scratch.set(...ends.from).add(this.grabOffset);
+    const dir = this.scratch2.set(...ends.to).add(this.grabOffset).sub(tail);
     const len = dir.length();
     // Shorter than the ball itself, the rod is just a smear at the grab point.
     if (len < DRAG_ROD_RADIUS * 2) {
@@ -409,8 +444,9 @@ export class PendulumRenderer {
     this.dragQuat.setFromUnitVectors(UP_Y, dir.normalize());
     this.dragForce.quaternion.copy(this.dragQuat);
     this.dragForce.scale.set(1, len, 1);
-    // Undo the stretch on the ball, so it stays round however far you drag.
+    // Undo the stretch on both caps, so they stay round however far you drag.
     this.dragBall.scale.set(1, 1 / len, 1);
+    this.dragCap.scale.set(1, 1 / len, 1);
     this.dragForce.visible = true;
   }
 

@@ -230,6 +230,18 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
                 "mesh": "pendulum",
                 "parent": "arm",
                 "position": [pe.ARM_LENGTH_M, 0.0, ARM_PIVOT_Z_M],
+                # How far this body's visual frame sits above its physics twin.
+                # The MJCF has no enclosure: its arm body is at the origin and
+                # its pendulum body at (L, 0, 0), while the renderer lifts the
+                # arm onto the lid (baseTopZ) and then onto the bearing bore
+                # (ARM_PIVOT_Z_M). A pointer hit is therefore this much higher
+                # than the physics point underneath it, and has to be corrected
+                # before MuJoCo is told where the drag is attached.
+                #
+                # Valid as a world-space translation only because both terms lie
+                # along the motor axis, so the arm's yaw leaves them unchanged.
+                # An in-plane difference would have to be rotated by the arm.
+                "physicsOffsetM": [0.0, 0.0, base_top_z + ARM_PIVOT_Z_M],
                 "meshRotationRad": list(PENDULUM_MESH_RPY),
                 "rotationAxis": "x",
                 "joint": "pendulum",
