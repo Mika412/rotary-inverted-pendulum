@@ -162,10 +162,14 @@ The ideal supply for this rig. Reasoning:
 The DRV8825 chops coil current, so supply current ≠ motor phase
 current. Power balance:
 
-```
-I_supply ≈ (I_phase × V_coil) / V_supply
-        ≈ (0.9 A × ~3.5 V) / 12 V ≈ 0.26 A per phase
-```
+$$
+\begin{aligned}
+I_\text{supply}
+  &\approx \frac{I_\text{phase} \times V_\text{coil}}{V_\text{supply}} \\[2pt]
+  &\approx \frac{0.9\ \text{A} \times {\sim}3.5\ \text{V}}{12\ \text{V}}
+   \approx 0.26\ \text{A per phase}
+\end{aligned}
+$$
 
 Both phases active plus ~50 mA of logic (Nano + AS5600 + indicators)
 gives **~0.6 A steady-state**, with brief peaks to ~1 A on direction

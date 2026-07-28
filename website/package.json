@@ -16,13 +16,16 @@
     "export-assets": "uv run --project ../RotaryInvertedPendulum-python python scripts/export_assets.py"
   },
   "engines": {
-    "//": "Node runs the .mts tests directly. Type stripping is on by default from 22.18, so no --experimental-strip-types flag is needed and none is passed — which also keeps these scripts working unchanged on Node 24.",
+    "//": "Node runs the .mts tests directly. Type stripping is on by default from 22.18, so no --experimental-strip-types flag is needed and none is passed \u2014 which also keeps these scripts working unchanged on Node 24.",
     "node": ">=22.18"
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.4",
     "@mujoco/mujoco": "^3.10.0",
     "astro": "^7.1.3",
+    "katex": "^0.18.1",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0",
     "three": "^0.185.1"
   }
 }

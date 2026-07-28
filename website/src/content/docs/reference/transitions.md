@@ -37,9 +37,10 @@ control nudge, and the world moves on.
 
 ## Observation `s` — what the policy sees (5 floats)
 
-```
-s = [motor_pos, sin(θ), cos(θ), motor_vel, pendulum_vel]
-```
+$$
+s = \bigl[\,\text{motor\_pos},\ \sin\theta,\ \cos\theta,
+          \ \text{motor\_vel},\ \text{pendulum\_vel}\,\bigr]
+$$
 
 | Component | Units | Range | Meaning |
 |---|---|---|---|
@@ -97,9 +98,9 @@ from the checkpoint by deploy/fine-tune.
 
 ## Action `a` — what the policy outputs (1 float)
 
-```
-a ∈ [−1, 1]
-```
+$$
+a \in [-1,\, 1]
+$$
 
 > **Action mode.** The env interprets `a` two ways, selected by
 > `action_mode` (`--action-mode`):
@@ -182,28 +183,37 @@ real point.
 The current reward is the **standard Quanser quadratic-cost form**
 (common in Furuta-pendulum literature):
 
-```
-r = −[ θ² + k_θ̇·θ̇² + k_α·α² + k_α̇·α̇² + k_a·a² ]
-```
+$$
+r = -\left[\, \theta^2
+        + k_{\dot\theta}\,\dot\theta^2
+        + k_{\alpha}\,\alpha^2
+        + k_{\dot\alpha}\,\dot\alpha^2
+        + k_{a}\,a^2 \,\right]
+$$
 
 where:
 
-- **θ** = pendulum-from-upright (rad). The dominant term: `θ²` is 0
-  at the goal and ≈ π² ≈ 9.87 at hanging-down.
-- **θ̇** = pendulum_vel. Small `k_θ̇=0.001` weight discourages
+- $\theta$ = pendulum-from-upright (rad). The dominant term: $\theta^2$ is 0
+  at the goal and $\approx \pi^2 \approx 9.87$ at hanging-down.
+- $\dot\theta$ = pendulum_vel. Small $k_{\dot\theta} = 0.001$ weight discourages
   spinning through upright forever.
-- **α** = motor_pos (rad, sim's misnamed-from-Quanser variable).
-  `k_α=0.5` keeps the policy near centre.
-- **α̇** = motor_vel. `k_α̇=0.005` discourages frantic arm motion.
-- **a** = action ∈ [−1, 1]. `k_a=0.05` light penalty for jerky control.
+- $\alpha$ = motor_pos (rad, sim's misnamed-from-Quanser variable).
+  $k_\alpha = 0.5$ keeps the policy near centre.
+- $\dot\alpha$ = motor_vel. $k_{\dot\alpha} = 0.005$ discourages frantic arm motion.
+- $a$ = action $\in [-1,\, 1]$. $k_a = 0.05$ light penalty for jerky control.
 
 **Alive terms (added 2026-07-21, audit finding F1).** On top of the
 quadratic cost, the default training reward now adds:
 
-```
-r += k_alive_offset                                   (default 15.0)
-r += k_upright_alive · 1{|θ| ≤ 15° AND |θ̇| ≤ 2 rad/s} (default 5.0)
-```
+$$
+\begin{aligned}
+r &\mathrel{+}= k_\text{alive offset} && \text{(default 15.0)} \\
+r &\mathrel{+}= k_\text{upright alive} \cdot
+   \mathbf{1}\!\left[\, |\theta| \le 15^\circ
+   \ \text{and}\ |\dot\theta| \le 2\ \text{rad/s} \,\right]
+   && \text{(default 5.0)}
+\end{aligned}
+$$
 
 Rationale: the purely non-positive cost *combined with hard-stop
 termination* made early termination attractive — hanging for a full

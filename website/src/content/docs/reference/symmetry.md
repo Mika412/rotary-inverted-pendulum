@@ -22,14 +22,18 @@ On one observation frame the reflection is a fixed diagonal of ±1. `cos θ`
 is the only channel that does **not** flip, because reflecting θ flips
 `sin θ` and leaves `cos θ` alone:
 
-```
-        [ motor_pos,  sin θ,  cos θ,  motor_vel,  pen_vel,  prev_action ]
-   M =  [    -1        -1      +1        -1         -1          -1      ]
-```
+$$
+\begin{array}{r|cccccc}
+s & \text{motor\_pos} & \sin\theta & \cos\theta
+  & \text{motor\_vel} & \text{pen\_vel} & \text{prev\_action} \\
+\hline
+M & -1 & -1 & +1 & -1 & -1 & -1
+\end{array}
+$$
 
 tiled over the `K` stacked frames, with `action → -action`. An ideal policy
-is **equivariant**, π(Ms) = −π(s), with an **invariant** critic,
-Q(Ms, −a) = Q(s, a).
+is **equivariant**, $\pi(Ms) = -\pi(s)$, with an **invariant** critic,
+$Q(Ms, -a) = Q(s, a)$.
 
 `symmetry.py` is the single source of truth for this map — build the sign
 vector with `obs_signs_for_dim(obs_dim, obs_history_len=K)`, which infers

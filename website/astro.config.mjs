@@ -1,6 +1,8 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 const REPO = 'rotary-inverted-pendulum';
 
@@ -28,7 +30,11 @@ export default defineConfig({
       editLink: {
         baseUrl: `https://github.com/ferrolho/${REPO}/edit/main/website/`,
       },
-      customCss: ['./src/styles/custom.css'],
+      // `katex.min.css` is imported (not linked from a CDN) so Vite emits the
+      // stylesheet and its woff2 fonts into the build — same reason the Draco
+      // decoder is self-hosted. The site must work offline and without
+      // third-party requests.
+      customCss: ['./src/styles/custom.css', 'katex/dist/katex.min.css'],
       lastUpdated: true,
       sidebar: [
         {
@@ -91,6 +97,15 @@ export default defineConfig({
       ],
     }),
   ],
+  // Display maths is written as $$…$$ and rendered to static HTML+CSS at build
+  // time by KaTeX — no client-side JavaScript, and no MathML-only fallback.
+  // Used for the reward function and the observation/mirror algebra, which were
+  // previously ASCII in code fences where combining diacritics (θ̇) render
+  // unreliably. Identifier-heavy pseudocode stays in code fences on purpose.
+  markdown: {
+    remarkPlugins: [remarkMath],
+    rehypePlugins: [rehypeKatex],
+  },
   vite: {
     // The MuJoCo WASM binary is fetched at runtime by the demo island, not
     // bundled — keep Vite from trying to inline or transform it.

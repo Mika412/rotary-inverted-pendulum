@@ -11,7 +11,7 @@ trade-offs before you spend a weekend printing parts.
 | Option | Cost | Notes |
 | --- | --- | --- |
 | This project | ~£20 | Printed parts, hobby stepper, magnetic encoder. Full source and docs. |
-| AliExpress kits | $100–$200 | [Search results](https://www.aliexpress.com/w/wholesale-rotary-inverted-pendulum.html). Assembled mechanics, variable quality, usually no documented control stack. |
+| AliExpress kits | \$100–\$200 | [Search results](https://www.aliexpress.com/w/wholesale-rotary-inverted-pendulum.html). Assembled mechanics, variable quality, usually no documented control stack. |
 | Quanser QUBE Servo 2 | ~£4,500 | [Product page](https://www.quanser.com/products/qube-servo-2). Precision hardware, courseware, MATLAB/Simulink integration, support. |
 
 ## What you get by building this one
