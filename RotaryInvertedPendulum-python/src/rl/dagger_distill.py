@@ -160,6 +160,12 @@ def main(argv: list[str] | None = None) -> int:
                    help="distill.py output dir holding student.pt + dataset.npz "
                         "(the BC warm start and the initial aggregate dataset)")
     p.add_argument("--out-dir", required=True, type=Path)
+    p.add_argument("--obs-stats-dr", action="store_true",
+                   help="alternate the firmware measurement model on/off "
+                        "between DAgger rounds so the student is robust to "
+                        "observation statistics instead of overfitting the "
+                        "simulated ones (the failure mode of standalone "
+                        "deployments on the DRV8825 rig)")
     p.add_argument("--params-path", type=Path, default=None,
                    help="override the rig sysid file inherited from the "
                         "teacher's config.json (see train_sac.py --params-path)")
@@ -203,8 +209,20 @@ def main(argv: list[str] | None = None) -> int:
     save(float("nan"))
 
     for r in range(1, args.rounds + 1):
+        # Observation-statistics DR: alternate the measurement model between
+        # rounds so the student cannot overfit the exact simulated
+        # measurement statistics. A student that only works on those exact
+        # statistics fails on any real deviation from them; the sensitivity
+        # (fw-model on vs off gate) is the offline discriminator between
+        # students that survive standalone deployment and students that
+        # don't. Labels come from the teacher either way, so this widens the
+        # obs distribution without changing the target policy.
+        roll_cfg = cfg
+        if args.obs_stats_dr:
+            roll_cfg = dict(cfg)
+            roll_cfg["firmware_obs_model"] = bool(r % 2)
         obs_new, act_new = rollout_and_label(
-            predict, teacher, cfg, args.transport,
+            predict, teacher, roll_cfg, args.transport,
             args.steps_per_round, seed0=args.seed + r * 10_000)
         agg_obs = np.concatenate([agg_obs, obs_new])
         agg_act = np.concatenate([agg_act, act_new])
