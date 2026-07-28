@@ -105,7 +105,12 @@ const { title = data.title, tagline, actions = [] } = data.hero || {};
   }
 
   h1 {
-    font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-6xl));
+    /* DIFF: capped at 5xl (42px) rather than Starlight's 6xl (64px). The scale
+       steps 29 / 35 / 42 / 64, so 6xl is a display size and the clamp jumped
+       straight to it — three lines of 64px left this column 125px taller than the
+       demo beside it. At 5xl the title sets in two lines and the two blocks come
+       out within a few pixels of each other. */
+    font-size: clamp(var(--sl-text-3xl), calc(0.25rem + 5vw), var(--sl-text-5xl));
     line-height: var(--sl-line-height-headings);
     font-weight: 600;
     color: var(--sl-color-white);
