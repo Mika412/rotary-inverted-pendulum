@@ -22,9 +22,9 @@
 # `--buffer` is passed automatically when the run has a replay buffer (a rig
 # fine-tune); sim-only teachers are distilled from teacher rollouts alone.
 #
-# This deliberately does NOT write policy_weights.h — that header holds the
-# best policy we have, and overwriting it should be a decision, not a side
-# effect. The export + flash commands are printed at the end.
+# This deliberately does NOT touch the committed per-rig champion headers —
+# promoting a policy should be a decision, not a side effect. The trial
+# export + flash commands (via the scratch header) are printed at the end.
 
 set -euo pipefail
 
@@ -114,15 +114,17 @@ Judge the gate against the TEACHER's, not an absolute bar — sim under-predicts
 smooth students on the rig, most of all when the teacher was rig-fine-tuned:
     python analyze_sim.py $TEACHER
 
-To flash this student (overwrites the header holding the current best policy):
+To flash this student for a trial (scratch header, committed champions untouched):
     python export_weights.py --student $STUDENT \\
-        --header ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h \\
+        --header ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights_dev.h \\
         --source-name $RUN/$(basename "$DAGGER_DIR")
     (cd ../../.. && arduino-cli compile --upload -p /dev/cu.usbserial-10 \\
-        --fqbn arduino:avr:nano:cpu=atmega328 RotaryInvertedPendulum-arduino/RLControl)
+        --fqbn arduino:avr:nano:cpu=atmega328 \\
+        --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_dev.h"' \\
+        RotaryInvertedPendulum-arduino/RLControl)
     python analyze_onboard.py --port /dev/cu.usbserial-10 --duration-s 300 \\
         --log recordings/$RUN.npz
 
-Restore the current best policy with:
-    git checkout -- ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h
+To PROMOTE it, export to the named header for the rig instead
+(policy_weights_<driver>_<microsteps>.h) and commit.
 EOF

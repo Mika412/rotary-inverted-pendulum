@@ -26,18 +26,26 @@ actually contains rather than what the docs once claimed:
 | `MICROSTEPS`             | your driver wiring (not training) | {m.microsteps} |
 
 ```bash
-# Export PROGMEM weights into the Arduino sketch directory
+# Export PROGMEM weights into the sketch directory (scratch header — the
+# committed per-rig champions stay untouched)
 python export_weights.py \
     --student runs/<run>_async/distill_h16_dagger_dev/student.pt \
-    --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h \
+    --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights_dev.h \
     --source-name <run>/distill_h16_dagger_dev
 
-# Flash
+# Flash, selecting the header at compile time
 cd ../../..
 arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
     --fqbn arduino:avr:nano:cpu=atmega328 \
+    --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_dev.h"' \
     RotaryInvertedPendulum-arduino/RLControl
 ```
+
+With no `--build-property`, the sketch compiles its committed default —
+the reference rig's champion (`policy_weights_tmc2209_32.h`). Champions for
+other rig configurations live alongside it, named
+`policy_weights_<driver>_<microsteps>.h`; to promote a new champion, export to
+the named header for your rig and commit it.
 
 Keep the pendulum hanging straight down through the 1 s settle delay
 after boot (LED solid HIGH) — that pose becomes the encoder zero for

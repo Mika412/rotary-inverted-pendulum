@@ -73,7 +73,17 @@
 #include <AS5600.h>
 #include <Wire.h>
 
-#include "policy_weights.h"
+// Which champion header to compile. Named per rig as
+// policy_weights_<driver>_<microsteps>.h — the suffix carries the driver AND
+// its MICROSTEPS setting because the policy is trained against that
+// quantisation. Select at compile time, no file edits:
+//   arduino-cli compile --upload -p <port> --fqbn arduino:avr:nano:cpu=atmega328 \
+//     --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_drv8825_32.h"' \
+//     RotaryInvertedPendulum-arduino/RLControl
+#ifndef POLICY_WEIGHTS_H
+#define POLICY_WEIGHTS_H "policy_weights_tmc2209_32.h"
+#endif
+#include POLICY_WEIGHTS_H
 
 // =============================================================================
 // PINS

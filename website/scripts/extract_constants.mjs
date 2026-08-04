@@ -52,9 +52,19 @@ function pyConst(src, name, file) {
   );
 }
 
+// The sketch selects its weights header via `#define POLICY_WEIGHTS_H "..."`
+// (overridable at compile time with --build-property). The site reads the
+// committed default — the reference rig's champion.
+export async function readWeightsSource() {
+  const ino = await fs.readFile(path.join(REPO, RLCONTROL), 'utf8');
+  const m = ino.match(/#define\s+POLICY_WEIGHTS_H\s+"([^"]+)"/);
+  if (!m) throw new Error('extract_constants: no POLICY_WEIGHTS_H default in RLControl.ino');
+  return fs.readFile(path.join(REPO, path.dirname(WEIGHTS), m[1]), 'utf8');
+}
+
 export async function extractConstants() {
   const ino = await fs.readFile(path.join(REPO, RLCONTROL), 'utf8');
-  const weights = await fs.readFile(path.join(REPO, WEIGHTS), 'utf8');
+  const weights = await readWeightsSource();
   const env = await fs.readFile(path.join(REPO, ENV), 'utf8');
 
   const microsteps = cppConst(ino, 'MICROSTEPS', RLCONTROL);

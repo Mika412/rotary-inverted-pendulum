@@ -10,6 +10,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { readWeightsSource } from './extract_constants.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, '..');
@@ -46,7 +47,7 @@ function expectShape(arr, rows, cols, name) {
 }
 
 export async function exportWeights() {
-  const src = await fs.readFile(path.join(REPO, WEIGHTS), 'utf8');
+  const src = await readWeightsSource();
 
   const obsDim = Number(src.match(/#define\s+POLICY_OBS_DIM\s+(\d+)/)?.[1]);
   const hidden = Number(src.match(/#define\s+POLICY_HIDDEN_DIM\s+(\d+)/)?.[1]);

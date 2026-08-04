@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Documentation site**: `website/` is an Astro Starlight site published to
   GitHub Pages at <https://ferrolho.github.io/rotary-inverted-pendulum/>, with
   an in-browser demo of the deployed policy (official MuJoCo WASM + the weights
-  parsed from `RLControl/policy_weights.h`).
+  parsed from the sketch's committed default weights header).
 
   **All prose documentation lives in `website/src/content/docs/` — there is no
   `docs/` directory any more.** That tree is the source of truth, not a
@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
   **Never hard-code firmware constants in prose.**
   `website/scripts/extract_constants.mjs` reads them from `RLControl.ino`,
-  `policy_weights.h` and `pendulum_env.py` into `src/generated/constants.json`;
+  its selected weights header and `pendulum_env.py` into `src/generated/constants.json`;
   render them via `ConstantsTable.astro` or by importing that JSON in `.mdx`.
   This guard exists because the runbook asserted a 35 Hz control rate for weeks
   after the firmware moved to 50 Hz (reconciled in 352c809).
