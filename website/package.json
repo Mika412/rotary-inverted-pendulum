@@ -9,12 +9,13 @@
     "dev": "node scripts/prepare.mjs && astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "test": "npm run test:policy && npm run test:geometry && npm run test:pipeline",
+    "test": "npm run test:policy && npm run test:geometry && npm run test:pipeline && npm run test:assets",
     "test:policy": "node tests/policy_balances.test.mts",
     "test:geometry": "node tests/scene_geometry.test.mts",
     "test:smoke": "node tests/demo_smoke.test.mjs",
     "export-assets": "uv run --project ../RotaryInvertedPendulum-python python scripts/export_assets.py",
-    "test:pipeline": "node tests/pipeline_steps.test.mts"
+    "test:pipeline": "node tests/pipeline_steps.test.mts",
+    "test:assets": "node tests/doc_assets.test.mts"
   },
   "engines": {
     "//": "Node runs the .mts tests directly. Type stripping is on by default from 22.18, so no --experimental-strip-types flag is needed and none is passed \u2014 which also keeps these scripts working unchanged on Node 24.",

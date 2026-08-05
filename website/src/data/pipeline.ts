@@ -25,7 +25,7 @@ export interface PipelineStep {
   /** Docs slug, matching `Astro.locals.starlightRoute.id` on that page. */
   slug: string;
   /**
-   * Whether the step still needs the laptop attached. Steps 4–6 exist only to
+   * Whether the step still needs the laptop attached. Steps 3–4 exist only to
    * remove the tether, which is why the diagram groups and labels them.
    */
   tethered: boolean;
@@ -43,36 +43,22 @@ export const PIPELINE_STEPS: PipelineStep[] = [
   },
   {
     n: '2',
-    title: 'fine-tune',
-    sub: 'on the real rig',
+    title: 'fine-tune + test',
+    short: 'fine-tune',
+    sub: 'on the real rig, tethered',
     slug: 'train/fine-tune',
     tethered: true,
   },
   {
     n: '3',
-    title: 'test teacher',
-    short: 'teacher',
-    sub: 'tethered',
-    slug: 'train/test-teacher',
-    tethered: true,
-  },
-  {
-    n: '4',
-    title: 'distill',
+    title: 'distill + gate',
+    short: 'distill',
     sub: 'shrink the student',
     slug: 'train/distill',
     tethered: false,
   },
   {
-    n: '5',
-    title: 'test student',
-    short: 'student',
-    sub: 'tethered, optional',
-    slug: 'train/test-student',
-    tethered: false,
-  },
-  {
-    n: '6',
+    n: '4',
     title: 'flash + score',
     short: 'flash',
     sub: 'standalone on the Nano',

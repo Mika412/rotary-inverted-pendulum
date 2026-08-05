@@ -1,6 +1,6 @@
 ---
 title: 2. Fine-tune on the real rig
-description: Closing the sim-to-real gap with 30–80 real-rig episodes, using the async orchestrator.
+description: Closing the sim-to-real gap with real-rig episodes, using the async orchestrator — and the 30 seconds of rig time that decide whether the teacher is worth distilling.
 ---
 
 The sim policy will not balance on hardware on its first try
@@ -43,13 +43,6 @@ python finetune_async.py \
     --run-name async_v1_extend
 ```
 
-After the session, re-run the [sensitivity
-gate](/rotary-inverted-pendulum/train/test-student/) on the fine-tuned
-`best_model.zip` (with and without `--no-firmware-obs-model`). Fine-tuning has
-preserved observation-robustness in every lineage measured, so treat this as a
-cheap regression check — a collapse would mean the session taught the policy
-to exploit measurement statistics, and distilling it would waste the rig time.
-
 Architecture detail: [the async control
 runtime](/rotary-inverted-pendulum/reference/async-control/).
 
@@ -75,3 +68,60 @@ the motor during the first few episodes — a smooth whirr is fine, a
 buzzy/grinding sound means step-skipping (drop `MOTOR_ACCELERATION` in
 `LowLevelServer.ino` and `RLControl.ino` from 50 k → 30 k and re-flash).
 
+## Test the teacher on the rig
+
+Confirms the fine-tuned teacher actually balances before spending more time on
+it. Cheap — 30 seconds of rig time:
+
+```bash
+python run_policy.py \
+    --policy runs/<run>_async/best_model.zip \
+    --port /dev/cu.usbserial-1130 \
+    --duration-s 30 \
+    --log recordings/<run>_ft.npz
+```
+
+Always deploy `best_model.zip` (deterministic-eval best), never `last.zip`.
+
+Judge by the HONEST metrics printed at the end (balanced fraction / streaks /
+revolutions — the upright proxy is spoofable by spinning):
+
+- **balanced fraction ≥ 0.85, verdict BALANCED** → solid teacher, proceed to
+  [step 3](/rotary-inverted-pendulum/train/distill/) to remove the tether.
+  (2026-07-21 reference: 0.911.)
+- **0.4–0.85** → more fine-tune episodes usually keep climbing if the
+  deterministic evals were still rising: another block with `--resume-buffer`,
+  as above.
+- **below that** → diagnose before distilling: re-sysid, replay the log
+  through `sim_vs_real.py`, check the transport-delay assumptions.
+
+Also re-run the [sensitivity
+gate](/rotary-inverted-pendulum/train/distill/#the-offline-pre-flight-the-sensitivity-gate)
+on the fine-tuned `best_model.zip`. Fine-tuning has preserved
+observation-robustness in every lineage measured, so treat it as a cheap
+regression check — a collapse would mean the session taught the policy to
+exploit measurement statistics, and distilling it would waste the rig time.
+
+:::tip[You can stop here]
+If you're happy keeping the laptop attached, this is a finished controller.
+The teacher runs at 50 Hz over USB serial just fine, and steps 3–4 exist only
+to remove the tether.
+:::
+
+## How many episodes?
+
+More than the eval curve suggests. Deterministic-eval reward flattens early —
+it moved ~2% per block across the DRV8825 rig's last two blocks — while the
+metrics you actually care about kept improving sharply over 30 → 60 → 90
+episodes:
+
+| | 30 ep | 60 ep | 90 ep |
+| --- | --- | --- | --- |
+| arm sway <1 s | 15.1° | 8.25° | 5.10° |
+| arm speed RMS | 2.98 | 1.43 | 0.86 |
+| \|action\| mean | 0.623 | 0.313 | 0.275 |
+| pendulum std | 6.74° | 3.23° | 1.83° |
+
+So **judge a block by the standalone capture, not by the eval reward**, and
+keep extending while the capture keeps getting calmer. Sessions chain through
+`--resume-buffer`, so this costs nothing but rig time.

@@ -69,7 +69,7 @@ whose rig behaviour is known (2026-07-26). Read this before trusting a number.
       while a 9.4 deg student spun (177/221 kick drops). One known-bad policy
       was a sample of one, and it did not generalise. The validated deploy
       predictor is the fw-on/off sensitivity gate (see
-      website/src/content/docs/train/test-student.md); arm walk remains a
+      website/src/content/docs/train/distill.md); arm walk remains a
       calmness-flavoured A/B number between policies already known to be
       deployable.
 

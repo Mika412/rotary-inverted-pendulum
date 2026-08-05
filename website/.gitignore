@@ -29,6 +29,9 @@ public/sim/policy.json
 # ← copied from three's examples/jsm/libs/draco/gltf at every build
 public/draco/
 
+# ← copied from the repository-root diagrams/ at every build
+public/diagrams/
+
 # NOTE: public/models/*.glb, public/sim/model.xml, public/sim/scene.json and
 # public/sim/replay.json are deliberately COMMITTED, not generated. They are
 # pinned demo assets (58 KB of draco-compressed meshes, one MJCF snapshot, the

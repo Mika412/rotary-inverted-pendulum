@@ -5,7 +5,7 @@
  * Hand-authored SVG rather than a diagram-as-code renderer: it costs no
  * dependency and no client JavaScript, stays crisp at any zoom, and lets the
  * two things that actually matter be shown structurally — the acceptance gate
- * after step 3, and the fact that steps 4–6 exist only to remove the tether.
+ * after step 2, and the fact that steps 3–4 exist only to remove the tether.
  *
  * Colours come from Starlight's theme tokens, so it follows light/dark.
  */
@@ -36,7 +36,7 @@ const X0 = 10;
 const ROW1 = 44;
 const ROW2 = 210;
 const x = (i: number) => X0 + i * (W + GAP);
-const VIEW_W = X0 * 2 + 4 * W + 3 * GAP;
+const VIEW_W = X0 * 2 + 3 * W + 2 * GAP;
 const VIEW_H = 300;
 ---
 
@@ -47,14 +47,14 @@ const VIEW_H = 300;
     aria-labelledby="pipeline-title pipeline-desc"
     preserveAspectRatio="xMidYMid meet"
   >
-    <title id="pipeline-title">The end-to-end pipeline, in seven steps</title>
+    <title id="pipeline-title">The end-to-end pipeline, in five steps</title>
     <desc id="pipeline-desc">
-      Steps 0 to 3 run in order: system identification, training in simulation,
-      fine-tuning on the real rig, then testing the teacher while tethered to a
-      laptop. If the teacher scores a balanced fraction of at least 0.85, steps 4
-      to 6 follow — distilling a smaller student, optionally testing it tethered,
-      then flashing and scoring it running standalone on the Nano. Stopping after
-      step 3 leaves a working controller that needs the laptop attached.
+      Steps 0 to 2 run in order: system identification, training in simulation,
+      then fine-tuning and testing the teacher on the real rig, tethered to a
+      laptop. If the teacher scores a balanced fraction of at least 0.85, steps 3
+      and 4 follow — distilling and gating a smaller student, then flashing and
+      scoring it running standalone on the Nano. Stopping after step 2 leaves a
+      working controller that needs the laptop attached.
     </desc>
 
     <defs>
@@ -71,12 +71,12 @@ const VIEW_H = 300;
       </marker>
     </defs>
 
-    {/* Steps 4–6 only exist to remove the tether: group and label them. */}
+    {/* Steps 3–4 only exist to remove the tether: group and label them. */}
     <g class="group">
       <rect
         x={X0 - 6}
         y={ROW2 - 30}
-        width={3 * W + 2 * GAP + 12}
+        width={2 * W + 1 * GAP + 12}
         height={H + 46}
         rx="12"
       />
@@ -145,16 +145,16 @@ const VIEW_H = 300;
       ))
     }
 
-    {/* The acceptance gate: step 3 wraps down to step 4 only if it scores. */}
+    {/* The acceptance gate: step 2 wraps down to step 3 only if it scores. */}
     <path
-      d={`M ${x(3) + W / 2} ${ROW1 + H}
+      d={`M ${x(2) + W / 2} ${ROW1 + H}
           V ${ROW1 + H + 42}
           H ${x(0) + W / 2}
           V ${ROW2 - 36}`}
       class="link link--gate"
       marker-end="url(#pipeline-arrow)"
     />
-    <text x={x(3) + W / 2 - 10} y={ROW1 + H + 32} class="gate-label" text-anchor="end">
+    <text x={x(2) + W / 2 - 10} y={ROW1 + H + 32} class="gate-label" text-anchor="end">
       {GATE_LABEL}
     </text>
   </svg>
@@ -194,7 +194,7 @@ const VIEW_H = 300;
   </ol>
 
   <figcaption>
-    Each step is idempotent and can be re-run on its own. Stopping after step 3
+    Each step is idempotent and can be re-run on its own. Stopping after step 2
     leaves a rig that balances with the laptop attached.
   </figcaption>
 </figure>

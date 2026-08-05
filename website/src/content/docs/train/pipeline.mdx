@@ -14,7 +14,7 @@ expected wall-clock cost, and what the next step depends on.
 <PipelineDiagram />
 
 If you only need the upright/balance behaviour and are happy keeping the
-laptop attached: stop after step 3. Steps 4–6 only exist to remove the
+laptop attached: stop after step 2. Steps 3–4 only exist to remove the
 tether.
 
 For *how a single transition works*, see [the transition
@@ -101,7 +101,7 @@ Every step is idempotent and can be re-run on its own:
 |---|---|---|
 | Tweak rewards or DR ranges | step 1 | scratch |
 | Add real-rig data | step 2 | `--resume-buffer` |
-| Re-distill (new teacher or transport) | step 4 | existing teacher |
-| More DAgger rounds | step 4b | existing `--bc-dir` |
-| Re-flash with the same student | step 6 | existing `.h` |
+| Re-distill (new teacher or transport) | step 3 | existing teacher |
+| More DAgger rounds | step 3b | existing `--bc-dir` |
+| Re-flash with the same student | step 4 | existing `.h` |
 

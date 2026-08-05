@@ -48,6 +48,25 @@ async function copyDracoDecoder() {
   console.log(`prepare: draco decoder self-hosted (${needed.length} files)`);
 }
 
+/**
+ * Publish the wiring diagrams. They are authored at the repository root
+ * (alongside their .drawio source) and shared with the README, so the site
+ * copies rather than duplicates them — one file, one CAD revision.
+ */
+async function copyDiagrams() {
+  const from = path.resolve(SITE, '../diagrams');
+  const to = path.join(SITE, 'public/diagrams');
+  await fs.mkdir(to, { recursive: true });
+  const wanted = (await fs.readdir(from)).filter((f) => /\.(jpe?g|png|svg)$/i.test(f));
+  if (!wanted.length) {
+    throw new Error(`prepare: no diagram images found in ${from}`);
+  }
+  for (const file of wanted) {
+    await fs.copyFile(path.join(from, file), path.join(to, file));
+  }
+  console.log(`prepare: diagrams published (${wanted.length} images)`);
+}
+
 /** Fail early with a clear message if a committed demo asset is missing. */
 async function checkCommittedAssets() {
   const required = [
@@ -78,5 +97,6 @@ await checkCommittedAssets();
 
 await writeConstants();
 await writeWeights();
+await copyDiagrams();
 await copyDracoDecoder();
 console.log('prepare: done');

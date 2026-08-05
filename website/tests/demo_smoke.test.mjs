@@ -106,7 +106,9 @@ class CDP {
       returnByValue: true,
     });
     if (exceptionDetails) {
-      throw new Error(`demo_smoke: page threw — ${exceptionDetails.text}`);
+      const e = exceptionDetails.exception;
+      throw new Error(`demo_smoke: page threw — ${exceptionDetails.text}: ` +
+        `${e?.description ?? e?.value ?? JSON.stringify(exceptionDetails).slice(0, 600)}`);
     }
     return result.value;
   }

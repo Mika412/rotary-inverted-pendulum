@@ -8,7 +8,7 @@ reference; this doc is the *why* behind it.
 
 ## Wiring diagram
 
-<img src="../diagrams/system-without-batteries.jpg" height="600">
+<img src="/rotary-inverted-pendulum/diagrams/system-without-batteries.jpg" alt="Wiring diagram: Nano, stepper driver, AS5600 and motor on a single protoboard" height="600">
 
 All components live on a single 40 × 60 mm protoboard. The diagram
 above is the canonical layout; component-level photos are in
@@ -62,6 +62,46 @@ metric at once (5-minute captures at 50 Hz):
 
 Quieter *and* calmer: the halved arm motion is the same quantity that
 extensive reward-shaping experiments failed to improve in software.
+
+Read that as the *driver's* contribution with the policy held fixed, not as a
+ceiling on the DRV8825. A policy fine-tuned on the DRV8825 rig itself (90
+episodes) reaches 1.000 balanced / 299.6 s with mean |action| 0.275 and
+pendulum σ 1.83° — better than either column above — while still running a
+looser arm (σ 9.4°). So the DRV8825 costs rig time to compensate for rather
+than final quality; the TMC2209 gets there sooner and stays quieter.
+
+### Why it runs smoother
+
+Watch the tip of the arm at low speed and you can see the difference: a
+DRV8825 moves it in small jumps, a TMC2209 glides. Two reasons.
+
+**The TMC2209 smooths the gaps between your microsteps.** MS1/MS2 still set
+what one STEP pulse is worth — that is your command resolution, and it must
+match the sketches. But *between* those commanded positions the TMC2209 fills
+in up to 256 microsteps of its own (interpolation), so the coil currents move
+~8× more finely than the 1/32 you ask for. The DRV8825 goes straight to each
+commanded microstep and does nothing in between.
+
+**The two chips control coil current differently.** The TMC2209 sets coil
+*voltage* and lets the current follow (StealthChop), which tracks the ideal
+sine wave closely at low speed. The DRV8825 switches current on and off
+against a threshold (chopping), which is least accurate at *low* current —
+exactly where the in-between microsteps live. When the current misses its
+target the rotor is not where the step counter thinks, and the intermediate
+microsteps collapse toward the nearest full step. That collapse is the
+jumping you see.
+
+One limit applies to both: a single 1/32 microstep asks for only ~5 % of the
+motor's holding torque, roughly the same as the motor's own cogging (detent)
+torque. So the rotor tends to sit still until a few microsteps of command have
+built up, then snap to catch up. Finer microstepping only helps if the driver's
+current accuracy is good enough to be worth believing.
+
+For the RL controller this costs twice: the policy's `motor_pos` comes from the
+step counter, so mid-snap it is told a position the arm has not reached yet, and
+each snap is a small kick into the pendulum. Neither is modelled in sim, which
+is why the DRV8825 rig needed 90 fine-tuning episodes to reach the calmness the
+TMC2209 rig reached in 30. Learnable — but it costs rig time.
 
 ### Wiring — not a like-for-like pin swap
 
@@ -213,7 +253,7 @@ Smoothness does not depend on this choice on a TMC2209 — it interpolates
 every input step to 256 microsteps internally regardless. On a DRV8825
 the finer ratio does reduce position quantisation, but its microstep
 *current* accuracy does not improve much past 1/8, so expect a cleaner
-observation rather than dramatically quieter running.
+observation rather than dramatically quieter running ([why](#why-it-runs-smoother)).
 
 ## Power supply — 12 V, 2 A
 

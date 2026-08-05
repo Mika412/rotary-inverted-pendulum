@@ -10,6 +10,8 @@ export default defineConfig({
   site: `https://ferrolho.github.io`,
   base: `/${REPO}`,
   trailingSlash: 'always',
+  // The two test pages were folded into the steps they test. Published URLs
+  // outlive the structure, so keep them resolving.
   integrations: [
     starlight({
       title: 'Rotary Inverted Pendulum',
@@ -74,10 +76,8 @@ export default defineConfig({
             { label: '0. System identification', slug: 'train/sysid' },
             { label: '1. Train the teacher in sim', slug: 'train/sim-training' },
             { label: '2. Fine-tune on the rig', slug: 'train/fine-tune' },
-            { label: '3. Test the teacher', slug: 'train/test-teacher' },
-            { label: '4. Distill the student', slug: 'train/distill' },
-            { label: '5. Test the student', slug: 'train/test-student' },
-            { label: '6. Flash and score', slug: 'train/flash' },
+            { label: '3. Distill the student', slug: 'train/distill' },
+            { label: '4. Flash and score', slug: 'train/flash' },
             { label: 'Troubleshooting', slug: 'train/troubleshooting' },
           ],
         },
