@@ -119,6 +119,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--params-path", type=Path, default=None,
                    help="override the rig sysid file inherited from the "
                         "policy's config.json (see train_sac.py --params-path)")
+    p.add_argument("--firmware-obs-model", action=argparse.BooleanOptionalAction,
+                   default=None,
+                   help="override the measurement model inherited from the "
+                        "policy's config.json. --no-firmware-obs-model gives "
+                        "the policy clean observations — the sensitivity "
+                        "gate: a policy that collapses without the "
+                        "measurement model has overfitted its statistics "
+                        "and is not safe to deploy standalone")
     p.add_argument("--transport", choices=("device", "tethered"),
                    default="device",
                    help="which deployment transport to score under — "
@@ -140,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             "matching env (action mode, rate, smoothing window)")
     if args.params_path is not None:
         cfg["params_path"] = str(args.params_path)
+    if args.firmware_obs_model is not None:
+        cfg["firmware_obs_model"] = bool(args.firmware_obs_model)
     predict, label = _load_policy(policy_path, args.device)
     hz = float(cfg.get("control_freq_hz", 50.0))
 

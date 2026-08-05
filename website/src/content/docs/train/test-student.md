@@ -16,24 +16,32 @@ python run_policy.py \
     --duration-s 30
 ```
 
-## The offline pre-flight — do this one even if you skip the tethered run
+## The offline pre-flight: the sensitivity gate
 
-Undisturbed sim metrics can rank a policy *best* that then fails on the rig.
-That has happened here: one candidate had the lowest arm σ, the lowest
-off-centre and the highest gate of its cohort, and deployed at 0.803 with 44
-drops while its rivals held 1.000. Kicking the pendulum with a repeatable
-impulse is the only offline measurement that flagged it.
+Gate the policy twice in sim — once as trained, once with the firmware
+measurement model switched off (clean observations, identical physics):
 
 ```bash
-python analyze_sim.py runs/<run>_async/distill_h16_dagger_dev/student.pt \
-    --kick-amp 0.45 --kick-ticks 3 --kick-every-s 6 \
-    --episodes 24 --kick-episode-s 60
+python analyze_sim.py runs/<run>_async/distill_h16_dagger_dev/student.pt --episodes 20
+python analyze_sim.py runs/<run>_async/distill_h16_dagger_dev/student.pt --episodes 20 \
+    --no-firmware-obs-model
 ```
 
-**Read `arm walk / kick` and nothing else.** Good policies sit at 13–15°; the
-one that failed on the rig sat at 18.3°. Treat it as a pass/fail gate, not a
-ranking — the current champion scored *slightly worse* than its predecessor on
-every other line of that report and then deployed better than anything before
-it. `disturbance.py` records which metrics are worth what, and why critical
-kick amplitude measures the plant rather than the policy.
+A robust policy scores ≈ the same both ways (clean observations are strictly
+more information). A policy that **collapses without the measurement model**
+has overfitted the simulated measurement statistics instead of solving the
+control problem, and the real rig's statistics always deviate from the model
+— measured deviations include a ~10 ms actual velocity window vs the 8 ms
+modelled. Calibration from matched deployments: **fw-OFF ≥ ~0.7 deployed at
+1.000 standalone; fw-OFF ≤ ~0.3 spun (0.13–0.57), four out of four.**
+Brittleness is inherited from the teacher (largely seed luck), so gate the
+*curriculum teacher* the same way before spending any rig time — a brittle
+draw costs one CPU retrain with a new seed, not a wasted fine-tune.
+
+An earlier version of this page gated on the kick test's `arm walk / kick`
+with a 13–15° pass band. That threshold rested on one policy and failed its
+first out-of-sample test in both directions — a 19.6° student deployed at
+1.000 while a 9.4° one spun. The kick protocol remains useful for
+disturbance-recovery A/Bs between good policies (`disturbance.py` documents
+what each metric is worth); it is not a deployment gate.
 

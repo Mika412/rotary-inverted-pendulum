@@ -43,6 +43,13 @@ python finetune_async.py \
     --run-name async_v1_extend
 ```
 
+After the session, re-run the [sensitivity
+gate](/rotary-inverted-pendulum/train/test-student/) on the fine-tuned
+`best_model.zip` (with and without `--no-firmware-obs-model`). Fine-tuning has
+preserved observation-robustness in every lineage measured, so treat this as a
+cheap regression check — a collapse would mean the session taught the policy
+to exploit measurement statistics, and distilling it would waste the rig time.
+
 Architecture detail: [the async control
 runtime](/rotary-inverted-pendulum/reference/async-control/).
 

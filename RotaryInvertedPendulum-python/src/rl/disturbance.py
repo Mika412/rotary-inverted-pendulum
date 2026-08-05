@@ -63,12 +63,15 @@ whose rig behaviour is known (2026-07-26). Read this before trusting a number.
       RECOVER_DEG must sit near the policy's own pendulum std (~3 deg); at the
       old 10 deg default every kick reported 0.00 s.
 
-  ARM WALK PER KICK               THE ONE THAT WORKS. tmc_centred 17.0 deg vs
-      13.2-13.9 for the rest — it is the only metric here that isolates the
-      policy that deploys badly, and it agrees with what the rig measured
-      independently (arm sigma 17.1, arm speed 2.72). Use this one to decide
-      whether a policy is safe to deploy. Caveat: one known-bad policy is a
-      sample of one — treat the 13-15 vs 18+ boundary as indicative.
+  ARM WALK PER KICK               RETIRED AS A DEPLOYMENT GATE. It isolated
+      tmc_centred (17.0 vs 13.2-13.9 deg) but failed its first out-of-sample
+      test in BOTH directions: a 19.6 deg student deployed at 1.000/299 s
+      while a 9.4 deg student spun (177/221 kick drops). One known-bad policy
+      was a sample of one, and it did not generalise. The validated deploy
+      predictor is the fw-on/off sensitivity gate (see
+      website/src/content/docs/train/test-student.md); arm walk remains a
+      calmness-flavoured A/B number between policies already known to be
+      deployable.
 
 WHY THIS MODULE EARNS ITS KEEP: every UNDISTURBED sim metric ranks tmc_centred
 BEST of four policies (arm sigma 4.1 vs 6.2-9.4, off-centre 5.5 vs 7.0-34.6,
