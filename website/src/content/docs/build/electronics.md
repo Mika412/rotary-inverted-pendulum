@@ -8,11 +8,16 @@ reference; this doc is the *why* behind it.
 
 ## Wiring diagram
 
-<img src="/rotary-inverted-pendulum/diagrams/system-without-batteries.jpg" alt="Wiring diagram: Nano, stepper driver, AS5600 and motor on a single protoboard" height="600">
+<div class="tall-figure">
+
+![Wiring diagram: Nano, stepper driver, AS5600 and motor on a single protoboard](../../../assets/system-without-batteries.jpg)
+
+</div>
 
 All components live on a single 40 × 60 mm protoboard. The diagram
-above is the canonical layout; component-level photos are in
-[`../diagrams/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/diagrams).
+above is the canonical layout; its editable drawio source and the
+component-level photos are in
+[`diagrams/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/diagrams).
 
 ## Microcontroller — Arduino Nano (ATmega328P, 16 MHz)
 

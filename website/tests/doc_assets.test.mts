@@ -1,11 +1,15 @@
 /**
  * Verify every local asset the built pages reference actually ships.
  *
- * A broken <img> does not fail an Astro build: the tag is copied through
- * verbatim and only 404s in the visitor's browser. That is how the wiring
- * diagram on the electronics page pointed at the repository-root `diagrams/`
- * folder — a path that exists in the repo but never in `dist/` — and stayed
- * broken silently.
+ * A raw <img> does not fail an Astro build: the tag is copied through verbatim
+ * and only 404s in the visitor's browser. That is how the wiring diagram on the
+ * electronics page pointed at the repository-root `diagrams/` folder — a path
+ * that exists in the repo but never in `dist/` — and stayed broken silently.
+ *
+ * The file existing is not enough, either. `diagrams/**` is tracked by Git LFS,
+ * and CI's checkout does not fetch LFS objects, so the published "image" was a
+ * 131-byte text pointer served as image/jpeg: a 200 response that renders as a
+ * broken image. Hence the second check below.
  *
  * Runs against `dist/`, so it checks what is actually published, including
  * assets `scripts/prepare.mjs` copies in at build time.
@@ -56,7 +60,9 @@ check('the site built some pages', pages.length > 0, `${pages.length} html files
 // src/href values worth checking: same-origin paths that should resolve to a
 // file in dist. Skips external URLs, data URIs, anchors and mailto.
 const broken: string[] = [];
+const pointers: string[] = [];
 let checked = 0;
+const LFS_MAGIC = 'version https://git-lfs.github.com/spec/v1';
 
 for (const page of pages) {
   const html = await fs.readFile(page, 'utf8');
@@ -74,8 +80,10 @@ for (const page of pages) {
         : ref.slice(1)
       : path.relative(DIST, path.resolve(path.dirname(page), ref));
 
+    const file = path.join(DIST, rel.split('?')[0].split('#')[0]);
     try {
-      await fs.access(path.join(DIST, rel.split('?')[0].split('#')[0]));
+      const head = (await fs.readFile(file)).subarray(0, LFS_MAGIC.length).toString('utf8');
+      if (head === LFS_MAGIC) pointers.push(`${path.relative(DIST, page)} → ${ref}`);
     } catch {
       broken.push(`${path.relative(DIST, page)} → ${ref}`);
     }
@@ -86,6 +94,15 @@ check(
   'every local image reference resolves in dist',
   broken.length === 0,
   broken.join('\n       ')
+);
+check(
+  'no published image is a Git LFS pointer',
+  pointers.length === 0,
+  pointers.length
+    ? `${pointers.join('\n       ')}\n       ` +
+      `LFS objects are not fetched by CI's checkout. Keep site images out of ` +
+      `LFS-tracked paths (see .gitattributes) rather than adding lfs: true.`
+    : ''
 );
 check('the check actually looked at something', checked > 0, `${checked} references`);
 

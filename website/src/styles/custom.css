@@ -28,3 +28,11 @@
   overflow-x: auto;
   font-variant-numeric: tabular-nums;
 }
+
+/* Portrait figures — the wiring diagram is 1946 × 3046. At the full content
+   width it would run past a screen and a half, so cap the height and let the
+   width follow rather than shipping a picture nobody scrolls to the end of. */
+.sl-markdown-content .tall-figure img {
+  max-height: 600px;
+  width: auto;
+}
