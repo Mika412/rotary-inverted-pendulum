@@ -150,7 +150,7 @@ REWARD_MOTOR_POS_WEIGHT="${REWARD_MOTOR_POS_WEIGHT:-}"
 # empty to fall back to the env default.
 DR_OBS_STALENESS_MAX="${DR_OBS_STALENESS_MAX-0.020}"
 REWARD_MOTOR_VEL_WEIGHT="${REWARD_MOTOR_VEL_WEIGHT:-}"
-# Per-rig sysid file. Unset → sysid_params_tmc2209.json (the default). Set it
+# Per-rig sysid file. Unset → sysid_params_rig1.json (the default). Set it
 # when you have more than one rig: bearings and grease differ, and a different
 # bearing lands outside the friction DR range rather than inside it.
 PARAMS_PATH="${PARAMS_PATH:-}"
@@ -247,7 +247,7 @@ fi
 if [ -n "$PARAMS_PATH" ]; then
     echo "  rig sysid: $PARAMS_PATH"
 else
-    echo "  rig sysid: sysid_params_tmc2209.json (default)"
+    echo "  rig sysid: sysid_params_rig1.json (default)"
 fi
 echo "  control rate: ${CONTROL_FREQ} Hz, max accel: ${MAX_ACCEL_RAD_S2} rad/s²"
 echo "  stage 2 delay: [${DR_DELAY_MIN_S2}, ${DR_DELAY_MAX_S2}] ticks + lag tau [$(awk -v t="$DR_LAG_TAU_MIN_S2" 'BEGIN{ printf "%.0f", t*1000 }'), $(awk -v t="$DR_LAG_TAU_MAX_S2" 'BEGIN{ printf "%.0f", t*1000 }')] ms"

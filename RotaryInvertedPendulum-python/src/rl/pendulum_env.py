@@ -59,7 +59,7 @@ HERE = Path(__file__).resolve().parent
 # rather than a generic `sysid_params.json`, so a multi-rig setup cannot
 # silently train against whichever rig happened to be measured last. Pass
 # `--params-path` for any other rig; see reference/python.md.
-DEFAULT_PARAMS_PATH = HERE / "sysid_params_tmc2209.json"
+DEFAULT_PARAMS_PATH = HERE / "sysid_params_rig1.json"
 
 # Hard-stop on the motor joint. Matches the lid-boss mechanical limit of ±135°,
 # but we clamp the policy at ±125° so the policy never *commands* a stop hit.

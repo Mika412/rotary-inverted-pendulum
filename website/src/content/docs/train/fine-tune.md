@@ -111,17 +111,32 @@ to remove the tether.
 ## How many episodes?
 
 More than the eval curve suggests. Deterministic-eval reward flattens early —
-it moved ~2% per block across the DRV8825 rig's last two blocks — while the
-metrics you actually care about kept improving sharply over 30 → 60 → 90
-episodes:
+and in one measured block it went *backwards* — while the metrics you actually
+care about kept improving sharply. Two lineages on the same rig, both from a
+sim teacher, differing only in stepper driver:
 
-| | 30 ep | 60 ep | 90 ep |
-| --- | --- | --- | --- |
-| arm sway <1 s | 15.1° | 8.25° | 5.10° |
-| arm speed RMS | 2.98 | 1.43 | 0.86 |
-| \|action\| mean | 0.623 | 0.313 | 0.275 |
-| pendulum std | 6.74° | 3.23° | 1.83° |
+| | \[DRV8825] 30 ep | 60 ep | 90 ep | | \[TMC2209] 30 ep | 60 ep |
+| --- | --- | --- | --- | --- | --- | --- |
+| arm sway <1 s | 15.1° | 8.25° | 5.10° | | 4.22° | **3.23°** |
+| arm speed RMS | 2.98 | 1.43 | 0.86 | | 0.76 | **0.58** |
+| \|action\| mean | 0.623 | 0.313 | 0.275 | | 0.236 | **0.177** |
+| pendulum std | 6.74° | 3.23° | 1.83° | | 1.62° | **1.23°** |
+| balanced | 0.972 | 1.000 | 1.000 | | 0.993 | **1.000** |
 
 So **judge a block by the standalone capture, not by the eval reward**, and
 keep extending while the capture keeps getting calmer. Sessions chain through
-`--resume-buffer`, so this costs nothing but rig time.
+`--resume-buffer`, so this costs nothing but rig time — a 30-episode block is
+about six minutes.
+
+Two things the second lineage settles:
+
+**A smoother driver is worth roughly 3× the rig time.** The TMC2209 reached in
+30 episodes what the DRV8825 needed 90 for, and kept going. See [why it runs
+smoother](/rotary-inverted-pendulum/build/electronics/#why-it-runs-smoother).
+
+**Keep extending even after `best_model` stops advancing.** The TMC lineage's
+second block set its best deterministic eval at episode 5 and never beat it, so
+the promoted teacher had 35 episodes behind it — yet its student halved
+`|action|` versus the 30-episode one. The gain came through the *distill*: the
+replay buffer holds every episode, and the teacher relabels all of it, so more
+rig time buys state coverage even when the checkpoint stops improving.

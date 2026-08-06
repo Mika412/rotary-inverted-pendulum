@@ -68,12 +68,25 @@ metric at once (5-minute captures at 50 Hz):
 Quieter *and* calmer: the halved arm motion is the same quantity that
 extensive reward-shaping experiments failed to improve in software.
 
-Read that as the *driver's* contribution with the policy held fixed, not as a
-ceiling on the DRV8825. A policy fine-tuned on the DRV8825 rig itself (90
-episodes) reaches 1.000 balanced / 299.6 s with mean |action| 0.275 and
-pendulum σ 1.83° — better than either column above — while still running a
-looser arm (σ 9.4°). So the DRV8825 costs rig time to compensate for rather
-than final quality; the TMC2209 gets there sooner and stays quieter.
+Read that as the *driver's* contribution with the policy held fixed. Both
+columns are beaten by policies fine-tuned on the rig itself, so the interesting
+question is what the driver costs once each side is trained properly.
+
+That comparison has since been run on one rig, swapping only the driver and
+retraining from the same simulation teacher:
+
+| after fine-tuning    | DRV8825, 90 ep | TMC2209, 30 ep | TMC2209, 60 ep |
+| -------------------- | -------------- | -------------- | -------------- |
+| balanced fraction    | 1.000          | 0.993          | 1.000          |
+| mean \|action\|      | 0.275          | 0.236          | **0.177**      |
+| pendulum angle σ     | 1.83°          | 1.62°          | **1.23°**      |
+| arm angle σ          | 9.4°           | 11.1°          | **6.3°**       |
+| arm speed RMS        | 0.86           | 0.76           | **0.58**       |
+
+The TMC2209 matched 90 episodes of DRV8825 tuning in 30 — about six minutes of
+rig time against eighteen — and kept improving from there. Whether the DRV8825
+would eventually catch up given more episodes was not tested; what is measured
+is that it is behind at every budget tried.
 
 ### Why it runs smoother
 

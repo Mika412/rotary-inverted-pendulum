@@ -783,7 +783,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     pf.add_argument("--in-dir", required=True, type=Path)
     pf.add_argument("--out-json", required=True, type=Path,
                     help="where to write the fitted parameters, e.g. "
-                         "sysid_params_tmc2209.json. Required rather than "
+                         "sysid_params_rig1.json. Required rather than "
                          "defaulted: friction is per-rig, so writing to a "
                          "generic filename is how one rig's measurements end "
                          "up silently describing another.")
@@ -799,7 +799,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--skip-motor", action="store_true")
     p.add_argument("--out-json", required=True, type=Path,
                    help="where to write the fitted parameters, e.g. "
-                        "sysid_params_tmc2209.json. Required rather than "
+                        "sysid_params_rig1.json. Required rather than "
                         "defaulted: friction is per-rig, so writing to a "
                         "generic filename is how one rig's measurements end "
                         "up silently describing another.")

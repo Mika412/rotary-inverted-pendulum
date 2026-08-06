@@ -42,10 +42,13 @@ arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
 ```
 
 With no `--build-property`, the sketch compiles its committed default —
-the reference rig's champion (`policy_weights_tmc2209_32.h`). Champions for
-other rig configurations live alongside it, named
-`policy_weights_<driver>_<microsteps>.h`; to promote a new champion, export to
-the named header for your rig and commit it.
+the reference rig's champion (`policy_weights_rig1_tmc2209_32.h`). Champions for
+other rigs live alongside it, named
+`policy_weights_<rig>_<driver>_<microsteps>.h`; to promote a new champion, export
+to the named header for your rig and commit it. The rig comes first because it is
+what actually distinguishes two champions — each is fine-tuned against its own
+measured friction, so the same driver and microstep setting on a different rig is
+a different policy.
 
 Keep the pendulum hanging straight down through the 1 s settle delay
 after boot (LED solid HIGH) — that pose becomes the encoder zero for

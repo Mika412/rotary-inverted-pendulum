@@ -15,7 +15,6 @@ import { readWeightsSource } from './extract_constants.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, '..');
 const REPO = path.resolve(SITE, '..');
-const WEIGHTS = 'RotaryInvertedPendulum-arduino/RLControl/policy_weights.h';
 
 const FLOAT = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?f?/g;
 
@@ -24,12 +23,12 @@ const FLOAT = /[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?f?/g;
  * bias vectors are a flat brace-less list. Returns number[][] either way,
  * with a bias vector shaped as a single row.
  */
-function readArray(src, name) {
+function readArray(src, name, file) {
   const re = new RegExp(
     `POLICY_${name}\\s*(?:\\[[^\\]]*\\])+\\s*PROGMEM\\s*=\\s*\\{([\\s\\S]*?)\\n\\s*\\};`
   );
   const m = src.match(re);
-  if (!m) throw new Error(`export_weights: POLICY_${name} not found in ${WEIGHTS}`);
+  if (!m) throw new Error(`export_weights: POLICY_${name} not found in ${file}`);
 
   const body = m[1];
   const rows = [...body.matchAll(/\{([^}]*)\}/g)].map((r) =>
@@ -47,7 +46,7 @@ function expectShape(arr, rows, cols, name) {
 }
 
 export async function exportWeights() {
-  const src = await readWeightsSource();
+  const { path: WEIGHTS, source: src } = await readWeightsSource();
 
   const obsDim = Number(src.match(/#define\s+POLICY_OBS_DIM\s+(\d+)/)?.[1]);
   const hidden = Number(src.match(/#define\s+POLICY_HIDDEN_DIM\s+(\d+)/)?.[1]);
@@ -56,12 +55,12 @@ export async function exportWeights() {
     throw new Error(`export_weights: could not read POLICY_*_DIM from ${WEIGHTS}`);
   }
 
-  const w1 = readArray(src, 'W1');
-  const b1 = readArray(src, 'B1')[0];
-  const w2 = readArray(src, 'W2');
-  const b2 = readArray(src, 'B2')[0];
-  const w3 = readArray(src, 'W3');
-  const b3 = readArray(src, 'B3')[0];
+  const w1 = readArray(src, 'W1', WEIGHTS);
+  const b1 = readArray(src, 'B1', WEIGHTS)[0];
+  const w2 = readArray(src, 'W2', WEIGHTS);
+  const b2 = readArray(src, 'B2', WEIGHTS)[0];
+  const w3 = readArray(src, 'W3', WEIGHTS);
+  const b3 = readArray(src, 'B3', WEIGHTS)[0];
 
   expectShape(w1, hidden, obsDim, 'W1');
   expectShape(w2, hidden, hidden, 'W2');

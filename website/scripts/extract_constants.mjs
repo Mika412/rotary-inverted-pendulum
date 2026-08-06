@@ -21,7 +21,9 @@ const SITE = path.resolve(HERE, '..');
 const REPO = path.resolve(SITE, '..');
 
 const RLCONTROL = 'RotaryInvertedPendulum-arduino/RLControl/RLControl.ino';
-const WEIGHTS = 'RotaryInvertedPendulum-arduino/RLControl/policy_weights.h';
+// Directory the weights headers live in. Which one is current is decided by the
+// sketch, not here — see readWeightsSource().
+const SKETCH_DIR = 'RotaryInvertedPendulum-arduino/RLControl';
 const ENV = 'RotaryInvertedPendulum-python/src/rl/pendulum_env.py';
 
 /** Pull a `const <type> NAME = <number>;` declaration out of C++ source. */
@@ -59,12 +61,15 @@ export async function readWeightsSource() {
   const ino = await fs.readFile(path.join(REPO, RLCONTROL), 'utf8');
   const m = ino.match(/#define\s+POLICY_WEIGHTS_H\s+"([^"]+)"/);
   if (!m) throw new Error('extract_constants: no POLICY_WEIGHTS_H default in RLControl.ino');
-  return fs.readFile(path.join(REPO, path.dirname(WEIGHTS), m[1]), 'utf8');
+  // Report the file actually read: the header names change as champions are
+  // promoted, and provenance that names a fixed path would be a lie.
+  const rel = `${SKETCH_DIR}/${m[1]}`;
+  return { path: rel, source: await fs.readFile(path.join(REPO, rel), 'utf8') };
 }
 
 export async function extractConstants() {
   const ino = await fs.readFile(path.join(REPO, RLCONTROL), 'utf8');
-  const weights = await readWeightsSource();
+  const { path: WEIGHTS, source: weights } = await readWeightsSource();
   const env = await fs.readFile(path.join(REPO, ENV), 'utf8');
 
   const microsteps = cppConst(ino, 'MICROSTEPS', RLCONTROL);

@@ -127,7 +127,7 @@ sysid_runs/2026-05-20_HHMMSS/
 
 The fitted parameters go wherever `--out-json` says. Name the rig: the flag is
 required precisely so one rig's friction cannot silently end up describing
-another. `pendulum_env.py` falls back to `sysid_params_tmc2209.json` when no
+another. `pendulum_env.py` falls back to `sysid_params_rig1.json` when no
 `--params-path` is given.
 
 ## What the math does

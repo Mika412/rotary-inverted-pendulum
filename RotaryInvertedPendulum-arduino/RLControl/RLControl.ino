@@ -73,15 +73,16 @@
 #include <AS5600.h>
 #include <Wire.h>
 
-// Which champion header to compile. Named per rig as
-// policy_weights_<driver>_<microsteps>.h — the suffix carries the driver AND
-// its MICROSTEPS setting because the policy is trained against that
-// quantisation. Select at compile time, no file edits:
+// Which champion header to compile. Named policy_weights_<rig>_<driver>_<microsteps>.h:
+// the rig because each one is fine-tuned against its own measured friction, the
+// driver and MICROSTEPS because the policy is trained against that quantisation.
+// Both rigs now run TMC2209s, which is why the rig comes first — the driver alone
+// stopped identifying a champion. Select at compile time, no file edits:
 //   arduino-cli compile --upload -p <port> --fqbn arduino:avr:nano:cpu=atmega328 \
-//     --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_drv8825_32.h"' \
+//     --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_rig2_tmc2209_32.h"' \
 //     RotaryInvertedPendulum-arduino/RLControl
 #ifndef POLICY_WEIGHTS_H
-#define POLICY_WEIGHTS_H "policy_weights_tmc2209_32.h"
+#define POLICY_WEIGHTS_H "policy_weights_rig1_tmc2209_32.h"
 #endif
 #include POLICY_WEIGHTS_H
 

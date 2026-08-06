@@ -49,8 +49,8 @@ bearings need different sysid files. `--out-json` is required, so every
 measurement names the rig it describes:
 
 ```bash
-uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_tmc2209.json
-uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_drv8825.json
+uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_rig1.json
+uv run python sysid_wizard.py --port <PORT> --out-json sysid_params_rig2.json
 ```
 
 Then pass `--params-path` when training. **The path is recorded in the run's

@@ -126,5 +126,5 @@ To flash this student for a trial (scratch header, committed champions untouched
         --log recordings/$RUN.npz
 
 To PROMOTE it, export to the named header for the rig instead
-(policy_weights_<driver>_<microsteps>.h) and commit.
+(policy_weights_<rig>_<driver>_<microsteps>.h) and commit.
 EOF

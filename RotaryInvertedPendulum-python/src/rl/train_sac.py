@@ -607,9 +607,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
                         "(recorded in config.json).")
     p.add_argument("--params-path", type=Path, default=None,
                    help="sysid params file describing the rig this policy is "
-                        "for. Default None → sysid_params_tmc2209.json next to "
+                        "for. Default None → sysid_params_rig1.json next to "
                         "pendulum_env.py. Use a per-rig file (e.g. "
-                        "sysid_params_tmc2209.json) when rigs differ "
+                        "sysid_params_rig1.json) when rigs differ "
                         "mechanically — bearings and grease change the "
                         "measured friction, and the value is outside the DR "
                         "range if the bearing itself is different. Recorded in "
