@@ -1,0 +1,30 @@
+[project]
+name = "rotary-inverted-pendulum-policy"
+version = "0.0.0"
+description = "Sim environment, SAC training, system identification, distillation and deployment clients for the rotary inverted pendulum."
+requires-python = ">=3.12"
+
+# Derived from the imports actually present in this directory (plus
+# website/scripts/export_assets.py, which runs against this environment via
+# `uv run --project ../policy`). Deliberately NOT `stable-baselines3[extra]`:
+# that pulls opencv, whose wheels have repeatedly shadowed the project's numpy
+# and produced `_ARRAY_API not found` at import time. The only thing this
+# project wanted from `[extra]` was TensorBoard, so it is named directly.
+dependencies = [
+    "numpy",
+    "scipy",
+    "mujoco",
+    "gymnasium",
+    "stable-baselines3",
+    "torch>=2.4",
+    "tensorboard",
+    "matplotlib",
+    "pyserial",
+    # STL → glTF for the documentation site's 3D demo (export_assets.py only).
+    "trimesh",
+]
+
+[tool.uv]
+# The modules here are flat scripts run from this directory
+# (`uv run python train_sac.py …`), not an installable package.
+package = false
