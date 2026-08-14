@@ -28,6 +28,15 @@ main-thread requirements.
 ```bash
 uv run mjpython train_sac.py --eval …
 ```
+
+If you would rather activate the environment once than prefix every command,
+source `policy/activate.sh` instead of `.venv/bin/activate` — it also exports
+`DYLD_FALLBACK_LIBRARY_PATH` so the viewer can find `libpython`, which the
+plain activate script does not do.
+
+```bash
+cd policy && uv sync && . ./activate.sh
+```
 :::
 
 ## The simulation

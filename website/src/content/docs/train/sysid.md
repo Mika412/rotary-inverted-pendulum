@@ -41,8 +41,8 @@ rates, firmware logic, or adding new recording steps.
 
 ## Prerequisites
 
-- Python env: `mamba activate rotary-inverted-pendulum` with
-  `numpy`, `scipy`, `pyserial`, `matplotlib`, `mujoco` installed.
+- The `policy/` environment — `uv` creates it on first use, so `cd policy`
+  and prefix commands with `uv run`. Nothing to install by hand.
 - `LowLevelServer.ino` flashed onto the Arduino Nano. Auto-magnet-detect
   at boot; the firmware halts in `setup()` until it sees the pendulum
   magnet.
