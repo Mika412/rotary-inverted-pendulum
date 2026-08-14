@@ -68,7 +68,7 @@ async function checkCommittedAssets() {
   if (missing.length) {
     throw new Error(
       `prepare: missing committed demo assets:\n  ${missing.join('\n  ')}\n` +
-        `Regenerate them with:\n  uv run --project ../RotaryInvertedPendulum-python ` +
+        `Regenerate them with:\n  uv run --project ../policy ` +
         `python scripts/export_assets.py`
     );
   }

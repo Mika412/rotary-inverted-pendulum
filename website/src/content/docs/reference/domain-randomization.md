@@ -30,7 +30,7 @@ Or, equivalently, run the full curriculum:
 ```
 
 The flag flips a single boolean on the env
-([`pendulum_env.py:248`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L248)).
+([`pendulum_env.py:248`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L248)).
 When off, the env runs deterministically against the nominal
 sysid params — useful for debugging but **never** for the policy that
 will be deployed.
@@ -39,14 +39,14 @@ The **eval env always stays deterministic** (DR off), so best-model
 selection during training tracks performance on the nominal-physics
 reference scenario instead of being washed out by sample-to-sample
 randomisation noise. See
-[`train_sac.py:86`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/train_sac.py#L86).
+[`train_sac.py:86`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/train_sac.py#L86).
 
 ## What is randomized
 
 All ranges are defined as module constants in
-[`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97).
+[`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L61-L97).
 Most are sampled **once per episode** in
-[`_sample_dr_params`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L384);
+[`_sample_dr_params`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L384);
 the dt-jitter and observation noise are sampled **per step**.
 
 ### Physical parameters (per episode)
@@ -59,10 +59,10 @@ the dt-jitter and observation noise are sampled **per step**.
 | Motor joint stiction (`frictionloss`)       | [0.0, 0.005] N·m     | `DR_MOTOR_FRICTIONLOSS_RANGE_N_M = (0.0, 0.005)` | Steppers have detent torque that the position actuator doesn't capture; lower bound includes 0 for backward compat with Phase 2 policies trained without stiction.                                                                                                  |
 
 Nominal values come from
-[`sysid_params_<rig>.json`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/sysid_params_rig1.json),
+[`sysid_params_<rig>.json`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/sysid_params_rig1.json),
 written by the Phase 0 sysid pipeline. **Pendulum inertia about its own
 COM** (`PENDULUM_I_COM_SWING_KG_M2` at
-[`pendulum_env.py:71`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L71))
+[`pendulum_env.py:71`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L71))
 is hard-coded from Onshape CAD rather than back-computed from sysid
 `I_axis − m·d²` — it's a geometric property of the part, not a quantity
 that varies with rebuilds, so it isn't randomised. MuJoCo applies
@@ -113,7 +113,7 @@ inherited by `eval_randomized.py`.
 ## Curriculum staging
 
 Training in three stages
-([`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/curriculum_train.sh))
+([`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/curriculum_train.sh))
 is more reliable than one shot at full DR width. Each stage `--resume`s
 from the last so capabilities accumulate.
 
@@ -141,7 +141,7 @@ the policy to learn recovery from arbitrary starts:
   the reset clear of the ±125° clamp while covering most of the working
   range. Without this, the policy never practises returning from the
   limit and gets stuck there at deploy time
-  ([`pendulum_env.py:362-374`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L362-L374)).
+  ([`pendulum_env.py:362-374`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L362-L374)).
 - **Pendulum start**: hanging-down ± 0.05 rad (small noise around the
   natural rest angle).
 
@@ -152,10 +152,10 @@ training-state coverage, not modelling-error robustness.
 
 | Knob                                | Default                              | Where it's set / read                                                                                                                                                           |
 | ----------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Module constants (`DR_*`)           | as above                             | [`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L61-L97)                                                                                      |
-| Per-instance overrides (curriculum) | None → fall back to module constants | `RotaryInvertedPendulumEnv.__init__` ([`pendulum_env.py:255-284`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py#L255-L284))                                           |
-| CLI overrides                       | unset → module defaults              | `train_sac.py` flags `--dr-tau-min/max`, `--dr-delay-min/max`, `--dr-dt-jitter-frac` ([`train_sac.py:198-226`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/train_sac.py#L198-L226)) |
-| Curriculum stage values             | hard-coded ms targets                | [`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/curriculum_train.sh)                                                                                            |
+| Module constants (`DR_*`)           | as above                             | [`pendulum_env.py:61-97`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L61-L97)                                                                                      |
+| Per-instance overrides (curriculum) | None → fall back to module constants | `RotaryInvertedPendulumEnv.__init__` ([`pendulum_env.py:255-284`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py#L255-L284))                                           |
+| CLI overrides                       | unset → module defaults              | `train_sac.py` flags `--dr-tau-min/max`, `--dr-delay-min/max`, `--dr-dt-jitter-frac` ([`train_sac.py:198-226`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/train_sac.py#L198-L226)) |
+| Curriculum stage values             | hard-coded ms targets                | [`curriculum_train.sh`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/curriculum_train.sh)                                                                                            |
 
 ## Editing the ranges
 

@@ -427,7 +427,7 @@ def collect_data(args: argparse.Namespace) -> Path:
     print(_bold(f"\nRecording session: {out_dir}"))
     print(_dim(f"Port: {port}"))
     print(_dim(
-        "  Pendulum geometry (mass, COM, I_com) is loaded from urdf/model.urdf"
+        "  Pendulum geometry (mass, COM, I_com) is loaded from model/model.urdf"
         " — no operator measurement needed."
     ))
 
@@ -545,7 +545,7 @@ def fit_data(in_dir: Path, out_json: Path) -> dict:
     print(_dim(f"    (the rig deploys at {CONTROL_FREQ_HZ:.0f} Hz; this run won't change that)"))
 
     # Write the JSON. Schema: only friction is per-rig and lives here;
-    # mass/COM/I_com come from urdf/model.urdf via pendulum_geometry. The
+    # mass/COM/I_com come from model/model.urdf via pendulum_geometry. The
     # measured/predicted inertia pair is included for traceability.
     pendulum_payload = {
         "derived": {

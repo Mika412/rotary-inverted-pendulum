@@ -17,17 +17,18 @@ reference; this doc is the *why* behind it.
 All components live on a single 40 × 60 mm protoboard. The diagram
 above is the canonical layout; its editable drawio source and the
 component-level photos are in
-[`diagrams/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/diagrams).
+[`hardware/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/hardware).
 
 ## Microcontroller — Arduino Nano (ATmega328P, 16 MHz)
 
 - 32 KB flash / 2 KB SRAM is enough for the [LowLevelServer binary
-  protocol](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino)
+  protocol](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/firmware/LowLevelServer/LowLevelServer.ino)
   plus AS5600 I/O plus AccelStepper at 1 kHz internal step rate. The
-  on-device PID variant fits too, with margin.
-- Heavy lifting (RL inference, MPC, sysid) runs on the host PC. The
-  Nano shuttles state and commands at 2 Mbaud — it doesn't need MCU
-  horsepower.
+  distilled policy fits too, with margin — 689 parameters in 2.7 KB of
+  flash.
+- During training, the heavy lifting (sysid fitting, SAC, distillation)
+  runs on the host PC and the Nano just shuttles state and commands at
+  2 Mbaud. Once the policy is distilled and flashed, the host is gone.
 - USB-C variant preferred over Mini/Micro for connector durability —
   the rig gets re-plugged frequently during firmware iteration.
 - Any CH340-based clone works; driver is built into modern macOS / Linux.
@@ -317,7 +318,7 @@ current is unused. What actually matters more than headline amps:
 ## Magnetic encoder — AS5600
 
 - **12-bit absolute angle** → 2π / 4096 rad ≈ 0.088° resolution.
-  Quantisation is modelled in [`pendulum_env.py`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/RotaryInvertedPendulum-python/src/rl/pendulum_env.py)
+  Quantisation is modelled in [`pendulum_env.py`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/policy/pendulum_env.py)
   (`PENDULUM_LSB_RAD`) so the policy sees the same step size sim
   and real.
 - **Contactless / magnetic** → zero friction on the pendulum joint,

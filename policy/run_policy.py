@@ -4,7 +4,7 @@ Accepts either:
   - a Stable-Baselines3 SAC checkpoint (`.zip`) — the standard teacher path, or
   - a distilled student MLP (`.pt`) produced by `distill.py` — used to
     validate the student on the rig before flashing
-    `RotaryInvertedPendulum-arduino/RLControl/RLControl.ino`.
+    `firmware/RLControl/RLControl.ino`.
 
 Drives the device through the LowLevelServer binary protocol at a fixed
 control rate. The observation matches what `pendulum_env.py` produces:

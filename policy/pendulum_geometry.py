@@ -2,8 +2,8 @@
 
 Single source of truth for mass / COM / inertia of the pendulum body:
 - Onshape CAD is the authoring tool.
-- `urdf/model.urdf` is the exported, canonical robot description (also
-  consumed by Julia/MeshCat/RigidBodyDynamics for MPC + visualisation).
+- `model/model.urdf` is the exported, canonical robot description (also
+  the source the website's 3D demo exports its glTF meshes from).
 - This module parses the URDF on import and exposes three constants:
     PENDULUM_MASS_KG, PENDULUM_COM_M, PENDULUM_I_COM_SWING_KG_M2.
 
@@ -23,9 +23,9 @@ from pathlib import Path
 
 
 # Repo layout:
-#   <repo>/RotaryInvertedPendulum-python/src/rl/pendulum_geometry.py
-#   <repo>/urdf/model.urdf
-URDF_PATH = Path(__file__).resolve().parents[3] / "urdf" / "model.urdf"
+#   <repo>/policy/pendulum_geometry.py
+#   <repo>/model/model.urdf
+URDF_PATH = Path(__file__).resolve().parents[1] / "model" / "model.urdf"
 
 
 def _load_pendulum_geometry(urdf_path: Path) -> tuple[float, float, float]:
@@ -37,7 +37,7 @@ def _load_pendulum_geometry(urdf_path: Path) -> tuple[float, float, float]:
       matching the `arm_to_pendulum` joint axis) to the COM. Equals
       sqrt(y² + z²) of the inertial origin — the x-component is *along*
       the rotation axis and has no effect on swing dynamics (see URDF
-      note in `urdf/model.urdf`).
+      note in `model/model.urdf`).
     - I_com_swing_kg_m2: pendulum's moment of inertia about its own COM
       along the swing axis (ixx of the inertia tensor at COM).
     """

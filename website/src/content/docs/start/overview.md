@@ -28,8 +28,7 @@ pendulum. That constraint is what shapes the entire training pipeline.
 
 **Tethered.** The Nano acts as a low-level server over USB serial; a laptop
 reads state, decides an action, and sends it back. This is how the policy is
-trained and fine-tuned, and how any computer-side controller (MPC, LQR) would
-run.
+fine-tuned on the real rig, and how any computer-side controller would run.
 
 **Standalone.** The controller runs entirely on the Nano, no laptop attached.
 This is the end state, and getting there is most of what the documentation

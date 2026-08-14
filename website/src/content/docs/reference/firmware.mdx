@@ -6,12 +6,12 @@ description: What each Arduino sketch is for, and the hardware constants they sh
 import Constants from '../../../components/ConstantsTable.astro';
 
 All sketches target the Arduino Nano (ATmega328) and live in
-[`RotaryInvertedPendulum-arduino/`](https://github.com/ferrolho/rotary-inverted-pendulum/tree/main/RotaryInvertedPendulum-arduino).
+[`firmware/`](https://github.com/ferrolho/rotary-inverted-pendulum/tree/main/firmware).
 
 ```bash
 arduino-cli compile --upload -p <PORT> \
     --fqbn arduino:avr:nano:cpu=atmega328 \
-    RotaryInvertedPendulum-arduino/<SketchName>
+    firmware/<SketchName>
 ```
 
 ## Production sketches
@@ -31,15 +31,8 @@ from hanging, and balances.
 ### `LowLevelServer`
 
 Turns the Nano into a state/command server so a laptop can close the loop. Used
-for real-rig fine-tuning and by the Julia clients. See [serial
+for real-rig fine-tuning (step 2) by `lowlevel_client.py`. See [serial
 protocols](/rotary-inverted-pendulum/reference/serial-protocol/).
-
-### `PIDControl`
-
-Self-contained hand-tuned PID. Balances but does not swing up — lift the
-pendulum to within ~25° of vertical and it engages. Predates the learned
-controller; see the [tuning
-history](/rotary-inverted-pendulum/reference/pid-tuning-history/).
 
 ## Test sketches
 
@@ -88,7 +81,7 @@ Every accumulating sketch therefore rejects implausible per-sample jumps
 (**> 500 LSB**, about 44°, far beyond anything the pendulum can do in one 2 ms
 sample) by returning the previous value:
 
-- Guarded: `LowLevelServer`, `RLControl`, `PIDControl`.
+- Guarded: `LowLevelServer`, `RLControl`.
 - Deliberately **not** guarded: `TestEncoder` — seeing the raw glitches is the
   entire point of that sketch.
 

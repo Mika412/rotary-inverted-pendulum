@@ -28,7 +28,7 @@ Every flash command below follows the same shape (run from the repository root):
 ```bash
 arduino-cli compile --upload -p <PORT> \
     --fqbn arduino:avr:nano:cpu=atmega328 \
-    RotaryInvertedPendulum-arduino/<SketchName>
+    firmware/<SketchName>
 ```
 
 :::caution
@@ -94,8 +94,8 @@ error.
 Echoes bytes so you can measure round-trip time:
 
 ```bash
-julia --project=./RotaryInvertedPendulum-julia \
-    ./RotaryInvertedPendulum-arduino/TestSerial/measure_serial_rtt.jl <PORT> 115200
+cd policy
+uv run python measure_serial_rtt.py --port <PORT>
 ```
 
 Expect roughly **2.5 ms** round trip, implying about 400 Hz theoretical maximum.
@@ -109,32 +109,16 @@ Opening a serial port resets the Nano, and naive `cat` or `stty` usage tends to
 either double-reset the board or capture stale buffered data. Use the helper:
 
 ```bash
-./RotaryInvertedPendulum-arduino/scripts/monitor_serial.sh <PORT> <BAUD> <DURATION>
+./firmware/scripts/monitor_serial.sh <PORT> <BAUD> <DURATION>
 ```
 
 It handles the reset and flushes the buffer first, giving clean output.
 
-## Optional: the hand-tuned PID
+## Next
 
-Before the learned controller, this rig balanced with a PID running entirely on
-the Nano. It is a good confidence check that your mechanics are sound, and it
-needs no laptop after flashing.
-
-```bash
-arduino-cli compile --upload -p <PORT> \
-    --fqbn arduino:avr:nano:cpu=atmega328 \
-    RotaryInvertedPendulum-arduino/PIDControl
-```
-
-Serial runs at 500000 baud. `P` toggles CSV data output at 100 Hz, `M` shows
-magnet status, `R` resets the PID state. The gains and the reasoning behind them
-are in the [tuning
-history](/rotary-inverted-pendulum/reference/pid-tuning-history/).
-
-:::note
-The PID engages only when the pendulum is already near vertical — it does not
-swing up. Lift the pendulum by hand to within about 25° of upright and it will
-take over. Swinging up from hanging is something the learned policy does and the
-PID does not.
-:::
+The rig is verified. Go to [step 0 — system
+identification](/rotary-inverted-pendulum/train/sysid/) to measure the friction
+parameters the simulation needs, or read [the pipeline end to
+end](/rotary-inverted-pendulum/train/pipeline/) first for the shape of what
+follows.
 

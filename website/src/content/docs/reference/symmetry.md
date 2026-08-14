@@ -66,7 +66,7 @@ mirror augmentation start teaching SAC physics the rig doesn't have.
 distilled `student.pt`, or `policy_weights.h` itself:
 
 ```
-$ python analyze_symmetry.py ../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h
+$ python analyze_symmetry.py ../firmware/RLControl/policy_weights.h
   RMS |pi(s) + pi(Ms)|:    0.9959   (0 = equivariant)
   relative asymmetry:      1.157   (0 = equivariant, ~1.41 = unrelated)
   action at engage state:  -0.3637   (0 = no baked-in swing direction)

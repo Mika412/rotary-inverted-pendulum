@@ -1,7 +1,7 @@
 """Python client for the LowLevelServer Arduino sketch.
 
 Speaks the binary protocol defined at the top of
-RotaryInvertedPendulum-arduino/LowLevelServer/LowLevelServer.ino:
+firmware/LowLevelServer/LowLevelServer.ino:
     0x01 READY               -> board echoes 0x01
     0x02 GET_STATE           -> board returns 20 bytes:
                                   uint32 time_us

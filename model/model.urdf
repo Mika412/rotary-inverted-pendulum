@@ -3,10 +3,10 @@
     Rotary inverted pendulum (Furuta), authored in Onshape.
 
     This file is the canonical description of the *pendulum* link's mass, COM
-    and inertia: `RotaryInvertedPendulum-python/src/rl/pendulum_geometry.py`
-    parses it at import time, and the MuJoCo training env and the sysid
-    friction derivation both build on those constants. Change pendulum
-    geometry in Onshape and re-export here; nowhere else.
+    and inertia: `policy/pendulum_geometry.py` parses it at import time, and
+    the MuJoCo training env and the sysid friction derivation both build on
+    those constants. Change pendulum geometry in Onshape and re-export here;
+    nowhere else.
 
     The `arm` link's <inertial> is CAD-derived too, but nothing reads it:
     `pendulum_env.py` keeps its own hard-coded ARM_* constants, which disagree
@@ -17,7 +17,9 @@
     Visual geometry is the printable STL of each part, authored in millimetres
     (hence scale="0.001 0.001 0.001"). One file per part, shared with the
     documentation site's glTF export, so the URDF cannot drift onto a
-    different CAD revision from the geometry that gets printed.
+    different CAD revision from the geometry that gets printed. The
+    `package://meshes/…` URIs resolve against this file's own directory —
+    `model/` holds the URDF and `model/meshes/` the STLs it names.
 
     Frame conventions:
     - Every mesh is authored with its bearing axis through the mesh origin, so

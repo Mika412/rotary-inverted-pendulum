@@ -4,9 +4,21 @@ description: The simulation environment, training scripts, system identification
 ---
 
 Everything in
-[`RotaryInvertedPendulum-python/`](https://github.com/ferrolho/rotary-inverted-pendulum/tree/main/RotaryInvertedPendulum-python).
-The project is `uv`-managed, so prefix commands with `uv run`, or activate the
-project environment once and drop the prefix.
+[`policy/`](https://github.com/ferrolho/rotary-inverted-pendulum/tree/main/policy),
+which is a flat set of scripts you run from that directory.
+
+The project is `uv`-managed: `policy/pyproject.toml` and `policy/uv.lock` pin
+the environment, and `uv` creates it on first use, so there is no setup step
+beyond [installing uv](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+cd policy
+uv run python train_sac.py --help
+```
+
+Prefix commands with `uv run`, or activate the environment once (`source
+.venv/bin/activate` after a `uv sync`) and drop the prefix. Every command on
+this page assumes you are in `policy/`.
 
 :::caution[macOS and the MuJoCo viewer]
 Anything that opens the MuJoCo viewer (the `--eval` rollouts) must run under
@@ -30,7 +42,7 @@ breaking it is a bug:
 
 | Quantity | Source |
 | --- | --- |
-| Pendulum mass, COM, inertia | Onshape CAD → `urdf/model.urdf` → `pendulum_geometry.py` |
+| Pendulum mass, COM, inertia | Onshape CAD → `model/model.urdf` → `pendulum_geometry.py` |
 | Viscous + Coulomb friction | Measured per rig → `sysid_params_<rig>.json`, selected with `--params-path` (see below) |
 | Arm geometry | Constants in `pendulum_env.py` (not yet CAD-validated) |
 | Motor and encoder limits | Constants mirroring the firmware |
@@ -139,6 +151,7 @@ Deploy `best_model.zip` (best deterministic evaluation), never `last.zip`.
 
 ## Also here
 
-`gamepad_control.py` drives the rig manually from a gamepad over the older text
-protocol. It predates the RL work and is useful mostly for checking that the
-mechanics respond sensibly.
+`measure_serial_rtt.py` times the host↔Nano echo against the `TestSerial`
+sketch, which bounds how fast any tethered loop can run. Used during [first
+power-on](/rotary-inverted-pendulum/build/first-power-on/); it needs no policy
+and no rig motion.

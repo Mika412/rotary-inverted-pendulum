@@ -13,7 +13,7 @@
     "test:policy": "node tests/policy_balances.test.mts",
     "test:geometry": "node tests/scene_geometry.test.mts",
     "test:smoke": "node tests/demo_smoke.test.mjs",
-    "export-assets": "uv run --project ../RotaryInvertedPendulum-python python scripts/export_assets.py",
+    "export-assets": "uv run --project ../policy python scripts/export_assets.py",
     "test:pipeline": "node tests/pipeline_steps.test.mts",
     "test:assets": "node tests/doc_assets.test.mts"
   },

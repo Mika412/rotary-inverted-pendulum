@@ -48,14 +48,14 @@ rates, firmware logic, or adding new recording steps.
   magnet.
 - A small rigid block (cardboard, foam, wood) to slide under the pendulum
   for the free-swing release.
-- Pendulum geometry (mass, COM, inertia) comes from `urdf/model.urdf` —
+- Pendulum geometry (mass, COM, inertia) comes from `model/model.urdf` —
   no operator-measured inputs are needed. If you've rebuilt or modified
   the pendulum, update Onshape → export → URDF first.
 
 ## Recommended path: full pipeline
 
 ```bash
-cd RotaryInvertedPendulum-python/src/rl
+cd policy
 python sysid_wizard.py --out-json sysid_params_<rig>.json
 ```
 
@@ -83,7 +83,7 @@ Walks you through, in order:
 
 Pendulum mass, COM distance, and inertia about the COM are *not* part
 of this pipeline anymore — they're geometric properties of the part and
-live in `urdf/model.urdf`, parsed by `pendulum_geometry.py`. The free-
+live in `model/model.urdf`, parsed by `pendulum_geometry.py`. The free-
 swing fit cross-checks the URDF inertia against the measured period
 (a >10% mismatch flags a likely-stale URDF).
 
@@ -140,7 +140,7 @@ recordings are at finite amplitude (40–90°) but the inertia formula
 `I = m·g·d·T²/(4π²)` is the small-amplitude one.
 
 `derive_pendulum_friction(fit)` reads the pendulum geometry (mass, COM,
-I_com) from `pendulum_geometry` (which parses `urdf/model.urdf`) and
+I_com) from `pendulum_geometry` (which parses `model/model.urdf`) and
 combines it with the fit to produce viscous and Coulomb friction. It
 also reports both `inertia_predicted_kg_m2` (CAD: m·d² + I_com) and
 `inertia_measured_kg_m2` (from T₀: m·g·d/ω²), and `validate_free_swing`

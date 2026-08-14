@@ -1,9 +1,11 @@
 ---
 title: Serial protocols
-description: The binary LowLevelServer protocol and the text protocol used by the on-device PID sketch.
+description: The binary LowLevelServer protocol used for fine-tuning, and RLControl's telemetry stream.
 ---
 
-Two sketches speak to a host, and they use different protocols.
+Two sketches speak to a host, and they use different protocols: `LowLevelServer`
+takes commands over a binary protocol, while `RLControl` runs autonomously and
+only reports.
 
 ## `LowLevelServer` — binary, 2,000,000 baud
 
@@ -75,23 +77,6 @@ consuming the next one. The following command re-syncs the parser.
 Always call ready-check after opening the port and wait for the echo. Opening a
 serial port resets the Nano, so anything sent before the sketch is running is
 lost.
-
-## `PIDControl` — text, 500,000 baud
-
-The self-contained PID sketch takes single-character commands:
-
-| Command | Effect |
-| --- | --- |
-| `P` | toggle CSV data output at 100 Hz |
-| `M` | print magnet status |
-| `R` | reset PID state |
-
-LED blink rate reports state: fast (100 ms) means waiting, slow (500 ms) means
-data output is enabled.
-
-There is also an older text protocol (`"1"` ready, `"2"` motor position, `"3"`
-pendulum position, `"4 <pos>"` set target, `"5"` start, `"6"` stop) used by the
-legacy gamepad script.
 
 ## `RLControl` — telemetry only
 

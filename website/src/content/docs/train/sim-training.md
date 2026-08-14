@@ -8,7 +8,7 @@ of increasing realism. End-to-end ~25 min on the MacBook (CPU, single
 env). The trained teacher is `runs/<name>_stage3/best_model.zip`.
 
 ```bash
-cd RotaryInvertedPendulum-python/src/rl
+cd policy
 bash curriculum_train.sh
 ```
 

@@ -220,21 +220,21 @@ cython_debug/
 #.idea/
 
 # RL training artifacts
-RotaryInvertedPendulum-python/src/rl/runs/
+policy/runs/
 
 # Raw recordings — sysid free-swings and preserved deploy logs (large
 # binaries; the JSON fit / analysis conclusions are the artifacts, not the
 # raw streams)
-RotaryInvertedPendulum-python/src/rl/recordings/
+policy/recordings/
 
 # Sysid wizard timestamped run dirs (raw .npz + per-run JSON; the canonical
 # sysid_params.json at the rl/ root is what's versioned)
-RotaryInvertedPendulum-python/src/rl/sysid_runs/
+policy/sysid_runs/
 
 # Lag-probe outputs (timestamped per-run dirs; the conclusions get
 # folded into docs/transport_delay.md, the raw .npz + PNG do not)
-RotaryInvertedPendulum-python/src/rl/accel_step_runs/
-RotaryInvertedPendulum-python/src/rl/accel_lag_moving_runs/
+policy/accel_step_runs/
+policy/accel_lag_moving_runs/
 
 # MuJoCo diagnostic log
 MUJOCO_LOG.TXT

@@ -80,7 +80,7 @@
 // stopped identifying a champion. Select at compile time, no file edits:
 //   arduino-cli compile --upload -p <port> --fqbn arduino:avr:nano:cpu=atmega328 \
 //     --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_rig2_tmc2209_32.h"' \
-//     RotaryInvertedPendulum-arduino/RLControl
+//     firmware/RLControl
 #ifndef POLICY_WEIGHTS_H
 #define POLICY_WEIGHTS_H "policy_weights_rig1_tmc2209_32.h"
 #endif
@@ -112,7 +112,7 @@ const float RAD_PER_STEP = (2.0f * (float)PI) / (float)STEPS_PER_REVOLUTION;
 // =============================================================================
 // COMMUNICATION
 // =============================================================================
-const long SERIAL_BAUD_RATE = 500000;  // matches PIDControl / SysIdRecord
+const long SERIAL_BAUD_RATE = 500000;  // matches the test sketches
 const long I2C_CLOCK_HZ = 400000;
 
 // =============================================================================

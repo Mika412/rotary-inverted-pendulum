@@ -9,7 +9,7 @@ always run together, so one wrapper does the pair and then scores the student
 in sim:
 
 ```bash
-cd RotaryInvertedPendulum-python/src/rl
+cd policy
 ./distill_student.sh <run>_async
 ```
 

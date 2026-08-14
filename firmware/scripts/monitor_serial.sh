@@ -3,7 +3,7 @@
 # Usage: ./monitor_serial.sh <port> <baud_rate> [duration_seconds]
 #
 # Backed by pyserial rather than stty: macOS's stty rejects the non-standard
-# rates this project actually uses (500000 for RLControl/PIDControl, 2000000
+# rates this project actually uses (500000 for RLControl and the test sketches, 2000000
 # for LowLevelServer) with "tcsetattr: Invalid argument", and then cat happily
 # prints garbage at whatever rate the port was left in.
 

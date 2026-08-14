@@ -13,7 +13,7 @@ binary protocol:
 ```bash
 arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
     --fqbn arduino:avr:nano:cpu=atmega328 \
-    RotaryInvertedPendulum-arduino/LowLevelServer
+    firmware/LowLevelServer
 ```
 
 Then run the async orchestrator. Rate, action mode, action scale, the
@@ -25,7 +25,7 @@ point it at the previous run's `replay_buffer.pkl` to keep accumulated
 real-rig transitions:
 
 ```bash
-cd RotaryInvertedPendulum-python/src/rl
+cd policy
 
 # First fine-tune session
 python finetune_async.py \

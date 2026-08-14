@@ -4,7 +4,7 @@
 Run this when the meshes, the URDF, the sysid parameters, or the champion
 capture change:
 
-    cd website && uv run --project ../RotaryInvertedPendulum-python \
+    cd website && uv run --project ../policy \
         python scripts/export_assets.py
 
 Outputs (all committed to git — see website/.gitignore for why):
@@ -28,7 +28,7 @@ from pathlib import Path
 
 SITE = Path(__file__).resolve().parent.parent
 REPO = SITE.parent
-RL = REPO / "RotaryInvertedPendulum-python" / "src" / "rl"
+RL = REPO / "policy"
 
 sys.path.insert(0, str(RL))
 
@@ -62,7 +62,7 @@ def export_meshes(out_dir: Path) -> dict[str, dict]:
     tmp_dir.mkdir(exist_ok=True)
 
     for name in MESHES:
-        src = REPO / "meshes" / f"{name}.stl"
+        src = REPO / "model" / "meshes" / f"{name}.stl"
         mesh = trimesh.load(src)
         mesh.merge_vertices()
         raw_tris = len(mesh.faces)
@@ -137,7 +137,7 @@ def export_mjcf(out_dir: Path) -> str:
 #             motor axis, and z=0 is the arm's underside.
 #             Pendulum bearing pocket at (y=0, z=14.0) mm, r=9.5–11.05 (the
 #             608's 22 mm OD), spanning x≈49–60 mm — the z=14 agrees exactly
-#             with the z of urdf/model.urdf's arm_to_pendulum origin.
+#             with the z of model/model.urdf's arm_to_pendulum origin.
 #   pendulum: the pivot is an 8.1 mm-diameter boss (the 608's 8 mm bore) whose
 #             axis runs along the mesh's *y*, centred at mesh (x=0, z=0) and
 #             protruding from the plate face at y=+3 to y≈+12.5. The mesh
@@ -164,7 +164,7 @@ def build_scene(mesh_info: dict[str, dict]) -> dict:
     The pivot radius comes from the simulation (ARM_LENGTH_M = 0.065); the pivot
     *height* and the pendulum's bore offset are measured:
 
-      - urdf/model.urdf agrees on the pivot height (z=0.014, confirmed by
+      - model/model.urdf agrees on the pivot height (z=0.014, confirmed by
         measurement) but puts the reach at x=0.062 rather than 0.065. Which is
         right is an open CAD question; the renderer follows the simulation so
         that what you see matches the plant the policy was trained against.

@@ -5,15 +5,14 @@ on:
     branches: [main]
     paths:
       - 'website/**'
-      - 'meshes/**'
-      - 'urdf/**'
-      - 'RotaryInvertedPendulum-arduino/RLControl/**'
-      - 'RotaryInvertedPendulum-python/src/rl/pendulum_env.py'
+      - 'model/**'
+      - 'firmware/RLControl/**'
+      - 'policy/pendulum_env.py'
       - '.github/workflows/docs.yml'
   pull_request:
     paths:
       - 'website/**'
-      - 'RotaryInvertedPendulum-arduino/RLControl/**'
+      - 'firmware/RLControl/**'
       - '.github/workflows/docs.yml'
   # Allow a manual redeploy without an intervening commit.
   workflow_dispatch:

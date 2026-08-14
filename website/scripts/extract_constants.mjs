@@ -20,11 +20,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SITE = path.resolve(HERE, '..');
 const REPO = path.resolve(SITE, '..');
 
-const RLCONTROL = 'RotaryInvertedPendulum-arduino/RLControl/RLControl.ino';
+const RLCONTROL = 'firmware/RLControl/RLControl.ino';
 // Directory the weights headers live in. Which one is current is decided by the
 // sketch, not here — see readWeightsSource().
-const SKETCH_DIR = 'RotaryInvertedPendulum-arduino/RLControl';
-const ENV = 'RotaryInvertedPendulum-python/src/rl/pendulum_env.py';
+const SKETCH_DIR = 'firmware/RLControl';
+const ENV = 'policy/pendulum_env.py';
 
 /** Pull a `const <type> NAME = <number>;` declaration out of C++ source. */
 function cppConst(src, name, file) {

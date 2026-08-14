@@ -2,7 +2,7 @@
 #include <Wire.h>
 
 // =============================================================================
-// CONFIGURATION (matched to PIDControl.ino)
+// CONFIGURATION (matched to RLControl.ino)
 // =============================================================================
 const long SERIAL_BAUD_RATE = 500000;  // High speed serial
 const long I2C_CLOCK_HZ = 400000;      // Fast mode I2C (vs 100kHz default)

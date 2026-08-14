@@ -9,7 +9,7 @@ Accepts the three forms a policy exists in on this project:
 
     runs/<run>/best_model.zip                SAC teacher
     runs/<run>/distill_h16/student.pt        distilled student
-    ../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h
+    ../firmware/RLControl/policy_weights.h
                                              what is actually flashed
 
 State distribution to score over (in decreasing order of how much the number
@@ -21,7 +21,7 @@ means, since only states the policy actually visits matter):
     --random N        uniform box over plausible states — coarse global check
 
 Usage:
-    python analyze_symmetry.py ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h
+    python analyze_symmetry.py ../firmware/RLControl/policy_weights.h
     python analyze_symmetry.py runs/<run>/best_model.zip --sim-steps 20000
     python analyze_symmetry.py runs/<run>/distill_h16/student.pt --dataset runs/<run>/distill_h16/dataset.npz
 """

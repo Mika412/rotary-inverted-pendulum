@@ -8,19 +8,20 @@ A DIY rotary inverted pendulum you can print, solder, and train at home — for 
 
 ## What's in this repo
 
-| Directory                                                           | Contents                                                                                         |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| [`meshes/`](meshes), [`urdf/`](urdf)                                | 3D-printable STLs and the URDF model (single source of truth for pendulum geometry)              |
-| [`diagrams/`](diagrams)                                             | Wiring diagrams and component photos                                                             |
-| [`RotaryInvertedPendulum-arduino/`](RotaryInvertedPendulum-arduino) | Firmware — low-level server, hand-tuned PID, on-device RL controller                             |
-| [`RotaryInvertedPendulum-python/`](RotaryInvertedPendulum-python)   | Sim env, SAC training, system identification, real-hardware bridge, distillation and weight export |
-| [`RotaryInvertedPendulum-julia/`](RotaryInvertedPendulum-julia)     | MPC/LQR exploration and MeshCat visualisation                                                    |
-| [`website/`](website)                                               | All documentation (`src/content/docs/`) plus the site itself — Astro Starlight and the in-browser MuJoCo demo |
+The layout follows the pipeline: measure the rig, train a policy, shrink it, flash it.
+
+| Directory                 | Contents                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [`policy/`](policy)       | The RL pipeline — MuJoCo sim env, SAC training, system identification, real-rig bridge, distillation and weight export |
+| [`firmware/`](firmware)   | Arduino sketches — the standalone RL controller, the low-level server used for fine-tuning, and the bring-up tests |
+| [`model/`](model)         | The URDF and the 3D-printable STLs it references (single source of truth for pendulum geometry)                |
+| [`hardware/`](hardware)   | Wiring diagrams and component photos                                                                          |
+| [`website/`](website)     | All documentation (`src/content/docs/`) plus the site itself — Astro Starlight and the in-browser MuJoCo demo  |
 
 ## Where to start
 
 - **Build one** — [bill of materials](https://ferrolho.github.io/rotary-inverted-pendulum/build/bom/) → [print](https://ferrolho.github.io/rotary-inverted-pendulum/build/printing/) → [wire](https://ferrolho.github.io/rotary-inverted-pendulum/build/electronics/) → [first power-on](https://ferrolho.github.io/rotary-inverted-pendulum/build/first-power-on/)
-- **Train a policy** — the [end-to-end pipeline](https://ferrolho.github.io/rotary-inverted-pendulum/train/pipeline/), step 0 through step 6
+- **Train a policy** — the [end-to-end pipeline](https://ferrolho.github.io/rotary-inverted-pendulum/train/pipeline/), step 0 through step 4
 - **Understand the RL stack** — [the transition contract](https://ferrolho.github.io/rotary-inverted-pendulum/reference/transitions/), [domain randomization](https://ferrolho.github.io/rotary-inverted-pendulum/reference/domain-randomization/), [transport delay](https://ferrolho.github.io/rotary-inverted-pendulum/reference/transport-delay/)
 
 ## Prefer to buy rather than build?

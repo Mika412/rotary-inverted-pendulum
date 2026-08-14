@@ -177,7 +177,7 @@ def derive_pendulum_friction(fit: dict, *, gravity: float = GRAVITY) -> dict:
 
     Mass and COM no longer come from operator-typed measurements; they're
     geometric properties of the pendulum body, set by Onshape CAD and
-    materialised in `urdf/model.urdf`. The sysid pipeline only measures
+    materialised in `model/model.urdf`. The sysid pipeline only measures
     things that genuinely vary per-rig (bearings, grease, temperature).
 
     Inertia formulas:
@@ -327,7 +327,7 @@ def validate_free_swing(fit: dict, derived: dict) -> list[Warning_]:
             f"I_measured = {inertia_measured:.3e} kg·m² differs from CAD "
             f"I_predicted = {inertia_predicted:.3e} by {rel_err*100:.1f}% "
             "(>10%). Either the pendulum geometry has changed and "
-            "urdf/model.urdf is stale, or the recording is contaminated "
+            "model/model.urdf is stale, or the recording is contaminated "
             "(motor arm not held firmly, magnet brushing the boss, etc.)."
         ))
 

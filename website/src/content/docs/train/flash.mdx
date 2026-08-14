@@ -30,7 +30,7 @@ actually contains rather than what the docs once claimed:
 # committed per-rig champions stay untouched)
 python export_weights.py \
     --student runs/<run>_async/distill_h16_dagger_dev/student.pt \
-    --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights_dev.h \
+    --header  ../firmware/RLControl/policy_weights_dev.h \
     --source-name <run>/distill_h16_dagger_dev
 
 # Flash, selecting the header at compile time
@@ -38,7 +38,7 @@ cd ../../..
 arduino-cli compile --upload -p /dev/cu.usbserial-1130 \
     --fqbn arduino:avr:nano:cpu=atmega328 \
     --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_dev.h"' \
-    RotaryInvertedPendulum-arduino/RLControl
+    firmware/RLControl
 ```
 
 With no `--build-property`, the sketch compiles its committed default —
@@ -60,7 +60,7 @@ The same gate as every other deployment. Opening the port resets the Nano, so
 hang the pendulum still before launching:
 
 ```bash
-cd RotaryInvertedPendulum-python/src/rl
+cd policy
 python analyze_onboard.py --port /dev/cu.usbserial-1130 --duration-s 60 \
     --log recordings/onboard_<run>.npz
 ```

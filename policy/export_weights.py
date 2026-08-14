@@ -1,14 +1,14 @@
 """Export a distilled student MLP as a PROGMEM C header for the Arduino Nano.
 
 Reads the .pt produced by distill.py and writes a self-contained header at
-RotaryInvertedPendulum-arduino/RLControl/policy_weights.h. The Arduino
+firmware/RLControl/policy_weights.h. The Arduino
 sketch reads weights with `pgm_read_float()` so they live in flash, not
 SRAM.
 
 Usage:
     python export_weights.py \\
         --student runs/async_35hz_v2_extend/distill_h32_aug/student.pt \\
-        --header  ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights.h
+        --header  ../firmware/RLControl/policy_weights.h
 """
 
 from __future__ import annotations

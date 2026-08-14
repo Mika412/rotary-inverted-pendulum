@@ -116,12 +116,12 @@ smooth students on the rig, most of all when the teacher was rig-fine-tuned:
 
 To flash this student for a trial (scratch header, committed champions untouched):
     python export_weights.py --student $STUDENT \\
-        --header ../../../RotaryInvertedPendulum-arduino/RLControl/policy_weights_dev.h \\
+        --header ../firmware/RLControl/policy_weights_dev.h \\
         --source-name $RUN/$(basename "$DAGGER_DIR")
-    (cd ../../.. && arduino-cli compile --upload -p /dev/cu.usbserial-10 \\
+    (cd .. && arduino-cli compile --upload -p /dev/cu.usbserial-10 \\
         --fqbn arduino:avr:nano:cpu=atmega328 \\
         --build-property 'build.extra_flags=-DPOLICY_WEIGHTS_H="policy_weights_dev.h"' \\
-        RotaryInvertedPendulum-arduino/RLControl)
+        firmware/RLControl)
     python analyze_onboard.py --port /dev/cu.usbserial-10 --duration-s 300 \\
         --log recordings/$RUN.npz
 
