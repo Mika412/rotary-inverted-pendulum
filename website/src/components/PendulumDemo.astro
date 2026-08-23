@@ -8,6 +8,7 @@
  */
 import constants from '../generated/constants.json';
 import { WINDOW as SPARK_WINDOW } from '../demo/sparkline.ts';
+import { GROUP_LABELS, GROUP_ORDER } from '../theme/partColors.ts';
 
 interface Props {
   /**
@@ -63,11 +64,49 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
       <p class="demo__badge" data-mode-label>
         live · MuJoCo in your browser · {control.frequencyHz} Hz
       </p>
-      <label class="demo__toggle">
-        <input type="checkbox" data-control-toggle checked />
-        <span class="demo__toggle-track" aria-hidden="true"></span>
-        <span data-control-label>Control on</span>
-      </label>
+      <div class="demo__controls">
+        <label class="demo__toggle">
+          <input type="checkbox" data-control-toggle checked />
+          <span class="demo__toggle-track" aria-hidden="true"></span>
+          <span data-control-label>Control on</span>
+        </label>
+
+        <div class="demo__paint" data-paint>
+          <button
+            type="button"
+            class="demo__paint-open"
+            data-paint-open
+            aria-expanded="false"
+            title="Filament colours"
+          >
+            {GROUP_ORDER.map((group) => (
+              <span class="demo__chip" data-paint-chip={group} aria-hidden="true"></span>
+            ))}
+            <span class="sr-only">Filament colours</span>
+          </button>
+
+          <div class="demo__paint-panel" data-paint-panel hidden>
+            {
+              GROUP_ORDER.map((group) => (
+                <div class="demo__paint-row">
+                  <label class="demo__paint-label" for={`paint-${group}`}>
+                    {GROUP_LABELS[group]}
+                  </label>
+                  <input
+                    type="color"
+                    id={`paint-${group}`}
+                    data-part-colour={group}
+                    title={`${GROUP_LABELS[group]} colour`}
+                  />
+                </div>
+              ))
+            }
+            <button type="button" class="demo__paint-reset" data-part-colour-reset>
+              Reset to default
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <div class="demo__overlay demo__overlay--bottom">
@@ -214,6 +253,130 @@ const stackMs = Math.round((1000 * control.obsFrames) / control.frequencyHz);
 
   .demo__badge:empty {
     display: none;
+  }
+
+  .demo__controls {
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .demo__paint {
+    position: relative;
+    pointer-events: auto;
+  }
+
+  .demo__paint-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.18rem;
+    padding: 0.28rem 0.4rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: color-mix(in srgb, var(--sl-color-black) 65%, transparent);
+    cursor: pointer;
+    line-height: 0;
+  }
+
+  .demo__paint-open:hover,
+  .demo__paint[data-open] .demo__paint-open {
+    background: color-mix(in srgb, var(--sl-color-black) 82%, transparent);
+  }
+
+  .demo__paint-open:focus-visible {
+    outline: 2px solid var(--sl-color-accent-high);
+    outline-offset: 2px;
+  }
+
+  .demo__chip {
+    width: 0.62rem;
+    height: 0.62rem;
+    border-radius: 50%;
+    background: var(--chip, #888);
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.3) inset;
+  }
+
+  .demo__paint-panel {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 3;
+    display: grid;
+    gap: 0.4rem;
+    padding: 0.6rem;
+    width: max-content;
+    border-radius: 0.5rem;
+    background: rgb(8 11 18 / 0.92);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 12px 30px -16px rgb(0 0 0 / 0.9);
+  }
+
+  .demo__paint-panel[hidden] {
+    display: none;
+  }
+
+  .demo__paint-row {
+    display: grid;
+    grid-template-columns: 4.2rem 1.4rem;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .demo__paint-label {
+    color: var(--sl-color-gray-2);
+    font-size: var(--sl-text-xs);
+  }
+
+  .demo__paint-row input[type='color'] {
+    width: 1.4rem;
+    height: 1.4rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0.25rem;
+    background: none;
+    cursor: pointer;
+    appearance: none;
+  }
+
+  .demo__paint-row input[type='color']::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+
+  .demo__paint-row input[type='color']::-webkit-color-swatch,
+  .demo__paint-row input[type='color']::-moz-color-swatch {
+    border: 1px solid rgb(255 255 255 / 0.35);
+    border-radius: 0.25rem;
+  }
+
+  .demo__paint-row input:focus-visible {
+    outline: 2px solid var(--sl-color-accent-high);
+    outline-offset: 2px;
+  }
+
+  .demo__paint-reset {
+    margin-top: 0.1rem;
+    padding: 0.25rem;
+    border: 0;
+    border-radius: 0.3rem;
+    background: rgb(255 255 255 / 0.08);
+    color: var(--sl-color-gray-3);
+    font-size: var(--sl-text-xs);
+    cursor: pointer;
+  }
+
+  .demo__paint-reset:hover {
+    color: var(--sl-color-white);
+    background: rgb(255 255 255 / 0.14);
+  }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .demo__badge {

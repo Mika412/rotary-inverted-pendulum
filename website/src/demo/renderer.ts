@@ -28,6 +28,14 @@ import {
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import {
+  DEMO_FINISH,
+  PART_GROUPS,
+  colorOf,
+  defaultColors,
+  type PartColors,
+  type PartGroup,
+} from '../theme/partColors.ts';
 
 export interface RendererGrabDelegate {
   /** Called with the world-space hit point; return false to decline the grab
@@ -64,13 +72,9 @@ export interface SceneManifest {
   meshes: Record<string, { file: string }>;
 }
 
-const MATERIALS: Record<string, { color: number; roughness: number; metalness: number }> = {
-  // Printed PLA: matte, no specular highlight to speak of.
-  base: { color: 0x2f3542, roughness: 0.85, metalness: 0.05 },
-  lid: { color: 0x3d4454, roughness: 0.85, metalness: 0.05 },
-  arm: { color: 0x4a90d9, roughness: 0.6, metalness: 0.1 },
-  pendulum: { color: 0xe8503a, roughness: 0.5, metalness: 0.15 },
-};
+/** The demo's finish, and the colours the picker resets to. */
+const MATERIALS = DEMO_FINISH;
+export const DEMO_PART_COLORS = defaultColors(DEMO_FINISH);
 
 /** Radius of the drag rod, in metres — the rig's base is 87 mm across. */
 const DRAG_ROD_RADIUS = 0.0016;
@@ -102,6 +106,7 @@ export class PendulumRenderer {
   };
   private readonly offsets = new Map<Object3D, number>();
   private readonly axes = new Map<Object3D, 'x' | 'y' | 'z'>();
+  private readonly partMaterials = new Map<string, MeshStandardMaterial>();
   private manifest?: SceneManifest;
   private disposed = false;
 
@@ -252,6 +257,11 @@ export class PendulumRenderer {
         const asset = await gltf.loadAsync(`${this.baseUrl}${file}`);
         const style = MATERIALS[node.mesh] ?? { color: 0x888888, roughness: 0.7, metalness: 0.1 };
         const material = new MeshStandardMaterial(style);
+        // A saved colour has to survive a reload, so it is applied as the mesh
+        // loads rather than only when the picker is touched.
+        const override = colorOf(node.mesh);
+        if (override) material.color.set(override);
+        this.partMaterials.set(node.mesh, material);
         asset.scene.traverse((child) => {
           if ((child as Mesh).isMesh) (child as Mesh).material = material;
         });
@@ -458,6 +468,24 @@ export class PendulumRenderer {
     this.camera.aspect = w / h;
     this.fitScale = Math.min(MAX_FIT_PULLBACK, Math.max(1, DESIGN_ASPECT / this.camera.aspect));
     this.camera.updateProjectionMatrix();
+    this.render();
+  }
+
+  /**
+   * Repaint the printed parts. `defaults` is what an un-set group falls back
+   * to, so clearing a colour restores the filament this renders by default
+   * rather than leaving the last picked one behind.
+   */
+  applyPartColors(colors: PartColors, defaults: Record<string, number>): void {
+    for (const [group, meshes] of Object.entries(PART_GROUPS) as [PartGroup, string[]][]) {
+      for (const mesh of meshes) {
+        const material = this.partMaterials.get(mesh);
+        if (!material) continue;
+        const override = colors[group];
+        if (override) material.color.set(override);
+        else if (defaults[mesh] !== undefined) material.color.setHex(defaults[mesh]);
+      }
+    }
     this.render();
   }
 

@@ -10,7 +10,16 @@
  */
 
 import constants from '../generated/constants.json';
-import { PendulumRenderer } from './renderer.ts';
+import { DEMO_PART_COLORS, PendulumRenderer } from './renderer.ts';
+import {
+  PART_GROUPS,
+  getColors,
+  reset,
+  setColor,
+  subscribe,
+  type PartColors,
+  type PartGroup,
+} from '../theme/partColors.ts';
 import { Policy, type PolicyWeights } from './policy.ts';
 import { PendulumController, type Constants } from './control.ts';
 import { Sparkline } from './sparkline.ts';
@@ -246,6 +255,66 @@ export async function mountDemo(root: HTMLElement): Promise<void> {
   io.observe(canvas);
 
   status.textContent = '';
+  const swatches = Array.from(
+    document.querySelectorAll<HTMLInputElement>('[data-part-colour]')
+  );
+  const chips = Array.from(
+    document.querySelectorAll<HTMLElement>('[data-paint-chip]')
+  );
+  const paint = document.querySelector<HTMLElement>('[data-paint]');
+  const paintOpen = document.querySelector<HTMLButtonElement>('[data-paint-open]');
+  const paintPanel = document.querySelector<HTMLElement>('[data-paint-panel]');
+  const resetButton = document.querySelector<HTMLButtonElement>('[data-part-colour-reset]');
+
+  const defaultHex = (group: PartGroup): string => {
+    const mesh = PART_GROUPS[group][0];
+    return `#${(DEMO_PART_COLORS[mesh] ?? 0x888888).toString(16).padStart(6, '0')}`;
+  };
+
+  const paintControls = (colors: PartColors): void => {
+    for (const input of swatches) {
+      const group = input.dataset.partColour as PartGroup;
+      input.value = colors[group] ?? defaultHex(group);
+    }
+    for (const chip of chips) {
+      const group = chip.dataset.paintChip as PartGroup;
+      chip.style.setProperty('--chip', colors[group] ?? defaultHex(group));
+    }
+  };
+
+  for (const input of swatches) {
+    input.addEventListener('input', () => {
+      setColor(input.dataset.partColour as PartGroup, input.value);
+    });
+  }
+  resetButton?.addEventListener('click', () => reset());
+
+  const setPaintOpen = (open: boolean): void => {
+    if (!paint || !paintPanel || !paintOpen) return;
+    paintPanel.hidden = !open;
+    paintOpen.setAttribute('aria-expanded', String(open));
+    if (open) paint.dataset.open = 'true';
+    else delete paint.dataset.open;
+  };
+  paintOpen?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    setPaintOpen(paintPanel?.hidden ?? true);
+  });
+  document.addEventListener('click', (event) => {
+    if (paint && !paint.contains(event.target as Node)) setPaintOpen(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') setPaintOpen(false);
+  });
+
+  const unsubscribe = subscribe((colors) => {
+    renderer.applyPartColors(colors, DEMO_PART_COLORS);
+    paintControls(colors);
+  });
+  renderer.applyPartColors(getColors(), DEMO_PART_COLORS);
+  paintControls(getColors());
+  document.addEventListener('astro:before-swap', () => unsubscribe(), { once: true });
+
   root.dataset.ready = 'true';
   requestAnimationFrame(frame);
 }
