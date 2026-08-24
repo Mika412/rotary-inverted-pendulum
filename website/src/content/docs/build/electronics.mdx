@@ -2,6 +2,9 @@
 title: "Wire the electronics"
 description: "Driver choice, current limiting, wiring gotchas and the schematic for the stepper, encoder and Nano."
 ---
+
+import NetlistTable from '../../../components/NetlistTable.astro';
+
 Why each component on the [BOM](/rotary-inverted-pendulum/build/bom/) was chosen, and what to know
 when re-sourcing or substituting it. The BOM is the procurement
 reference; this doc is the *why* behind it.
@@ -19,6 +22,10 @@ above is the canonical layout; its editable drawio source and the
 component-level photos are in
 [`hardware/`](https://github.com/ferrolho/rotary-inverted-pendulum/blob/main/hardware).
 
+### Every net, and where its pin numbers come from
+
+<NetlistTable />
+
 ## Microcontroller — Arduino Nano (ATmega328P, 16 MHz)
 
 - 32 KB flash / 2 KB SRAM is enough for the [LowLevelServer binary
@@ -35,7 +42,7 @@ component-level photos are in
 
 ## Stepper motor — NEMA17 17HS4023 (1 A rated, 22 mm body)
 
-- **Under-loaded by design.** The arm + pendulum is <50 g and the only
+- **Under-loaded by design.** The arm + pendulum is &lt;50 g and the only
   rotational inertia the motor fights is the arm itself (~1.5 × 10⁻⁵
   kg·m²). Phase current rarely exceeds ~0.3 A. The 1 A rating is
   ~3× headroom against ever stalling.
@@ -325,7 +332,7 @@ current is unused. What actually matters more than headline amps:
   which is the mechanical DOF we most care about preserving. A
   contact pot or quadrature wheel would add a friction term we'd
   have to identify and randomize against.
-- I²C at 400 kHz reads in <1 ms — fits comfortably in the control budget.
+- I²C at 400 kHz reads in &lt;1 ms — fits comfortably in the control budget.
 - The TZT-style AliExpress modules ship with a small diametrically-
   magnetised disc; no separate magnet sourcing needed.
 - **Magnet alignment matters.** Disc face 0.5–3 mm from chip face,

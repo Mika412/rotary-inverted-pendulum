@@ -1,11 +1,15 @@
 export type PartGroup = 'body' | 'arm' | 'pendulum';
 
 /**
- * How a printed part is finished.
+ * How a printed part is finished, per scene.
  *
- * Kept here rather than in `renderer.ts` because the picker and the renderer
- * both need it: the picker's "reset to default" has to offer exactly the colour
- * the renderer starts from, and when the two tables were separate they drifted.
+ * The two scenes are lit very differently — the front-page demo has three
+ * explicit lights and no environment, the build guide has a room environment
+ * with the direct lights held low — so the same filament needs different base
+ * colours to read the same way. They are deliberately not one palette, and
+ * keeping them side by side here is what makes that legible; with the guide's
+ * table living in `assembly/parts.ts`, the picker's "default" swatch offered a
+ * colour the guide never rendered.
  */
 export interface PartFinish {
   color: number;
@@ -13,11 +17,21 @@ export interface PartFinish {
   metalness: number;
 }
 
+/** Front-page demo: three hard lights, no environment. */
 export const DEMO_FINISH: Record<string, PartFinish> = {
   base: { color: 0x2f3542, roughness: 0.85, metalness: 0.05 },
   lid: { color: 0x3d4454, roughness: 0.85, metalness: 0.05 },
   arm: { color: 0x4a90d9, roughness: 0.6, metalness: 0.1 },
   pendulum: { color: 0xe8503a, roughness: 0.5, metalness: 0.15 },
+};
+
+/** Build guide: room environment, low direct light, and a fifth part on show. */
+export const TUTORIAL_FINISH: Record<string, PartFinish> = {
+  base: { color: 0x59637a, roughness: 0.85, metalness: 0.0 },
+  lid: { color: 0x66708a, roughness: 0.85, metalness: 0.0 },
+  arm: { color: 0x3f8fe0, roughness: 0.5, metalness: 0.0 },
+  pendulum: { color: 0xf05437, roughness: 0.45, metalness: 0.0 },
+  'motor plate': { color: 0x8189a0, roughness: 0.8, metalness: 0.0 },
 };
 
 /** The colours alone, which is what the picker resets to. */

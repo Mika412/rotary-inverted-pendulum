@@ -56,6 +56,9 @@ async function checkCommittedAssets() {
     'public/models/base.glb',
     'public/models/arm.glb',
     'public/models/pendulum.glb',
+    // The build guide's own meshes. Where each one goes is config, not an
+    // asset — see src/assembly/config/.
+    'public/models/motor plate.glb',
   ];
   const missing = [];
   for (const rel of required) {
@@ -67,7 +70,7 @@ async function checkCommittedAssets() {
   }
   if (missing.length) {
     throw new Error(
-      `prepare: missing committed demo assets:\n  ${missing.join('\n  ')}\n` +
+      `prepare: missing committed assets:\n  ${missing.join('\n  ')}\n` +
         `Regenerate them with:\n  uv run --project ../policy ` +
         `python scripts/export_assets.py`
     );

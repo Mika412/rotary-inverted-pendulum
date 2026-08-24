@@ -26,8 +26,8 @@ import {
   WebGLRenderer,
   type Object3D,
 } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { OrbitCamera } from '../three/orbit.ts';
+import { createMeshLoader } from '../three/loader.ts';
 import {
   DEMO_FINISH,
   PART_GROUPS,
@@ -36,6 +36,14 @@ import {
   type PartColors,
   type PartGroup,
 } from '../theme/partColors.ts';
+import type { SceneManifest } from '../assembly/manifests.ts';
+
+// One declaration, shared with the build guide, which loads the same file.
+export type { SceneManifest };
+
+/** The demo's own finish, and the colours the picker resets to. */
+const MATERIALS = DEMO_FINISH;
+export const DEMO_PART_COLORS = defaultColors(DEMO_FINISH);
 
 export interface RendererGrabDelegate {
   /** Called with the world-space hit point; return false to decline the grab
@@ -45,36 +53,7 @@ export interface RendererGrabDelegate {
   release(): void;
 }
 
-export interface SceneManifest {
-  armLengthM: number;
-  baseTopZ: number;
-  nodes: Record<
-    string,
-    {
-      mesh: string;
-      parent: string | null;
-      position: [number, number, number];
-      /** Shifts the mesh inside its joint group so its bore sits on the pivot. */
-      meshOffset?: [number, number, number];
-      /** Turns the mesh inside its group: either to land a part's own pivot axis
-       *  on that group's hinge, or to orient a static part. Intrinsic XYZ,
-       *  radians. */
-      meshRotationRad?: [number, number, number];
-      /** How far this body's visual frame sits from its physics twin. Set on
-       *  grabbable bodies so pointer hits can be handed to MuJoCo in its own
-       *  coordinates. See build_scene in scripts/export_assets.py. */
-      physicsOffsetM?: [number, number, number];
-      rotationAxis?: 'x' | 'y' | 'z';
-      joint?: 'motor' | 'pendulum';
-      angleOffsetRad?: number;
-    }
-  >;
-  meshes: Record<string, { file: string }>;
-}
 
-/** The demo's finish, and the colours the picker resets to. */
-const MATERIALS = DEMO_FINISH;
-export const DEMO_PART_COLORS = defaultColors(DEMO_FINISH);
 
 /** Radius of the drag rod, in metres — the rig's base is 87 mm across. */
 const DRAG_ROD_RADIUS = 0.0016;
@@ -82,18 +61,6 @@ const DRAG_ROD_RADIUS = 0.0016;
 const DRAG_COLOR = 0xdd2222;
 /** The axis the drag rod's geometry is laid out along. */
 const UP_Y = new Vector3(0, 1, 0);
-
-/** The canvas aspect the camera framing below was tuned against. */
-const DESIGN_ASPECT = 2;
-
-/**
- * Ceiling on the narrow-canvas pull-back. Holding the horizontal field exactly
- * constant would back off 2.2x on a portrait canvas, which leaves the rig a
- * small object in a large empty panel — the rig is taller than it is wide, so
- * preserving width buys nothing but margin. This is enough to clear the bottom
- * of the enclosure, which is the part that was being cut.
- */
-const MAX_FIT_PULLBACK = 1.3;
 
 export class PendulumRenderer {
   private readonly renderer: WebGLRenderer;
@@ -105,27 +72,18 @@ export class PendulumRenderer {
     pendulum: [],
   };
   private readonly offsets = new Map<Object3D, number>();
-  private readonly axes = new Map<Object3D, 'x' | 'y' | 'z'>();
+  /** One material per mesh name, kept so the colour picker can reach them. */
   private readonly partMaterials = new Map<string, MeshStandardMaterial>();
-  private manifest?: SceneManifest;
+  private readonly axes = new Map<Object3D, 'x' | 'y' | 'z'>();
   private disposed = false;
 
-  // Orbit state — a few lines of pointer maths beats pulling in OrbitControls
-  // for a fixed-target camera that only needs yaw, pitch and zoom.
-  // Framed to hold the whole rig: the enclosure top is at z≈0.07 and the
-  // pendulum tip reaches z≈0.15 when upright, so the target sits between them.
-  private yaw = 0.9;
-  private pitch = 0.28;
-  private distance = 0.36;
   /**
-   * Extra pull-back for canvases narrower than DESIGN_ASPECT. `fov` is the
-   * *vertical* field of view, so a narrow canvas keeps the same world height and
-   * simply shows less width — which on a phone crops the enclosure. Backing off
-   * by the shortfall holds the horizontal field constant instead, so the whole
-   * rig stays in frame at any width. Wide canvases get 1, unchanged.
+   * Orbit, zoom and the narrow-canvas fit all live in OrbitCamera, which the
+   * assembly tutorial shares. Framed to hold the whole rig: the enclosure top is
+   * at z≈0.07 and the pendulum tip reaches z≈0.15 when upright, so the target
+   * sits between them.
    */
-  private fitScale = 1;
-  private readonly target = { x: 0.01, y: 0, z: 0.105 };
+  private readonly orbit: OrbitCamera;
 
   // Drag-to-disturb. The plane is rebuilt at grab time so the pointer maps to
   // world space sensibly from whatever angle the camera happens to be at.
@@ -211,7 +169,38 @@ export class PendulumRenderer {
     this.scene.add(rim);
 
     this.baseUrl = baseUrl;
-    this.attachPointerControls();
+    this.orbit = new OrbitCamera(canvas, {
+      target: { x: 0.01, y: 0, z: 0.105 },
+      onChange: () => this.render(),
+      // A drag that starts ON a body disturbs it; anywhere else orbits. One
+      // gesture, disambiguated by what is under the pointer — so the demo needs
+      // no modifier key and works the same under touch.
+      claimPointer: (e) => {
+        const hit = this.grabDelegate
+          ? this.pickPendulum(e.clientX, e.clientY)
+          : null;
+        if (hit && this.grabDelegate!.tryGrab(hit)) {
+          this.canvas.style.cursor = 'grabbing';
+          return true;
+        }
+        return false;
+      },
+      onClaimedMove: (e) => {
+        const p = this.pointerOnDragPlane(e.clientX, e.clientY);
+        if (p) this.grabDelegate!.drag(p);
+      },
+      onClaimedEnd: () => {
+        this.grabDelegate?.release();
+        this.canvas.style.cursor = 'default';
+      },
+      onHover: (e) => {
+        // Cursor affordance: dragging the pendulum is not otherwise discoverable.
+        if (!this.grabDelegate) return;
+        this.canvas.style.cursor = this.pickPendulum(e.clientX, e.clientY)
+          ? 'grab'
+          : 'default';
+      },
+    });
     this.resize();
   }
 
@@ -222,16 +211,8 @@ export class PendulumRenderer {
     const res = await fetch(manifestUrl);
     if (!res.ok) throw new Error(`renderer: ${manifestUrl} → HTTP ${res.status}`);
     const manifest = (await res.json()) as SceneManifest;
-    this.manifest = manifest;
 
-    const draco = new DRACOLoader();
-    // Self-hosted decoder: a strict-CSP static host cannot reach a CDN.
-    draco.setDecoderPath(`${this.baseUrl}draco/`);
-    // Four meshes, so one worker is enough; DRACOLoader has no main-thread
-    // mode (a limit of 0 makes it dereference a worker it never created).
-    draco.setWorkerLimit(1);
-    const gltf = new GLTFLoader();
-    gltf.setDRACOLoader(draco);
+    const loader = createMeshLoader(this.baseUrl);
 
     const groups = new Map<string, Group>();
     for (const name of Object.keys(manifest.nodes)) groups.set(name, new Group());
@@ -243,7 +224,7 @@ export class PendulumRenderer {
       (parent ?? this.root).add(group);
       group.position.set(...node.position);
 
-      if (node.joint) {
+      if (node.joint === 'motor' || node.joint === 'pendulum') {
         this.joints[node.joint].push(group);
         this.axes.set(group, node.rotationAxis ?? 'z');
         this.offsets.set(group, node.angleOffsetRad ?? 0);
@@ -252,25 +233,24 @@ export class PendulumRenderer {
 
     await Promise.all(
       Object.entries(manifest.nodes).map(async ([name, node]) => {
-        const file = manifest.meshes[node.mesh]?.file;
-        if (!file) throw new Error(`renderer: no mesh entry for node "${name}"`);
-        const asset = await gltf.loadAsync(`${this.baseUrl}${file}`);
-        const style = MATERIALS[node.mesh] ?? { color: 0x888888, roughness: 0.7, metalness: 0.1 };
+        const mesh = node.mesh;
+        const file = mesh ? manifest.meshes[mesh]?.file : undefined;
+        if (!mesh || !file) throw new Error(`renderer: no mesh entry for node "${name}"`);
+        const scene = await loader.load(`${this.baseUrl}${file}`);
+        const style = MATERIALS[mesh] ?? { color: 0x888888, roughness: 0.7, metalness: 0.1 };
         const material = new MeshStandardMaterial(style);
-        // A saved colour has to survive a reload, so it is applied as the mesh
-        // loads rather than only when the picker is touched.
-        const override = colorOf(node.mesh);
+        const override = colorOf(mesh);
         if (override) material.color.set(override);
-        this.partMaterials.set(node.mesh, material);
-        asset.scene.traverse((child) => {
+        this.partMaterials.set(mesh, material);
+        scene.traverse((child) => {
           if ((child as Mesh).isMesh) (child as Mesh).material = material;
         });
         // Applied to the mesh, not the group: the group's origin IS the pivot
         // and its axes ARE the joint's, so the mesh is slid and turned within
         // it until the part's own bore and axis coincide with them.
-        if (node.meshOffset) asset.scene.position.set(...node.meshOffset);
-        if (node.meshRotationRad) asset.scene.rotation.set(...node.meshRotationRad);
-        groups.get(name)!.add(asset.scene);
+        if (node.meshOffset) scene.position.set(...node.meshOffset);
+        if (node.meshRotationRad) scene.rotation.set(...node.meshRotationRad);
+        groups.get(name)!.add(scene);
         if (name === 'pendulum') {
           this.grabGroup = groups.get(name)!;
           if (node.physicsOffsetM) this.grabOffset.set(...node.physicsOffsetM);
@@ -278,7 +258,7 @@ export class PendulumRenderer {
       })
     );
 
-    draco.dispose();
+    loader.dispose();
     this.render();
   }
 
@@ -297,85 +277,6 @@ export class PendulumRenderer {
 
   setGrabDelegate(d: RendererGrabDelegate | null): void {
     this.grabDelegate = d;
-  }
-
-  private attachPointerControls(): void {
-    let dragging = false;
-    let grabbing = false;
-    let lastX = 0;
-    let lastY = 0;
-
-    const down = (e: PointerEvent) => {
-      this.canvas.setPointerCapture(e.pointerId);
-      // A drag that starts ON a body disturbs it; anywhere else orbits. One
-      // gesture, disambiguated by what is under the pointer — so the demo
-      // needs no modifier key and works the same under touch.
-      const hit = this.grabDelegate
-        ? this.pickPendulum(e.clientX, e.clientY)
-        : null;
-      if (hit && this.grabDelegate!.tryGrab(hit)) {
-        grabbing = true;
-        this.canvas.style.cursor = 'grabbing';
-        return;
-      }
-      dragging = true;
-      lastX = e.clientX;
-      lastY = e.clientY;
-    };
-    const move = (e: PointerEvent) => {
-      if (grabbing) {
-        const p = this.pointerOnDragPlane(e.clientX, e.clientY);
-        if (p) this.grabDelegate!.drag(p);
-        return;
-      }
-      if (!dragging) {
-        // Cursor affordance: dragging the pendulum is not otherwise discoverable.
-        if (this.grabDelegate) {
-          this.canvas.style.cursor = this.pickPendulum(e.clientX, e.clientY)
-            ? 'grab'
-            : 'default';
-        }
-        return;
-      }
-      this.yaw -= (e.clientX - lastX) * 0.008;
-      this.pitch = Math.max(
-        -0.25,
-        Math.min(1.4, this.pitch + (e.clientY - lastY) * 0.006)
-      );
-      lastX = e.clientX;
-      lastY = e.clientY;
-      this.render();
-    };
-    const up = (e: PointerEvent) => {
-      dragging = false;
-      if (grabbing) {
-        grabbing = false;
-        this.grabDelegate?.release();
-        this.canvas.style.cursor = 'default';
-      }
-      if (this.canvas.hasPointerCapture(e.pointerId)) {
-        this.canvas.releasePointerCapture(e.pointerId);
-      }
-    };
-
-    this.canvas.addEventListener('pointerdown', down);
-    this.canvas.addEventListener('pointermove', move);
-    this.canvas.addEventListener('pointerup', up);
-    this.canvas.addEventListener('pointercancel', up);
-    this.canvas.addEventListener(
-      'wheel',
-      (e) => {
-        // Only claim the wheel gesture while zooming actually does something,
-        // so the page still scrolls normally at the zoom limits.
-        const next = Math.max(0.16, Math.min(0.9, this.distance + e.deltaY * 0.0005));
-        if (next !== this.distance) {
-          e.preventDefault();
-          this.distance = next;
-          this.render();
-        }
-      },
-      { passive: false }
-    );
   }
 
   /** Screen point → NDC, shared by the pick and the drag. */
@@ -466,15 +367,15 @@ export class PendulumRenderer {
     const h = Math.max(1, rect.height);
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
-    this.fitScale = Math.min(MAX_FIT_PULLBACK, Math.max(1, DESIGN_ASPECT / this.camera.aspect));
+    this.orbit.fit(this.camera.aspect);
     this.camera.updateProjectionMatrix();
     this.render();
   }
 
   /**
-   * Repaint the printed parts. `defaults` is what an un-set group falls back
-   * to, so clearing a colour restores the filament this renders by default
-   * rather than leaving the last picked one behind.
+   * Recolour a group of parts. Only `.color` is touched, so nothing about the
+   * lighting, the sim or the frame loop is disturbed — and because the demo
+   * stops rendering when scrolled out of view, this repaints once itself.
    */
   applyPartColors(colors: PartColors, defaults: Record<string, number>): void {
     for (const [group, meshes] of Object.entries(PART_GROUPS) as [PartGroup, string[]][]) {
@@ -496,19 +397,13 @@ export class PendulumRenderer {
 
   render(): void {
     if (this.disposed) return;
-    const cp = Math.cos(this.pitch);
-    const d = this.distance * this.fitScale;
-    this.camera.position.set(
-      this.target.x + d * cp * Math.cos(this.yaw),
-      this.target.y + d * cp * Math.sin(this.yaw),
-      this.target.z + d * Math.sin(this.pitch)
-    );
-    this.camera.lookAt(this.target.x, this.target.y, this.target.z);
+    this.orbit.applyTo(this.camera);
     this.renderer.render(this.scene, this.camera);
   }
 
   dispose(): void {
     this.disposed = true;
+    this.orbit.dispose();
     this.renderer.dispose();
   }
 }

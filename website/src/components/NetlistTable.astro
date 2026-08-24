@@ -1,0 +1,88 @@
+---
+/**
+ * The wiring netlist, rendered from the generated manifest.
+ *
+ * The three control rows carry pin numbers read out of `RLControl.ino` at build
+ * time — the same guard `ConstantsTable.astro` provides for the control rate.
+ * The prose beside this table may describe *why* a pin was chosen; it must never
+ * restate *which*.
+ */
+import { NETLIST } from '../assembly/config/netlist.ts';
+
+const { nets } = NETLIST;
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+
+const label = (hop: [string, string]) => `${hop[0]} ${hop[1]}`;
+---
+
+<table class="netlist">
+  <thead>
+    <tr>
+      <th scope="col">Net</th>
+      <th scope="col">Runs between</th>
+      <th scope="col">From</th>
+    </tr>
+  </thead>
+  <tbody>
+    {
+      nets.map((net) => (
+        <tr>
+          <th scope="row">
+            <span class="netlist__swatch" style={`--wire: ${net.colour}`} aria-hidden="true" />
+            {net.label}
+          </th>
+          <td>{net.path.map(label).join(' → ')}</td>
+          <td>
+            {net.kind === 'firmware' ? (
+              <span class="netlist__src netlist__src--fw">firmware</span>
+            ) : (
+              <span class="netlist__src">diagram</span>
+            )}
+          </td>
+        </tr>
+      ))
+    }
+  </tbody>
+</table>
+
+<p class="netlist__note">
+  Rows marked <span class="netlist__src netlist__src--fw">firmware</span> have
+  their pin numbers read from <code>RLControl.ino</code> when this page is built,
+  and cross-checked against <code>LowLevelServer.ino</code>. See the same wiring
+  in 3D on the <a href={`${base}/build/assembly/#step-wiring`}>assembly page</a>.
+</p>
+
+<style>
+  .netlist__swatch {
+    display: inline-block;
+    width: 0.85em;
+    height: 0.3em;
+    margin-right: 0.45em;
+    vertical-align: middle;
+    border-radius: 999px;
+    background: var(--wire);
+    /* Two nets share a grey, and one is nearly black — an outline keeps both
+       visible against either theme's table background. */
+    outline: 1px solid color-mix(in srgb, var(--sl-color-gray-3) 60%, transparent);
+  }
+
+  .netlist__src {
+    font-size: var(--sl-text-xs);
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    background: var(--sl-color-gray-6);
+    color: var(--sl-color-gray-2);
+    white-space: nowrap;
+  }
+
+  .netlist__src--fw {
+    background: var(--sl-color-accent-low);
+    color: var(--sl-color-accent-high);
+  }
+
+  .netlist__note {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-3);
+  }
+</style>

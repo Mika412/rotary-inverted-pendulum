@@ -1,0 +1,615 @@
+---
+import { ASSEMBLY_STEPS } from '../assembly/steps.ts';
+
+const base = import.meta.env.BASE_URL.endsWith('/')
+  ? import.meta.env.BASE_URL
+  : `${import.meta.env.BASE_URL}/`;
+const total = ASSEMBLY_STEPS.length;
+---
+
+<div class="rig-shell not-content" data-assembly data-base-url={base} tabindex="-1">
+  <div class="rig">
+    <canvas data-canvas aria-label="3D view of the pendulum being assembled"></canvas>
+    <div class="rig__overlay" data-overlay aria-hidden="true"></div>
+
+    <div class="rig__scrim" aria-hidden="true"></div>
+
+    <div class="rig__hud">
+      <div class="rig__toggles">
+        <label class="rig__toggle">
+          <input type="checkbox" data-ghost-toggle checked />
+          <span class="rig__switch" aria-hidden="true"></span>
+          <span>See through</span>
+        </label>
+        <label class="rig__toggle">
+          <input type="checkbox" data-follow-toggle checked />
+          <span class="rig__switch" aria-hidden="true"></span>
+          <span>Follow</span>
+        </label>
+      </div>
+      <p class="rig__counter" data-counter>1 / {total}</p>
+    </div>
+
+    <div class="rig__loading" data-status>
+      <span class="rig__spinner" aria-hidden="true"></span>
+      <span>Loading the rig…</span>
+    </div>
+
+    <nav class="rig__rail" aria-label="Assembly steps">
+      <ol>
+        {
+          ASSEMBLY_STEPS.map((step, i) => (
+            <li>
+              <a
+                href={`#step-${step.id}`}
+                data-toc-step={step.id}
+                aria-current={i === 0 ? 'step' : undefined}
+              >
+                <span class="rig__rail-num">{i + 1}</span>
+                <span class="rig__rail-label">{step.title}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ol>
+    </nav>
+
+    <div class="rig__card">
+      <div class="rig__progress" data-progress aria-hidden="true"></div>
+
+      <ol class="rig__steps">
+        {
+          ASSEMBLY_STEPS.map((step, i) => (
+            <li
+              class:list={['rig__step', { 'is-current': i === 0 }]}
+              data-step={step.id}
+              id={`step-${step.id}`}
+            >
+              <p class="rig__eyebrow">
+                Step {i + 1} <span>of {total}</span>
+              </p>
+              <h3>{step.title}</h3>
+              <p class="rig__body">{step.body}</p>
+              {step.cite && (
+                <p class="rig__cite">
+                  <span aria-hidden="true">✓</span>
+                  {step.cite}
+                </p>
+              )}
+            </li>
+          ))
+        }
+      </ol>
+
+      <div class="rig__controls">
+        <button type="button" data-prev disabled>
+          <span aria-hidden="true">←</span> Back
+        </button>
+        <button type="button" data-next>
+          Next <span aria-hidden="true">→</span>
+        </button>
+      </div>
+
+      <p class="rig__hint">Drag to orbit · scroll to zoom · ← → to step</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  import { mountAssembly } from '../assembly/viewer.ts';
+
+  // Started lazily: the viewer pulls three.js and five glTF files, and the page
+  // is readable without any of it. `rootMargin` gives the load a head start so
+  // the canvas is live by the time the reader reaches it.
+  const root = document.querySelector<HTMLElement>('[data-assembly]');
+  if (root) {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        observer.disconnect();
+        mountAssembly(root).catch((err) => {
+          console.error('assembly tutorial failed to start', err);
+          const status = root.querySelector('[data-status]');
+          if (status) {
+            status.textContent =
+              'The 3D view failed to load. The written steps are complete on their own.';
+          }
+        });
+      },
+      { rootMargin: '300px' }
+    );
+    observer.observe(root);
+  }
+</script>
+
+<style>
+  .rig-shell {
+    --rail-w: 15rem;
+    --card-w: 24rem;
+    margin-block: 0 2.5rem;
+    container-type: inline-size;
+  }
+
+  .rig {
+    position: relative;
+    width: 100%;
+    height: clamp(30rem, calc(100vh - 11rem), 56rem);
+    border-radius: 1.1rem;
+    overflow: hidden;
+    isolation: isolate;
+    background:
+      radial-gradient(
+        ellipse 70% 55% at 50% 32%,
+        color-mix(in srgb, var(--sl-color-accent) 22%, transparent),
+        transparent 70%
+      ),
+      linear-gradient(170deg, #182031, #0a0e17 60%, #05070c);
+    box-shadow: 0 24px 60px -30px rgb(0 0 0 / 0.8);
+  }
+
+  .rig canvas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: pan-y;
+  }
+
+  .rig__overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+
+  .rig__scrim {
+    position: absolute;
+    inset: auto 0 0 0;
+    height: 55%;
+    pointer-events: none;
+    background: linear-gradient(to top, rgb(4 6 11 / 0.72), transparent);
+  }
+
+  .rig__hud {
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.85rem 1rem;
+    pointer-events: none;
+    font-size: var(--sl-text-xs);
+  }
+
+  .rig__toggles {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .rig__toggle,
+  .rig__counter {
+    margin: 0;
+    padding: 0.3rem 0.65rem;
+    border-radius: 999px;
+    background: rgb(8 11 18 / 0.62);
+    color: var(--sl-color-gray-2);
+    backdrop-filter: blur(10px);
+  }
+
+  .rig__counter {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
+
+  .rig__toggle {
+    pointer-events: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding-left: 0.45rem;
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+
+  .rig__toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .rig__switch {
+    position: relative;
+    width: 1.7rem;
+    height: 0.95rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--sl-color-white) 18%, transparent);
+    transition: background 0.15s ease;
+    flex: none;
+  }
+
+  .rig__switch::after {
+    content: '';
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 0.65rem;
+    height: 0.65rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.15s ease;
+  }
+
+  .rig__toggle input:checked + .rig__switch {
+    background: var(--sl-color-accent);
+  }
+
+  .rig__toggle input:checked + .rig__switch::after {
+    transform: translateX(0.75rem);
+  }
+
+  .rig__toggle input:focus-visible + .rig__switch {
+    outline: 2px solid var(--sl-color-accent-high);
+    outline-offset: 2px;
+  }
+
+  .rig__loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--sl-text-sm);
+    color: var(--sl-color-gray-3);
+    pointer-events: none;
+  }
+
+  .rig__loading:empty,
+  .rig-shell[data-ready] .rig__loading {
+    display: none;
+  }
+
+  .rig__spinner {
+    width: 0.9rem;
+    height: 0.9rem;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--sl-color-white) 20%, transparent);
+    border-top-color: var(--sl-color-accent-high);
+    animation: rig-spin 0.8s linear infinite;
+  }
+
+  @keyframes rig-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .rig__rail {
+    position: absolute;
+    top: 3.4rem;
+    right: 0.85rem;
+    bottom: 1rem;
+    width: var(--rail-w);
+    padding-inline: 0.35rem;
+    border-radius: 0.7rem;
+    background: linear-gradient(to left, rgb(6 9 15 / 0.62), rgb(6 9 15 / 0.28));
+    backdrop-filter: blur(14px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--sl-color-white) 18%, transparent) transparent;
+    mask-image: linear-gradient(to bottom, transparent, #000 1.2rem, #000 calc(100% - 1.2rem), transparent);
+  }
+
+  .rig__rail ol {
+    list-style: none;
+    margin: 0;
+    padding: 0.6rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+  }
+
+  .rig__rail a {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.4rem;
+    color: color-mix(in srgb, var(--sl-color-gray-2) 66%, transparent);
+    text-decoration: none;
+    font-size: var(--sl-text-xs);
+    line-height: 1.35;
+    transition:
+      color 0.15s ease,
+      opacity 0.15s ease;
+  }
+
+  .rig__rail a:hover {
+    color: var(--sl-color-white);
+  }
+
+  .rig__rail a[aria-current='step'] {
+    color: var(--sl-color-accent-high);
+    font-weight: 700;
+  }
+
+  .rig__rail a[aria-current='step'] .rig__rail-num {
+    opacity: 1;
+  }
+
+  .rig__rail-num {
+    flex: none;
+    min-width: 1.1rem;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.7;
+  }
+
+  .rig__rail-label {
+    min-width: 0;
+  }
+
+  .rig__card {
+    position: absolute;
+    left: 1rem;
+    bottom: 1rem;
+    width: var(--card-w);
+    max-width: calc(100% - 2rem);
+    display: flex;
+    flex-direction: column;
+    padding: 1.15rem 1.25rem 1rem;
+    border-radius: 0.85rem;
+    background: rgb(10 13 20 / 0.78);
+    backdrop-filter: blur(16px) saturate(1.2);
+    box-shadow: 0 18px 40px -24px rgb(0 0 0 / 0.9);
+  }
+
+  .rig__progress {
+    height: 2px;
+    margin-bottom: 0.9rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--sl-color-white) 14%, transparent);
+  }
+
+  .rig__progress::after {
+    content: '';
+    display: block;
+    width: var(--progress, 0%);
+    height: 100%;
+    border-radius: inherit;
+    background: var(--sl-color-accent-high);
+    transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .rig__steps {
+    list-style: none;
+    margin: 0 0 0.9rem;
+    padding: 0;
+    max-height: min(22rem, 38vh);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    overscroll-behavior: contain;
+  }
+
+  .rig-shell[data-hydrated] .rig__step:not(.is-current) {
+    display: none;
+  }
+
+  .rig__step + .rig__step {
+    margin-top: 1.5rem;
+  }
+
+  .rig__eyebrow {
+    margin: 0 0 0.4rem;
+    font-size: var(--sl-text-xs);
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--sl-color-accent-high);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .rig__eyebrow span {
+    font-weight: 400;
+    color: var(--sl-color-gray-4);
+  }
+
+  .rig__step h3 {
+    margin: 0 0 0.5rem;
+    font-size: var(--sl-text-xl);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    color: #fff;
+    text-wrap: balance;
+  }
+
+  .rig__body {
+    margin: 0;
+    font-size: var(--sl-text-sm);
+    line-height: 1.62;
+    color: color-mix(in srgb, var(--sl-color-gray-1) 86%, transparent);
+  }
+
+  .rig__cite {
+    display: flex;
+    gap: 0.45rem;
+    margin: 0.8rem 0 0;
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.4rem;
+    background: color-mix(in srgb, var(--sl-color-accent) 14%, transparent);
+    font-size: var(--sl-text-xs);
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+  }
+
+  .rig__cite span {
+    color: var(--sl-color-accent-high);
+  }
+
+  .rig__controls {
+    display: flex;
+    gap: 0.5rem;
+    flex: none;
+  }
+
+  .rig__controls button {
+    flex: 1;
+    padding: 0.5rem 0.8rem;
+    border-radius: 0.55rem;
+    border: 0;
+    background: rgb(255 255 255 / 0.09);
+    color: #fff;
+    font-size: var(--sl-text-sm);
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background 0.14s ease,
+      border-color 0.14s ease,
+      transform 0.14s ease;
+  }
+
+  .rig__controls button:hover:not(:disabled) {
+    background: rgb(255 255 255 / 0.16);
+  }
+
+  .rig__controls button:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .rig__controls [data-next] {
+    background: var(--sl-color-accent);
+  }
+
+  .rig__controls [data-next]:hover:not(:disabled) {
+    background: var(--sl-color-accent-high);
+  }
+
+  .rig__controls button:disabled {
+    background: transparent;
+    color: var(--sl-color-gray-4);
+    cursor: default;
+  }
+
+  .rig__hint {
+    flex: none;
+    margin: 0.6rem 0 0;
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-4);
+    text-align: center;
+  }
+
+  @container (max-width: 60rem) {
+    .rig__rail {
+      display: none;
+    }
+  }
+
+  @container (max-width: 40rem) {
+    .rig {
+      height: clamp(26rem, 78vh, 40rem);
+    }
+
+    .rig__card {
+      left: 0.6rem;
+      right: 0.6rem;
+      bottom: 0.6rem;
+      width: auto;
+      max-width: none;
+    }
+
+    .rig__steps {
+      max-height: 10rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rig__spinner {
+      animation: none;
+    }
+  }
+</style>
+
+<style is:global>
+  /* The viewer wants the full width of the page, and Starlight's default
+     content column is sized for prose. Scoped to the page that mounts the
+     tutorial rather than set from the .mdx, so the component carries its own
+     layout requirements instead of every page that uses it repeating them. */
+  :root:has(.rig) {
+    --sl-content-width: 92rem;
+  }
+
+  :has(> .rig).content-panel,
+  .content-panel:has(.rig) {
+    padding-block: 1.25rem;
+  }
+
+  .content-panel:has(.rig) + .content-panel {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .rig__callout {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    will-change: transform;
+  }
+
+  .rig__callout.is-shown {
+    opacity: 1;
+  }
+
+  .rig__callout-dot {
+    position: absolute;
+    left: -0.22rem;
+    top: -0.22rem;
+    width: 0.44rem;
+    height: 0.44rem;
+    border-radius: 50%;
+    background: var(--sl-color-accent-high);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--sl-color-accent) 30%, transparent);
+  }
+
+  .rig__callout-dot::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    bottom: 50%;
+    width: 1px;
+    height: 1.6rem;
+    background: linear-gradient(
+      to top,
+      color-mix(in srgb, var(--sl-color-accent-high) 75%, transparent),
+      color-mix(in srgb, var(--sl-color-accent-high) 25%, transparent)
+    );
+  }
+
+  .rig__callout.is-flipped .rig__callout-text {
+    left: auto;
+    right: -0.5rem;
+  }
+
+  .rig__callout-text {
+    position: absolute;
+    bottom: 1.6rem;
+    left: -0.5rem;
+    padding: 0.25rem 0.55rem;
+    border-radius: 0.35rem;
+    background: rgb(9 12 20 / 0.92);
+    color: #fff;
+    font-size: var(--sl-text-xs);
+    line-height: 1.35;
+    white-space: nowrap;
+    backdrop-filter: blur(6px);
+  }
+</style>

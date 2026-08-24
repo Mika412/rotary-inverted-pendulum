@@ -246,3 +246,7 @@ MUJOCO_LOG.TXT
 
 # Claude Code local state (agent worktrees, session data)
 .claude/
+
+# Vendor CAD. `website/scripts/convert_vendor_cad.py` reduces this to the
+# committed model/meshes/vendor/*.glb, so nobody else needs the originals.
+extra_models/

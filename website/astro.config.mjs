@@ -99,6 +99,7 @@ export default defineConfig({
             { label: 'Firmware sketches', slug: 'reference/firmware' },
             { label: 'Python tooling', slug: 'reference/python' },
             { label: 'The URDF and meshes', slug: 'reference/model' },
+            { label: 'The assembly viewer', slug: 'reference/assembly-viewer' },
           ],
         },
       ],

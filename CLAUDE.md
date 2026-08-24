@@ -21,13 +21,30 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   This guard exists because the runbook asserted a 35 Hz control rate for weeks
   after the firmware moved to 50 Hz (reconciled in 352c809).
 
-  Only machine-readable facts are generated (`prepare.mjs`: constants, policy
-  weights, Draco decoder). Meshes, the MJCF snapshot, visual transforms and the
-  replay capture are committed; regenerate with `scripts/export_assets.py`.
+  Only machine-readable facts are generated (`prepare.mjs`: constants, the
+  wiring netlist, policy weights, Draco decoder). Meshes, the MJCF snapshot,
+  visual transforms and the replay capture are committed; regenerate with
+  `scripts/export_assets.py`.
 
   Tests: `npm test` (the flashed policy still balances in MuJoCo; the 3D
   transform chain is correct) and `npm run test:smoke` (real headless browser
   against the built site).
+
+- **Interactive assembly tutorial**: `build/assembly` is a 3D step-through of the
+  whole build, and `website/src/assembly/` is its viewer. Everything it draws is
+  config, not generated: `src/assembly/config/` holds where each part sits, the
+  bought parts and the pads a wire lands on, the printed meshes, and the
+  netlist. Move a part by editing a number.
+
+  The viewer is declarative: a step in `src/assembly/steps.ts` states the scene
+  at its end, and `animate.ts` derives the animation by diffing two states, so
+  stepping backwards disassembles without a second set of instructions. Parts
+  belong to **assemblies** (`src/assembly/rig.ts`) — add a part to an assembly,
+  never to a step. Cables are declared by hand as chains of sections through
+  named features; `wires.ts` has no constructor that takes three numbers, so
+  moving a module moves its wires. Read
+  [`website/src/content/docs/reference/assembly-viewer.md`](website/src/content/docs/reference/assembly-viewer.md)
+  before changing anything under `website/src/assembly/`.
 
 - **RL controller**: a multi-phase effort to replace the hand-tuned PID with a learned swing-up + balance policy. The entry point is `website/src/content/docs/train/pipeline.mdx` — the pipeline from bare rig to standalone balancing. Read that file before working on anything under `firmware/LowLevelServer/`, `firmware/RLControl/`, or `policy/`.
   **Canonical operating point: 50 Hz, velocity mode, ±3.5 rad/s, K=4 frames, 4-tap actuator action smoothing, mirror augmentation, observation-staleness DR 2–20 ms.** Every entry point — `train_sac.py`, `curriculum_train.sh`, `distill_student.sh`, `finetune_async.py`, `run_policy.py`, `RLControl.ino` — is set to this, so a bare end-to-end run reproduces the current champion; a bare `train_sac.py` run writes a `config.json` identical to the champion's on all 17 shared keys. Do not change one default in isolation, since train/fine-tune/deploy must agree or the policy silently misbehaves (`run_config.check_config` aborts on mismatch). Legacy behaviours are reachable explicitly: `--action-mode accel`, `--no-firmware-obs-model`, `--no-mirror-augment`, `--reward-stillness-bonus-weight 0`. `website/src/content/docs/reference/control-rate.md` concludes 35 Hz; that predates actuator action smoothing and is superseded (see the note at its top). Companion docs:

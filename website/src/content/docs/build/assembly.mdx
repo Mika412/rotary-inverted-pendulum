@@ -1,0 +1,21 @@
+---
+title: Assemble the rig
+description: An interactive 3D walkthrough of the build, from the bare enclosure to a finished pendulum.
+tableOfContents: false
+---
+
+import AssemblyTutorial from '../../../components/AssemblyTutorial.astro';
+
+<AssemblyTutorial />
+
+## Acceptance checks before wiring
+
+Before you power anything, the finished rig should pass these:
+
+- The arm rotates freely by hand through its full intended travel, with no
+  binding and no wire tension at the extremes.
+- The pendulum, released from horizontal, swings for **many** oscillations before
+  stopping. A pendulum that stops in two or three swings has too much bearing
+  friction, and no amount of training will compensate for it.
+- The pendulum hangs straight down at rest, repeatably. That resting pose becomes
+  the encoder zero every time the firmware boots.
